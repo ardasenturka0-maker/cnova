@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { sendEInvoice } from "@/lib/integrations/eInvoiceProvider";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -26,6 +28,7 @@ async function sendInvoiceAction(invoiceId: string) {
 
 export default async function InvoicesPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const invoices = await prisma.invoice.findMany({
     where: { organizationId: session.organizationId },
     include: { patient: true },
@@ -45,9 +48,9 @@ export default async function InvoicesPage() {
                 <TableRow key={invoice.id}>
                   <TableCell>{invoice.number}</TableCell>
                   <TableCell>{invoice.patient ? `${invoice.patient.firstName} ${invoice.patient.lastName}` : "Klinik"}</TableCell>
-                  <TableCell>{formatCurrency(invoice.total)}</TableCell>
-                  <TableCell><Badge variant={invoice.status === "PAID" ? "success" : "muted"}>{invoice.status}</Badge></TableCell>
-                  <TableCell>{invoice.issuedAt ? formatDate(invoice.issuedAt) : "-"}</TableCell>
+                  <TableCell>{formatCurrency(invoice.total, locale)}</TableCell>
+                  <TableCell><Badge variant={invoice.status === "PAID" ? "success" : "muted"}>{statusLabel(invoice.status, locale)}</Badge></TableCell>
+                  <TableCell>{invoice.issuedAt ? formatDate(invoice.issuedAt, locale) : "-"}</TableCell>
                   <TableCell>{invoice.providerRef ?? "-"}</TableCell>
                   <TableCell className="text-right">
                     <form action={sendInvoiceAction.bind(null, invoice.id)}>

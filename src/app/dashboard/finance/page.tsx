@@ -7,11 +7,14 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { getFinanceOverview } from "@/lib/services/financeService";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function FinancePage() {
   const session = await requireSession();
+  const locale = getLocale();
   const finance = await getFinanceOverview(session.organizationId);
 
   return (
@@ -22,10 +25,10 @@ export default async function FinancePage() {
         <Link className={cn(buttonVariants({ variant: "outline" }), "gap-2")} href="/dashboard/invoices"><FileText className="h-4 w-4" />Faturalar</Link>
       </div>
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard title="Gelir" value={formatCurrency(finance.income)} icon={WalletCards} tone="success" />
-        <StatCard title="Gider" value={formatCurrency(finance.expenses)} icon={CreditCard} tone="warning" />
-        <StatCard title="Net" value={formatCurrency(finance.net)} icon={WalletCards} />
-        <StatCard title="Bekleyen" value={formatCurrency(finance.pending)} icon={CreditCard} tone="accent" />
+        <StatCard title="Gelir" value={formatCurrency(finance.income, locale)} icon={WalletCards} tone="success" />
+        <StatCard title="Gider" value={formatCurrency(finance.expenses, locale)} icon={CreditCard} tone="warning" />
+        <StatCard title="Net" value={formatCurrency(finance.net, locale)} icon={WalletCards} />
+        <StatCard title="Bekleyen" value={formatCurrency(finance.pending, locale)} icon={CreditCard} tone="accent" />
       </div>
       <Card>
         <CardHeader><CardTitle>Son finans hareketleri</CardTitle></CardHeader>
@@ -35,12 +38,12 @@ export default async function FinancePage() {
             <TableBody>
               {finance.payments.slice(0, 30).map((payment) => (
                 <TableRow key={payment.id}>
-                  <TableCell>{formatDate(payment.paidAt)}</TableCell>
+                  <TableCell>{formatDate(payment.paidAt, locale)}</TableCell>
                   <TableCell>{payment.patient ? `${payment.patient.firstName} ${payment.patient.lastName}` : "Klinik"}</TableCell>
-                  <TableCell>{payment.type}</TableCell>
-                  <TableCell>{payment.method}</TableCell>
-                  <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                  <TableCell><Badge variant={payment.status === "PAID" ? "success" : "warning"}>{payment.status}</Badge></TableCell>
+                  <TableCell>{statusLabel(payment.type, locale)}</TableCell>
+                  <TableCell>{statusLabel(payment.method, locale)}</TableCell>
+                  <TableCell>{formatCurrency(payment.amount, locale)}</TableCell>
+                  <TableCell><Badge variant={payment.status === "PAID" ? "success" : "warning"}>{statusLabel(payment.status, locale)}</Badge></TableCell>
                 </TableRow>
               ))}
             </TableBody>

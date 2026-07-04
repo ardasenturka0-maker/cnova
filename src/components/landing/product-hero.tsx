@@ -79,7 +79,7 @@ export function ProductHero() {
                 {[
                   ["09:30", "Elif Kaya", "Dolgu", "Planlandı"],
                   ["10:15", "Mehmet Demir", "İmplant", "Geldi"],
-                  ["11:00", "Zeynep Çelik", "Kontrol", "Recall"]
+                  ["11:00", "Zeynep Çelik", "Kontrol", "Takip"]
                 ].map(([time, name, type, status]) => (
                   <div key={`${time}-${name}`} className="rounded-md border bg-background p-3">
                     <div className="flex items-center justify-between">

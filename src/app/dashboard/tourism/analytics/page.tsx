@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { leadStatusLabel, sourceLabel } from "@/lib/tourism";
@@ -33,6 +34,7 @@ function TopBars({ data }: { data: Record<string, number> }) {
 
 export default async function TourismAnalyticsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [leads, packages, followUps, reviews, surveys] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 300 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 200 }),
@@ -50,7 +52,7 @@ export default async function TourismAnalyticsPage() {
   const avgPackage = packages.length ? revenue / packages.length : 0;
   const avgSurvey = surveys.length ? (surveys.reduce((sum, item) => sum + Number(item.rating ?? item.score), 0) / surveys.length).toFixed(1) : "0";
   const nps = surveys.length ? Math.round(surveys.reduce((sum, item) => sum + Number(item.npsScore ?? 0), 0) / surveys.length) : 0;
-  const channelData = countBy(leads.map((item) => sourceLabel(item.sourceChannel)));
+  const channelData = countBy(leads.map((item) => sourceLabel(item.sourceChannel, locale)));
   const countryData = countBy(leads.map((item) => item.country));
   const treatmentData = countBy(leads.map((item) => item.interestedTreatment));
   const funnel = Object.values(TourismLeadStatus).map((status) => ({ status, count: leads.filter((lead) => lead.leadStatus === status).length }));
@@ -64,8 +66,8 @@ export default async function TourismAnalyticsPage() {
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Paket gönderilen</p><p className="mt-1 text-2xl font-semibold">{sent}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Kabul edilen</p><p className="mt-1 text-2xl font-semibold">{accepted}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Dönüşüm</p><p className="mt-1 text-2xl font-semibold">%{conversion}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Ortalama paket</p><p className="mt-1 text-2xl font-semibold">{formatCurrency(avgPackage)}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Beklenen gelir</p><p className="mt-1 text-2xl font-semibold">{formatCurrency(revenue)}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Ortalama paket</p><p className="mt-1 text-2xl font-semibold">{formatCurrency(avgPackage, locale)}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Beklenen gelir</p><p className="mt-1 text-2xl font-semibold">{formatCurrency(revenue, locale)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">Memnuniyet</p><p className="mt-1 text-2xl font-semibold">{avgSurvey}/5</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">NPS</p><p className="mt-1 text-2xl font-semibold">{nps}</p></CardContent></Card>
       </div>
@@ -81,7 +83,7 @@ export default async function TourismAnalyticsPage() {
         <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
           {funnel.map((item) => (
             <div key={item.status} className="rounded-md border bg-background p-3">
-              <p className="text-xs text-muted-foreground">{leadStatusLabel(item.status)}</p>
+              <p className="text-xs text-muted-foreground">{leadStatusLabel(item.status, locale)}</p>
               <p className="mt-1 text-2xl font-semibold">{item.count}</p>
             </div>
           ))}

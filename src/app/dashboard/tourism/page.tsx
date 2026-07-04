@@ -7,6 +7,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { compactStatusLabel, leadStatusLabel, packageStatusLabel, sourceLabel, statusTone, tourismKpiTarget } from "@/lib/tourism";
@@ -31,6 +33,7 @@ const workflow = [
 
 export default async function TourismDashboardPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [leads, packages, followUps, reservations, postCare, reviews, tasks] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { leadScore: "desc" }, take: 60 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 30 }),
@@ -58,8 +61,8 @@ export default async function TourismDashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Toplam lead" value={String(leads.length)} detail={tourismKpiTarget.promise} icon={TrendingUp} tone="primary" />
         <StatCard title="Paket gönderilen" value={String(sentPackages)} detail={`${packages.length} paket üretildi`} icon={PackageCheck} tone="accent" />
-        <StatCard title="Booked dönüşüm" value={`%${conversion}`} detail={`${bookedLeads} lead satışa döndü`} icon={ArrowRight} tone="success" />
-        <StatCard title="Beklenen gelir" value={formatCurrency(expectedRevenue)} detail="Paket toplam potansiyeli" icon={Repeat} tone="warning" />
+        <StatCard title="Rezervasyon dönüşümü" value={`%${conversion}`} detail={`${bookedLeads} lead satışa döndü`} icon={ArrowRight} tone="success" />
+        <StatCard title="Beklenen gelir" value={formatCurrency(expectedRevenue, locale)} detail="Paket toplam potansiyeli" icon={Repeat} tone="warning" />
       </div>
 
       <Card>
@@ -94,9 +97,9 @@ export default async function TourismDashboardPage() {
                 {leads.slice(0, 8).map((lead) => (
                   <TableRow key={lead.id}>
                     <TableCell><div className="font-medium">{lead.fullName}</div><div className="text-xs text-muted-foreground">{lead.country}</div></TableCell>
-                    <TableCell>{sourceLabel(lead.sourceChannel)}</TableCell>
+                    <TableCell>{sourceLabel(lead.sourceChannel, locale)}</TableCell>
                     <TableCell>{lead.interestedTreatment}</TableCell>
-                    <TableCell><Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus)}</Badge></TableCell>
+                    <TableCell><Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus, locale)}</Badge></TableCell>
                     <TableCell className="font-semibold">{lead.leadScore}</TableCell>
                   </TableRow>
                 ))}
@@ -114,16 +117,16 @@ export default async function TourismDashboardPage() {
             <div className="space-y-2">
               {waiting.map((lead) => (
                 <div key={lead.id} className="flex items-center justify-between rounded-md border bg-background p-3">
-                  <div><p className="text-sm font-medium">{lead.fullName}</p><p className="text-xs text-muted-foreground">{lead.interestedTreatment} · {formatDate(lead.nextFollowUpAt ?? lead.createdAt)}</p></div>
-                  <Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus)}</Badge>
+                  <div><p className="text-sm font-medium">{lead.fullName}</p><p className="text-xs text-muted-foreground">{lead.interestedTreatment} · {formatDate(lead.nextFollowUpAt ?? lead.createdAt, locale)}</p></div>
+                  <Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus, locale)}</Badge>
                 </div>
               ))}
             </div>
             <div className="space-y-2">
               {packageNoReply.map((item) => (
                 <div key={item.id} className="flex items-center justify-between rounded-md border bg-background p-3">
-                  <div><p className="text-sm font-medium">{item.packageTitle}</p><p className="text-xs text-muted-foreground">{formatCurrency(item.finalPrice)} · geçerlilik {formatDate(item.validUntil ?? item.createdAt)}</p></div>
-                  <Badge variant={statusTone(item.packageStatus)}>{packageStatusLabel(item.packageStatus)}</Badge>
+                  <div><p className="text-sm font-medium">{item.packageTitle}</p><p className="text-xs text-muted-foreground">{formatCurrency(item.finalPrice, locale)} · geçerlilik {formatDate(item.validUntil ?? item.createdAt, locale)}</p></div>
+                  <Badge variant={statusTone(item.packageStatus)}>{packageStatusLabel(item.packageStatus, locale)}</Badge>
                 </div>
               ))}
             </div>
@@ -150,9 +153,9 @@ export default async function TourismDashboardPage() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{task.title}</p>
-                  <p className="text-xs text-muted-foreground">{task.description ?? "Açıklama yok"} · {compactStatusLabel(task.status)}</p>
+                  <p className="text-xs text-muted-foreground">{task.description ?? "Açıklama yok"} · {compactStatusLabel(task.status, locale)}</p>
                 </div>
-                <Badge variant={task.priority === "URGENT" ? "danger" : "warning"}>{task.priority}</Badge>
+                <Badge variant={task.priority === "URGENT" ? "danger" : "warning"}>{statusLabel(task.priority, locale)}</Badge>
               </div>
             ))}
           </CardContent>

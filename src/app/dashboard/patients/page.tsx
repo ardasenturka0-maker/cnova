@@ -6,6 +6,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { getPatients } from "@/lib/services/patientService";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
@@ -18,6 +20,7 @@ function tagVariant(tag: string): "success" | "danger" | "warning" | "muted" {
 
 export default async function PatientsPage({ searchParams }: { searchParams: { q?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const patients = await getPatients(session.organizationId, searchParams.q);
 
   return (
@@ -47,10 +50,10 @@ export default async function PatientsPage({ searchParams }: { searchParams: { q
                       <div className="text-xs text-muted-foreground">{patient.email ?? "E-posta yok"}</div>
                     </TableCell>
                     <TableCell>{patient.phone}</TableCell>
-                    <TableCell><Badge variant={tagVariant(patient.tag)}>{patient.tag}</Badge></TableCell>
+                    <TableCell><Badge variant={tagVariant(patient.tag)}>{statusLabel(patient.tag, locale)}</Badge></TableCell>
                     <TableCell>{patient.branch.name}</TableCell>
-                    <TableCell>{patient.lastVisitAt ? formatDate(patient.lastVisitAt) : "Yeni kayıt"}</TableCell>
-                    <TableCell>{formatCurrency(paymentTotal)}</TableCell>
+                    <TableCell>{patient.lastVisitAt ? formatDate(patient.lastVisitAt, locale) : "Yeni kayıt"}</TableCell>
+                    <TableCell>{formatCurrency(paymentTotal, locale)}</TableCell>
                     <TableCell className="text-right">
                       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/dashboard/patients/${patient.id}`}>
                         Detay

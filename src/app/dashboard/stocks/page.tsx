@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { createStockItem, createStockMovement, getStocks } from "@/lib/services/stockService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { stockItemSchema, stockMovementSchema } from "@/lib/validations/stock";
@@ -34,6 +36,7 @@ async function createMovementAction(formData: FormData) {
 
 export default async function StocksPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const stocks = await getStocks(session.organizationId);
 
   return (
@@ -80,8 +83,8 @@ export default async function StocksPage() {
                   <TableCell><Badge variant={item.currentQuantity <= item.minimumQuantity ? "danger" : "success"}>{item.currentQuantity} {item.unit}</Badge></TableCell>
                   <TableCell>{item.minimumQuantity} {item.unit}</TableCell>
                   <TableCell>{item.supplier ?? "-"}</TableCell>
-                  <TableCell>{formatCurrency(item.purchasePrice)}</TableCell>
-                  <TableCell>{item.movements[0] ? `${item.movements[0].type} · ${formatDate(item.movements[0].movedAt)}` : "-"}</TableCell>
+                  <TableCell>{formatCurrency(item.purchasePrice, locale)}</TableCell>
+                  <TableCell>{item.movements[0] ? `${statusLabel(item.movements[0].type, locale)} · ${formatDate(item.movements[0].movedAt, locale)}` : "-"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

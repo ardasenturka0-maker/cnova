@@ -6,15 +6,17 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { getReports } from "@/lib/services/reportService";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function ReportsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const reports = await getReports(session.organizationId);
 
   const cards = [
-    ["Aylık gelir", formatCurrency(reports.revenue)],
+    ["Aylık gelir", formatCurrency(reports.revenue, locale)],
     ["Doktor/Tedavi", String(reports.treatmentCount)],
     ["Randevu gelmeme", `%${reports.noShowRate}`],
     ["İptal oranı", `%${reports.cancellationRate}`],
@@ -42,7 +44,7 @@ export default async function ReportsPage() {
               <TableHeader><TableRow><TableHead>Şube</TableHead><TableHead>Gelir</TableHead><TableHead>Randevu</TableHead></TableRow></TableHeader>
               <TableBody>
                 {reports.branchComparison.map((branch) => (
-                  <TableRow key={branch.branch}><TableCell>{branch.branch}</TableCell><TableCell>{formatCurrency(branch.revenue)}</TableCell><TableCell>{branch.appointments}</TableCell></TableRow>
+                  <TableRow key={branch.branch}><TableCell>{branch.branch}</TableCell><TableCell>{formatCurrency(branch.revenue, locale)}</TableCell><TableCell>{branch.appointments}</TableCell></TableRow>
                 ))}
               </TableBody>
             </Table>
@@ -57,7 +59,7 @@ export default async function ReportsPage() {
                   <div className="font-medium">{snapshot.title}</div>
                   <Badge variant="muted">{snapshot.type}</Badge>
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">{formatDate(snapshot.periodStart)} - {formatDate(snapshot.periodEnd)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{formatDate(snapshot.periodStart, locale)} - {formatDate(snapshot.periodEnd, locale)}</div>
               </div>
             ))}
           </CardContent>

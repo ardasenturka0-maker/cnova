@@ -5,12 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export default async function TourismSurveysPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [responses, patients, packages, leads, templates] = await Promise.all([
     prisma.surveyResponse.findMany({ where: { organizationId: session.organizationId, surveyTemplateId: { not: null } }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),
@@ -64,7 +67,7 @@ export default async function TourismSurveysPage() {
                     <TableCell>{tourismPackage?.packageTitle ?? "-"}</TableCell>
                     <TableCell><Badge variant={Number(response.rating ?? response.score) < 3 ? "danger" : "success"}>{response.rating ?? response.score}/5</Badge></TableCell>
                     <TableCell>{response.npsScore ?? "-"}</TableCell>
-                    <TableCell>{response.source ?? "-"}</TableCell>
+                    <TableCell>{statusLabel(response.source ?? undefined, locale)}</TableCell>
                     <TableCell>{tourismPackage ? <Link className={cn(buttonVariants({ variant: "outline", size: "sm" }))} href={`/survey/${tourismPackage.publicToken}`}>Aç</Link> : "-"}</TableCell>
                   </TableRow>
                 );

@@ -4,35 +4,38 @@ import { Activity, BarChart3, BellRing, Boxes, CalendarDays, ClipboardCheck, Cre
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { dashboardNavLabels, shellText, type Locale } from "@/lib/i18n";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/patients", label: "Hastalar", icon: Users },
-  { href: "/dashboard/appointments", label: "Randevular", icon: CalendarDays },
-  { href: "/dashboard/treatments", label: "Tedaviler", icon: Stethoscope },
-  { href: "/dashboard/finance", label: "Finans", icon: CreditCard },
-  { href: "/dashboard/stocks", label: "Stok", icon: Boxes },
-  { href: "/dashboard/staff", label: "Personel", icon: UserRoundCog },
-  { href: "/dashboard/consents", label: "Onamlar", icon: ClipboardCheck },
-  { href: "/dashboard/surveys", label: "Anketler", icon: HeartPulse },
-  { href: "/dashboard/communication", label: "İletişim", icon: MessageSquare },
-  { href: "/dashboard/tourism", label: "Sağlık Turizmi", icon: Plane },
-  { href: "/dashboard/recalls", label: "Recall", icon: BellRing },
-  { href: "/dashboard/reports", label: "Raporlar", icon: BarChart3 },
-  { href: "/dashboard/settings", label: "Ayarlar", icon: Settings }
+  { href: "/dashboard", key: "dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/patients", key: "patients", icon: Users },
+  { href: "/dashboard/appointments", key: "appointments", icon: CalendarDays },
+  { href: "/dashboard/treatments", key: "treatments", icon: Stethoscope },
+  { href: "/dashboard/finance", key: "finance", icon: CreditCard },
+  { href: "/dashboard/stocks", key: "stocks", icon: Boxes },
+  { href: "/dashboard/staff", key: "staff", icon: UserRoundCog },
+  { href: "/dashboard/consents", key: "consents", icon: ClipboardCheck },
+  { href: "/dashboard/surveys", key: "surveys", icon: HeartPulse },
+  { href: "/dashboard/communication", key: "communication", icon: MessageSquare },
+  { href: "/dashboard/tourism", key: "tourism", icon: Plane },
+  { href: "/dashboard/recalls", key: "recalls", icon: BellRing },
+  { href: "/dashboard/reports", key: "reports", icon: BarChart3 },
+  { href: "/dashboard/settings", key: "settings", icon: Settings }
 ];
 
-export function MobileSidebar() {
+export function MobileSidebar({ locale = "tr" }: { locale?: Locale }) {
   const [open, setOpen] = useState(false);
+  const text = shellText[locale];
+  const labels = dashboardNavLabels[locale];
 
   return (
     <>
-      <Button className="lg:hidden" variant="outline" size="icon" aria-label="Menü" onClick={() => setOpen(true)}>
+      <Button className="lg:hidden" variant="outline" size="icon" aria-label={text.menu} onClick={() => setOpen(true)}>
         <Menu className="h-4 w-4" />
       </Button>
       {open ? (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <button className="absolute inset-0 bg-black/40" aria-label="Menüyü kapat" onClick={() => setOpen(false)} />
+          <button className="absolute inset-0 bg-black/40" aria-label={text.closeMenu} onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-80 max-w-[86vw] flex-col border-r bg-card shadow-soft">
             <div className="flex h-16 items-center justify-between border-b px-5">
               <div className="flex items-center gap-3">
@@ -41,10 +44,10 @@ export function MobileSidebar() {
                 </div>
                 <div>
                   <div className="font-semibold">ClinicNova</div>
-                  <div className="text-xs text-muted-foreground">Klinik OS</div>
+                  <div className="text-xs text-muted-foreground">{text.clinicOs}</div>
                 </div>
               </div>
-              <Button variant="outline" size="icon" aria-label="Kapat" onClick={() => setOpen(false)}>
+              <Button variant="outline" size="icon" aria-label={text.close} onClick={() => setOpen(false)}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -52,7 +55,7 @@ export function MobileSidebar() {
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="flex min-h-10 items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
                   <item.icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <span>{labels[item.key]}</span>
                 </Link>
               ))}
             </nav>

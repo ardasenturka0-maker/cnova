@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { treatmentPlanSchema } from "@/lib/validations/treatment";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -40,6 +41,7 @@ async function createPlanAction(formData: FormData) {
 
 export default async function TreatmentPlansPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [plans, patients, doctors] = await Promise.all([
     prisma.treatmentPlan.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, doctor: { select: { name: true } } }, orderBy: { plannedAt: "desc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
@@ -72,12 +74,12 @@ export default async function TreatmentPlansPage() {
             <TableBody>
               {plans.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{formatDate(item.plannedAt)}</TableCell>
+                  <TableCell>{formatDate(item.plannedAt, locale)}</TableCell>
                   <TableCell>{item.patient ? `${item.patient.firstName} ${item.patient.lastName}` : "Hasta bulunamadı"}</TableCell>
                   <TableCell>{item.doctor?.name ?? "Doktor bulunamadı"}</TableCell>
                   <TableCell>{item.treatmentType} {item.toothNumber ? `#${item.toothNumber}` : ""}</TableCell>
-                  <TableCell>{formatCurrency(item.estimatedFee)}</TableCell>
-                  <TableCell><TreatmentStatusBadge status={item.status} /></TableCell>
+                  <TableCell>{formatCurrency(item.estimatedFee, locale)}</TableCell>
+                  <TableCell><TreatmentStatusBadge status={item.status} locale={locale} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -9,6 +9,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { writeIntegrationLog } from "@/lib/services/integrationLogService";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
@@ -38,6 +40,7 @@ async function sendCareMessageAction(id: string) {
 
 export default async function PostTreatmentPage({ searchParams }: { searchParams: { success?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [followUps, patients, packages] = await Promise.all([
     prisma.postTreatmentFollowUp.findMany({ where: { organizationId: session.organizationId }, orderBy: { nextMessageAt: "asc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),
@@ -84,10 +87,10 @@ export default async function PostTreatmentPage({ searchParams }: { searchParams
                   <TableRow key={item.id}>
                     <TableCell>{patient ? `${patient.firstName} ${patient.lastName}` : item.patientId}</TableCell>
                     <TableCell>{tourismPackage?.packageTitle ?? "-"}</TableCell>
-                    <TableCell>{item.returnCountry}<div className="text-xs text-muted-foreground">{formatDate(item.returnDate)}</div></TableCell>
+                    <TableCell>{item.returnCountry}<div className="text-xs text-muted-foreground">{formatDate(item.returnDate, locale)}</div></TableCell>
                     <TableCell>{item.followUpDay}. gün</TableCell>
-                    <TableCell>{formatDateTime(item.nextMessageAt)}</TableCell>
-                    <TableCell><Badge variant={statusTone(item.status)}>{item.status}</Badge></TableCell>
+                    <TableCell>{formatDateTime(item.nextMessageAt, locale)}</TableCell>
+                    <TableCell><Badge variant={statusTone(item.status)}>{statusLabel(item.status, locale)}</Badge></TableCell>
                     <TableCell><Link className={cn(buttonVariants({ variant: "outline", size: "sm" }))} href={`/care-check/${item.publicToken}`}>Aç</Link></TableCell>
                     <TableCell><form action={sendCareMessageAction.bind(null, item.id)}><Button size="sm" variant="outline"><Send className="h-4 w-4" />Gönder</Button></form></TableCell>
                   </TableRow>

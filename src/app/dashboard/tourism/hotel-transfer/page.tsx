@@ -12,6 +12,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { shareReservation } from "@/lib/services/tourismService";
@@ -85,6 +87,7 @@ async function shareReservationAction(formData: FormData) {
 
 export default async function HotelTransferPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [hotels, transfers, packages, reservations] = await Promise.all([
     prisma.hotelPartner.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.transferPartner.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
@@ -102,7 +105,7 @@ export default async function HotelTransferPage({ searchParams }: { searchParams
         <CardHeader><CardTitle>Rezervasyon Paylaş</CardTitle><CardDescription>Paket kabul edildiğinde otel/transfer firmalarına gönderilecek mock payload.</CardDescription></CardHeader>
         <CardContent>
           <form action={shareReservationAction} className="grid gap-4 md:grid-cols-4">
-            <div className="space-y-2 md:col-span-2"><Label>Paket</Label><Select name="packageId">{packages.map((item) => <option key={item.id} value={item.id}>{item.packageTitle} · {packageStatusLabel(item.packageStatus)}</option>)}</Select></div>
+            <div className="space-y-2 md:col-span-2"><Label>Paket</Label><Select name="packageId">{packages.map((item) => <option key={item.id} value={item.id}>{item.packageTitle} · {packageStatusLabel(item.packageStatus, locale)}</option>)}</Select></div>
             <div className="space-y-2"><Label>Otel</Label><Select name="hotelPartnerId"><option value="">Varsayılan aktif otel</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</Select></div>
             <div className="space-y-2"><Label>Transfer</Label><Select name="transferPartnerId"><option value="">Varsayılan aktif transfer</option>{transfers.map((transfer) => <option key={transfer.id} value={transfer.id}>{transfer.name}</option>)}</Select></div>
             <Button className="w-fit md:col-span-4" type="submit"><Share2 className="h-4 w-4" />n8n ile Partnerlere Paylaş</Button>
@@ -155,7 +158,7 @@ export default async function HotelTransferPage({ searchParams }: { searchParams
             {hotels.map((hotel) => (
               <div key={hotel.id} className="rounded-md border bg-background p-3">
                 <div className="flex items-center justify-between"><strong>{hotel.name}</strong><Badge variant={hotel.active ? "success" : "muted"}>{hotel.active ? "Aktif" : "Pasif"}</Badge></div>
-                <p className="mt-1 text-sm text-muted-foreground">{hotel.city} / {hotel.district ?? "-"} · {hotel.starRating ?? "-"} yıldız · {formatCurrency(hotel.pricePerNight)}/gece</p>
+                <p className="mt-1 text-sm text-muted-foreground">{hotel.city} / {hotel.district ?? "-"} · {hotel.starRating ?? "-"} yıldız · {formatCurrency(hotel.pricePerNight, locale)}/gece</p>
               </div>
             ))}
           </CardContent>
@@ -166,7 +169,7 @@ export default async function HotelTransferPage({ searchParams }: { searchParams
             {transfers.map((transfer) => (
               <div key={transfer.id} className="rounded-md border bg-background p-3">
                 <div className="flex items-center justify-between"><strong>{transfer.name}</strong><Badge variant={transfer.active ? "success" : "muted"}>{transfer.active ? "Aktif" : "Pasif"}</Badge></div>
-                <p className="mt-1 text-sm text-muted-foreground">Havalimanı: {Array.isArray(transfer.airportList) ? transfer.airportList.join(", ") : "-"} · {formatCurrency(transfer.basePrice)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Havalimanı: {Array.isArray(transfer.airportList) ? transfer.airportList.join(", ") : "-"} · {formatCurrency(transfer.basePrice, locale)}</p>
               </div>
             ))}
           </CardContent>
@@ -183,10 +186,10 @@ export default async function HotelTransferPage({ searchParams }: { searchParams
                 const tourismPackage = packages.find((item) => item.id === reservation.packageId);
                 return (
                   <TableRow key={reservation.id}>
-                    <TableCell>{formatDate(reservation.createdAt)}</TableCell>
+                    <TableCell>{formatDate(reservation.createdAt, locale)}</TableCell>
                     <TableCell>{tourismPackage?.packageTitle ?? reservation.packageId}</TableCell>
-                    <TableCell>{reservation.sharedVia}</TableCell>
-                    <TableCell><Badge variant={statusTone(reservation.status)}>{reservation.status}</Badge></TableCell>
+                    <TableCell>{statusLabel(reservation.sharedVia, locale)}</TableCell>
+                    <TableCell><Badge variant={statusTone(reservation.status)}>{statusLabel(reservation.status, locale)}</Badge></TableCell>
                     <TableCell className="max-w-[320px] truncate">{JSON.stringify(reservation.payloadJson)}</TableCell>
                   </TableRow>
                 );

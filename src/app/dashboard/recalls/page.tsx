@@ -11,6 +11,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { recallSchema } from "@/lib/validations/engagement";
 import { formatDate } from "@/lib/utils";
@@ -37,6 +39,7 @@ async function createRecallAction(formData: FormData) {
 
 export default async function RecallsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [patients, recalls] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.recall.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, branch: true }, orderBy: { dueDate: "asc" }, take: 100 })
@@ -44,7 +47,7 @@ export default async function RecallsPage() {
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={BellRing} title="Recall / Takip" description="Tedavi sonrası takip, kontrol zamanı gelen hastalar ve geri arama listesi." />
+      <ModuleHeader icon={BellRing} title="Takipler" description="Tedavi sonrası takip, kontrol zamanı gelen hastalar ve geri arama listesi." />
       <Card>
         <CardHeader><CardTitle>Takip oluştur</CardTitle></CardHeader>
         <CardContent>
@@ -64,7 +67,7 @@ export default async function RecallsPage() {
             <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Hasta</TableHead><TableHead>Neden</TableHead><TableHead>Şube</TableHead><TableHead>Durum</TableHead><TableHead>Not</TableHead></TableRow></TableHeader>
             <TableBody>
               {recalls.map((recall) => (
-                <TableRow key={recall.id}><TableCell>{formatDate(recall.dueDate)}</TableCell><TableCell>{recall.patient.firstName} {recall.patient.lastName}</TableCell><TableCell>{recall.reason}</TableCell><TableCell>{recall.branch.name}</TableCell><TableCell><Badge variant={recall.status === "CLOSED" ? "success" : "warning"}>{recall.status}</Badge></TableCell><TableCell>{recall.notes ?? "-"}</TableCell></TableRow>
+                <TableRow key={recall.id}><TableCell>{formatDate(recall.dueDate, locale)}</TableCell><TableCell>{recall.patient.firstName} {recall.patient.lastName}</TableCell><TableCell>{recall.reason}</TableCell><TableCell>{recall.branch.name}</TableCell><TableCell><Badge variant={recall.status === "CLOSED" ? "success" : "warning"}>{statusLabel(recall.status, locale)}</Badge></TableCell><TableCell>{recall.notes ?? "-"}</TableCell></TableRow>
               ))}
             </TableBody>
           </Table>

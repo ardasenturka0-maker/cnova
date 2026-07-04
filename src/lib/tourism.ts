@@ -11,48 +11,67 @@ import type {
   TourismLeadStatus,
   TourismPackageStatus
 } from "@prisma/client";
+import { statusLabel, type Locale } from "@/lib/i18n";
 
-export const tourismRoutes: Array<{ href: string; label: string; icon: LucideIcon }> = [
-  { href: "/dashboard/tourism", label: "Satış Akışı", icon: ChartNoAxesCombined },
-  { href: "/dashboard/tourism/leads", label: "Lead Havuzu", icon: Handshake },
-  { href: "/dashboard/tourism/package-builder", label: "Paket Oluşturucu", icon: PackagePlus },
-  { href: "/dashboard/tourism/hotel-transfer", label: "Otel & Transfer", icon: Hotel },
-  { href: "/dashboard/tourism/followups", label: "Otomatik Takipler", icon: Repeat },
-  { href: "/dashboard/tourism/post-treatment", label: "Tedavi Sonrası", icon: HeartPulse },
-  { href: "/dashboard/tourism/reviews", label: "Yorum Yönetimi", icon: Star },
-  { href: "/dashboard/tourism/gallery", label: "Önce/Sonra", icon: GalleryHorizontalEnd },
-  { href: "/dashboard/tourism/consents", label: "Turizm Onamları", icon: FileSignature },
-  { href: "/dashboard/tourism/surveys", label: "Memnuniyet", icon: MessageCircle },
-  { href: "/dashboard/tourism/chatbot", label: "AI Chatbot", icon: Bot },
-  { href: "/dashboard/tourism/analytics", label: "Analitik", icon: ChartNoAxesCombined },
-  { href: "/dashboard/tourism/integrations", label: "Entegrasyonlar", icon: Building2 }
+const tourismRouteConfig: Array<{ href: string; key: string; icon: LucideIcon }> = [
+  { href: "/dashboard/tourism", key: "salesFlow", icon: ChartNoAxesCombined },
+  { href: "/dashboard/tourism/leads", key: "leadPool", icon: Handshake },
+  { href: "/dashboard/tourism/package-builder", key: "packageBuilder", icon: PackagePlus },
+  { href: "/dashboard/tourism/hotel-transfer", key: "hotelTransfer", icon: Hotel },
+  { href: "/dashboard/tourism/followups", key: "followUps", icon: Repeat },
+  { href: "/dashboard/tourism/post-treatment", key: "postTreatment", icon: HeartPulse },
+  { href: "/dashboard/tourism/reviews", key: "reviews", icon: Star },
+  { href: "/dashboard/tourism/gallery", key: "gallery", icon: GalleryHorizontalEnd },
+  { href: "/dashboard/tourism/consents", key: "consents", icon: FileSignature },
+  { href: "/dashboard/tourism/surveys", key: "satisfaction", icon: MessageCircle },
+  { href: "/dashboard/tourism/chatbot", key: "chatbot", icon: Bot },
+  { href: "/dashboard/tourism/analytics", key: "analytics", icon: ChartNoAxesCombined },
+  { href: "/dashboard/tourism/integrations", key: "integrations", icon: Building2 }
 ];
 
-export function sourceLabel(source: TourismLeadSourceChannel | string) {
-  const labels: Record<string, string> = {
-    WEB_FORM: "Web Form",
-    WHATSAPP: "WhatsApp",
-    INSTAGRAM_DM: "Instagram DM",
-    MANUAL: "Manuel",
-    N8N_WEBHOOK: "n8n Webhook",
-    AIRTABLE: "Airtable"
-  };
-  return labels[source] ?? source;
+const tourismRouteLabels: Record<Locale, Record<string, string>> = {
+  tr: {
+    salesFlow: "Satış Akışı",
+    leadPool: "Lead Havuzu",
+    packageBuilder: "Paket Oluşturucu",
+    hotelTransfer: "Otel & Transfer",
+    followUps: "Otomatik Takipler",
+    postTreatment: "Tedavi Sonrası",
+    reviews: "Yorum Yönetimi",
+    gallery: "Önce/Sonra",
+    consents: "Turizm Onamları",
+    satisfaction: "Memnuniyet",
+    chatbot: "AI Chatbot",
+    analytics: "Analitik",
+    integrations: "Entegrasyonlar"
+  },
+  en: {
+    salesFlow: "Sales Flow",
+    leadPool: "Lead Pool",
+    packageBuilder: "Package Builder",
+    hotelTransfer: "Hotel & Transfer",
+    followUps: "Automated Follow-ups",
+    postTreatment: "Post Treatment",
+    reviews: "Review Management",
+    gallery: "Before/After",
+    consents: "Tourism Consents",
+    satisfaction: "Satisfaction",
+    chatbot: "AI Chatbot",
+    analytics: "Analytics",
+    integrations: "Integrations"
+  }
+};
+
+export function tourismRoutes(locale: Locale = "tr"): Array<{ href: string; label: string; icon: LucideIcon }> {
+  return tourismRouteConfig.map((item) => ({ ...item, label: tourismRouteLabels[locale][item.key] }));
 }
 
-export function leadStatusLabel(status: TourismLeadStatus | string) {
-  const labels: Record<string, string> = {
-    NEW: "Yeni",
-    CONTACTED: "İletişildi",
-    WAITING_REPLY: "Cevap Bekliyor",
-    QUALIFIED: "Nitelikli",
-    PACKAGE_SENT: "Paket Gönderildi",
-    BOOKED: "Booked",
-    TREATMENT_STARTED: "Tedavi Başladı",
-    TREATMENT_COMPLETED: "Tedavi Tamamlandı",
-    LOST: "Kaybedildi"
-  };
-  return labels[status] ?? status;
+export function sourceLabel(source: TourismLeadSourceChannel | string, locale: Locale = "tr") {
+  return statusLabel(source, locale);
+}
+
+export function leadStatusLabel(status: TourismLeadStatus | string, locale: Locale = "tr") {
+  return statusLabel(status, locale);
 }
 
 export function statusTone(status: string): "default" | "success" | "warning" | "danger" | "muted" {
@@ -63,20 +82,12 @@ export function statusTone(status: string): "default" | "success" | "warning" | 
   return "default";
 }
 
-export function packageStatusLabel(status: TourismPackageStatus | string) {
-  const labels: Record<string, string> = {
-    DRAFT: "Taslak",
-    SENT: "Gönderildi",
-    VIEWED: "Görüldü",
-    ACCEPTED: "Kabul",
-    REJECTED: "Red",
-    EXPIRED: "Süresi Doldu"
-  };
-  return labels[status] ?? status;
+export function packageStatusLabel(status: TourismPackageStatus | string, locale: Locale = "tr") {
+  return statusLabel(status, locale);
 }
 
-export function compactStatusLabel(status: TourismLeadStatus | TourismPackageStatus | ReservationShareStatus | LeadFollowUpStatus | PostTreatmentFollowUpStatus | ReviewRequestStatus | BeforeAfterStatus | DigitalConsentStatus | string) {
-  return packageStatusLabel(leadStatusLabel(status));
+export function compactStatusLabel(status: TourismLeadStatus | TourismPackageStatus | ReservationShareStatus | LeadFollowUpStatus | PostTreatmentFollowUpStatus | ReviewRequestStatus | BeforeAfterStatus | DigitalConsentStatus | string, locale: Locale = "tr") {
+  return statusLabel(status, locale);
 }
 
 export const tourismKpiTarget = {

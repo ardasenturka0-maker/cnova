@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/services/auditLogService";
 import { digitalConsentSignSchema } from "@/lib/validations/tourism";
@@ -33,6 +34,7 @@ async function signConsentAction(formData: FormData) {
 }
 
 export default async function ConsentPage({ params, searchParams }: { params: { token: string }; searchParams: { success?: string; error?: string } }) {
+  const locale = getLocale();
   const consent = await prisma.digitalConsent.findFirst({ where: { publicToken: params.token } });
   if (!consent) notFound();
 
@@ -49,7 +51,7 @@ export default async function ConsentPage({ params, searchParams }: { params: { 
             {searchParams.success ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{searchParams.success}</div> : null}
             {searchParams.error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{searchParams.error}</div> : null}
             <div className="rounded-md border bg-background p-4 text-sm leading-7">{consent.contentSnapshot}</div>
-            {consent.signedAt ? <div className="rounded-md border bg-muted p-3 text-sm">İmzalandı: {formatDateTime(consent.signedAt)} · {consent.signerName}</div> : null}
+            {consent.signedAt ? <div className="rounded-md border bg-muted p-3 text-sm">İmzalandı: {formatDateTime(consent.signedAt, locale)} · {consent.signerName}</div> : null}
             <form action={signConsentAction} className="space-y-4">
               <input type="hidden" name="token" value={params.token} />
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="understood" value="true" /> Bilgilendirme metnini okudum ve anladım</label>

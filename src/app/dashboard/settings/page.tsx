@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { roleLabel } from "@/lib/rbac";
 import { formatDateTime } from "@/lib/utils";
 
 export default async function SettingsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [organization, branches, users, auditLogs] = await Promise.all([
     prisma.organization.findFirst({ where: { id: session.organizationId } }),
     prisma.branch.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" } }),
@@ -51,7 +53,7 @@ export default async function SettingsPage() {
             <TableHeader><TableRow><TableHead>Kullanıcı</TableHead><TableHead>E-posta</TableHead><TableHead>Rol</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
             <TableBody>
               {users.map((user) => (
-                <TableRow key={user.id}><TableCell>{user.name}</TableCell><TableCell>{user.email}</TableCell><TableCell>{roleLabel(user.role)}</TableCell><TableCell><Badge variant={user.active ? "success" : "muted"}>{user.active ? "Aktif" : "Pasif"}</Badge></TableCell></TableRow>
+                <TableRow key={user.id}><TableCell>{user.name}</TableCell><TableCell>{user.email}</TableCell><TableCell>{roleLabel(user.role, locale)}</TableCell><TableCell><Badge variant={user.active ? "success" : "muted"}>{user.active ? "Aktif" : "Pasif"}</Badge></TableCell></TableRow>
               ))}
             </TableBody>
           </Table>
@@ -64,7 +66,7 @@ export default async function SettingsPage() {
             <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Kullanıcı</TableHead><TableHead>Modül</TableHead><TableHead>Aksiyon</TableHead></TableRow></TableHeader>
             <TableBody>
               {auditLogs.map((log) => (
-                <TableRow key={log.id}><TableCell>{formatDateTime(log.createdAt)}</TableCell><TableCell>{log.user?.name ?? "Sistem"}</TableCell><TableCell>{log.module}</TableCell><TableCell>{log.action}</TableCell></TableRow>
+                <TableRow key={log.id}><TableCell>{formatDateTime(log.createdAt, locale)}</TableCell><TableCell>{log.user?.name ?? "Sistem"}</TableCell><TableCell>{log.module}</TableCell><TableCell>{log.action}</TableCell></TableRow>
               ))}
             </TableBody>
           </Table>

@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { writeIntegrationLog } from "@/lib/services/integrationLogService";
 import { formatDateTime } from "@/lib/utils";
@@ -40,6 +42,7 @@ async function sendReviewAction(id: string) {
 
 export default async function ReviewsPage({ searchParams }: { searchParams: { success?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [requests, patients] = await Promise.all([
     prisma.reviewRequest.findMany({ where: { organizationId: session.organizationId }, orderBy: { scheduledAt: "asc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 })
@@ -79,9 +82,9 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { su
                   <TableRow key={request.id}>
                     <TableCell>{patient ? `${patient.firstName} ${patient.lastName}` : request.patientId}</TableCell>
                     <TableCell>{request.platform}</TableCell>
-                    <TableCell>{formatDateTime(request.scheduledAt)}</TableCell>
-                    <TableCell>{request.sentAt ? formatDateTime(request.sentAt) : "-"}</TableCell>
-                    <TableCell><Badge variant={statusTone(request.status)}>{request.status}</Badge></TableCell>
+                    <TableCell>{formatDateTime(request.scheduledAt, locale)}</TableCell>
+                    <TableCell>{request.sentAt ? formatDateTime(request.sentAt, locale) : "-"}</TableCell>
+                    <TableCell><Badge variant={statusTone(request.status)}>{statusLabel(request.status, locale)}</Badge></TableCell>
                     <TableCell>{request.language}</TableCell>
                     <TableCell><form action={sendReviewAction.bind(null, request.id)}><Button size="sm" variant="outline"><Send className="h-4 w-4" />Gönder</Button></form></TableCell>
                   </TableRow>

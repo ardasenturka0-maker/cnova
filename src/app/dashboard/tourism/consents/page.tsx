@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -12,6 +14,7 @@ import { gdprNotice, statusTone } from "@/lib/tourism";
 
 export default async function TourismConsentsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [templates, consents, leads, patients] = await Promise.all([
     prisma.consentTemplate.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.digitalConsent.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 }),
@@ -42,7 +45,7 @@ export default async function TourismConsentsPage() {
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {["DRAFT", "SENT", "VIEWED", "SIGNED"].map((status) => (
               <div key={status} className="rounded-md border bg-background p-4">
-                <p className="text-sm text-muted-foreground">{status}</p>
+                <p className="text-sm text-muted-foreground">{statusLabel(status, locale)}</p>
                 <p className="mt-1 text-2xl font-semibold">{consents.filter((item) => item.status === status).length}</p>
               </div>
             ))}
@@ -64,8 +67,8 @@ export default async function TourismConsentsPage() {
                     <TableCell>{lead?.fullName ?? (patient ? `${patient.firstName} ${patient.lastName}` : "-")}</TableCell>
                     <TableCell>{consent.title}</TableCell>
                     <TableCell>{consent.language}</TableCell>
-                    <TableCell><Badge variant={statusTone(consent.status)}>{consent.status}</Badge></TableCell>
-                    <TableCell>{consent.signedAt ? formatDateTime(consent.signedAt) : "-"}</TableCell>
+                    <TableCell><Badge variant={statusTone(consent.status)}>{statusLabel(consent.status, locale)}</Badge></TableCell>
+                    <TableCell>{consent.signedAt ? formatDateTime(consent.signedAt, locale) : "-"}</TableCell>
                     <TableCell><Link className={cn(buttonVariants({ variant: "outline", size: "sm" }))} href={`/consent/${consent.publicToken}`}>Aç</Link></TableCell>
                   </TableRow>
                 );

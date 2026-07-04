@@ -10,6 +10,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { intlLocale, statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { createAppointment, getAppointmentFormOptions, getAppointments } from "@/lib/services/appointmentService";
 import { sendMockMessage } from "@/lib/services/notificationService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
@@ -48,6 +50,7 @@ function startOfDay(date: Date) {
 
 export default async function AppointmentsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const [appointments, options] = await Promise.all([
     getAppointments(session.organizationId),
     getAppointmentFormOptions(session.organizationId)
@@ -136,13 +139,13 @@ export default async function AppointmentsPage() {
           return (
             <Card key={day.toISOString()} className="xl:col-span-1">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm">{new Intl.DateTimeFormat("tr-TR", { weekday: "short", day: "numeric", month: "short" }).format(day)}</CardTitle>
+                <CardTitle className="text-sm">{new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short", day: "numeric", month: "short" }).format(day)}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 p-4 pt-0">
                 {dayAppointments.slice(0, 4).map((appointment) => (
                   <div key={appointment.id} className="rounded-md border bg-background p-2 text-xs">
                     <div className="font-medium">{appointment.patient.firstName} {appointment.patient.lastName}</div>
-                    <div className="text-muted-foreground">{new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" }).format(appointment.startsAt)}</div>
+                    <div className="text-muted-foreground">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }).format(appointment.startsAt)}</div>
                   </div>
                 ))}
                 {dayAppointments.length === 0 ? <p className="text-xs text-muted-foreground">Boş</p> : null}
@@ -172,12 +175,12 @@ export default async function AppointmentsPage() {
             <TableBody>
               {appointments.map((appointment) => (
                 <TableRow key={appointment.id}>
-                  <TableCell>{formatDateTime(appointment.startsAt)}</TableCell>
+                  <TableCell>{formatDateTime(appointment.startsAt, locale)}</TableCell>
                   <TableCell>{appointment.patient.firstName} {appointment.patient.lastName}</TableCell>
                   <TableCell>{appointment.doctor.name}</TableCell>
                   <TableCell>{appointment.treatmentType}</TableCell>
                   <TableCell>{appointment.room ?? "-"}</TableCell>
-                  <TableCell><Badge variant="muted">{appointment.status}</Badge></TableCell>
+                  <TableCell><Badge variant="muted">{statusLabel(appointment.status, locale)}</Badge></TableCell>
                   <TableCell className="text-right">
                     <form action={sendReminderAction.bind(null, appointment.patientId, appointment.patient.phone)}>
                       <Button type="submit" variant="outline" size="sm">

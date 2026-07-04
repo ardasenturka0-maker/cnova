@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { sendPackageToN8n } from "@/lib/services/integrations/n8nProvider";
 import { packageBuilderSchema } from "@/lib/validations/tourism";
@@ -96,6 +97,7 @@ async function createPackageAction(formData: FormData) {
 
 export default async function PackageBuilderPage({ searchParams }: { searchParams: { leadId?: string; success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [leads, packages, items, hotels, transfers] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { leadScore: "desc" }, take: 100 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
@@ -124,8 +126,8 @@ export default async function PackageBuilderPage({ searchParams }: { searchParam
               <div className="space-y-2"><Label>Diş/bölge</Label><Input name="toothArea" defaultValue="Smile zone" /></div>
               <div className="space-y-2"><Label>Adet</Label><Input name="quantity" type="number" defaultValue={1} min={1} /></div>
               <div className="space-y-2"><Label>Birim fiyat</Label><Input name="unitPrice" type="number" defaultValue={4200} min={0} /></div>
-              <div className="space-y-2"><Label>Otel</Label><Select name="hotelInfo" defaultValue={defaultHotel?.name}>{hotels.map((hotel) => <option key={hotel.id} value={`${hotel.name}, ${hotel.city}`}>{hotel.name} · {formatCurrency(hotel.pricePerNight)}/gece</option>)}</Select></div>
-              <div className="space-y-2"><Label>Transfer</Label><Select name="transferInfo" defaultValue={defaultTransfer?.name}>{transfers.map((transfer) => <option key={transfer.id} value={`${transfer.name}, ${transfer.airportList}`}>{transfer.name} · {formatCurrency(transfer.basePrice)}</option>)}</Select></div>
+              <div className="space-y-2"><Label>Otel</Label><Select name="hotelInfo" defaultValue={defaultHotel?.name}>{hotels.map((hotel) => <option key={hotel.id} value={`${hotel.name}, ${hotel.city}`}>{hotel.name} · {formatCurrency(hotel.pricePerNight, locale)}/gece</option>)}</Select></div>
+              <div className="space-y-2"><Label>Transfer</Label><Select name="transferInfo" defaultValue={defaultTransfer?.name}>{transfers.map((transfer) => <option key={transfer.id} value={`${transfer.name}, ${transfer.airportList}`}>{transfer.name} · {formatCurrency(transfer.basePrice, locale)}</option>)}</Select></div>
               <div className="space-y-2"><Label>Havalimanı</Label><Select name="arrivalAirport" defaultValue="IST"><option value="IST">IST</option><option value="SAW">SAW</option></Select></div>
               <div className="space-y-2"><Label>Geliş</Label><Input name="arrivalDate" type="date" /></div>
               <div className="space-y-2"><Label>Dönüş</Label><Input name="departureDate" type="date" /></div>
@@ -152,10 +154,10 @@ export default async function PackageBuilderPage({ searchParams }: { searchParam
               </div>
               <div className="mt-4 grid gap-3 text-sm">
                 <div className="flex justify-between"><span>Tedavi</span><strong>{selectedLead?.interestedTreatment ?? "-"}</strong></div>
-                <div className="flex justify-between"><span>Kaynak</span><strong>{selectedLead ? sourceLabel(selectedLead.sourceChannel) : "-"}</strong></div>
+                <div className="flex justify-between"><span>Kaynak</span><strong>{selectedLead ? sourceLabel(selectedLead.sourceChannel, locale) : "-"}</strong></div>
                 <div className="flex justify-between"><span>Otel</span><strong>{defaultHotel?.name ?? "-"}</strong></div>
                 <div className="flex justify-between"><span>Transfer</span><strong>{defaultTransfer?.name ?? "-"}</strong></div>
-                <div className="flex justify-between border-t pt-3 text-base"><span>Tahmini toplam</span><strong>{formatCurrency(4200 + Number(defaultHotel?.pricePerNight ?? 90) * 4 + Number(defaultTransfer?.basePrice ?? 60) * 2 - 250)}</strong></div>
+                <div className="flex justify-between border-t pt-3 text-base"><span>Tahmini toplam</span><strong>{formatCurrency(4200 + Number(defaultHotel?.pricePerNight ?? 90) * 4 + Number(defaultTransfer?.basePrice ?? 60) * 2 - 250, locale)}</strong></div>
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -180,9 +182,9 @@ export default async function PackageBuilderPage({ searchParams }: { searchParam
                   <TableRow key={item.id}>
                     <TableCell><div className="font-medium">{item.packageTitle}</div><div className="text-xs text-muted-foreground">{items.filter((packageItem) => packageItem.packageId === item.id).length} tedavi kalemi</div></TableCell>
                     <TableCell>{lead?.fullName ?? "-"}</TableCell>
-                    <TableCell>{formatCurrency(item.finalPrice)}</TableCell>
-                    <TableCell><Badge variant={statusTone(item.packageStatus)}>{packageStatusLabel(item.packageStatus)}</Badge></TableCell>
-                    <TableCell>{formatDate(item.validUntil ?? item.createdAt)}</TableCell>
+                    <TableCell>{formatCurrency(item.finalPrice, locale)}</TableCell>
+                    <TableCell><Badge variant={statusTone(item.packageStatus)}>{packageStatusLabel(item.packageStatus, locale)}</Badge></TableCell>
+                    <TableCell>{formatDate(item.validUntil ?? item.createdAt, locale)}</TableCell>
                     <TableCell><Link className={cn(buttonVariants({ variant: "outline", size: "sm" }))} href={`/package/${item.publicToken}`}>Görüntüle</Link></TableCell>
                   </TableRow>
                 );

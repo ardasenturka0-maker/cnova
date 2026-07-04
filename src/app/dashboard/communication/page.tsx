@@ -13,6 +13,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel, type Locale } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { sendMockMessage } from "@/lib/services/notificationService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
@@ -42,12 +44,9 @@ type PatientOption = {
   email?: string | null;
 };
 
-const channelLabels: Record<CommunicationChannel, string> = {
-  WHATSAPP: "WhatsApp",
-  SMS: "SMS",
-  EMAIL: "E-posta",
-  PHONE: "Telefon"
-};
+function channelLabel(channel: CommunicationChannel, locale: Locale) {
+  return statusLabel(channel, locale);
+}
 
 function resultUrl(type: "success" | "error", message: string) {
   return `/dashboard/communication?${type}=${encodeURIComponent(message)}`;
@@ -142,7 +141,7 @@ async function logIncomingMessageAction(formData: FormData) {
   redirect(resultUrl("success", "Gelen mesaj tabloya kaydedildi."));
 }
 
-function CommunicationRows({ logs, emptyText }: { logs: LogWithPatient[]; emptyText: string }) {
+function CommunicationRows({ logs, emptyText, locale }: { logs: LogWithPatient[]; emptyText: string; locale: Locale }) {
   if (!logs.length) {
     return (
       <TableRow>
@@ -157,19 +156,19 @@ function CommunicationRows({ logs, emptyText }: { logs: LogWithPatient[]; emptyT
     <>
       {logs.map((log) => (
         <TableRow key={log.id}>
-          <TableCell className="whitespace-nowrap">{formatDateTime(log.createdAt)}</TableCell>
+          <TableCell className="whitespace-nowrap">{formatDateTime(log.createdAt, locale)}</TableCell>
           <TableCell>
             <div className="font-medium">{personName(log)}</div>
             <div className="text-xs text-muted-foreground">{log.contactValue ?? "-"}</div>
           </TableCell>
-          <TableCell>{channelLabels[log.channel]}</TableCell>
+          <TableCell>{channelLabel(log.channel, locale)}</TableCell>
           <TableCell>
             <div className="font-medium">{log.subject ?? "Konu yok"}</div>
             <div className="text-xs text-muted-foreground">{log.source ?? log.provider ?? "-"}</div>
           </TableCell>
           <TableCell className="max-w-[320px] truncate">{log.message}</TableCell>
           <TableCell>
-            <Badge variant={statusVariant(log.status)}>{log.status}</Badge>
+            <Badge variant={statusVariant(log.status)}>{statusLabel(log.status, locale)}</Badge>
           </TableCell>
           <TableCell>{log.provider ?? "-"}</TableCell>
         </TableRow>
@@ -180,6 +179,7 @@ function CommunicationRows({ logs, emptyText }: { logs: LogWithPatient[]; emptyT
 
 export default async function CommunicationPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [patients, logs] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.communicationLog.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 150 })
@@ -236,7 +236,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Gelen mesaj" value={String(inboundLogs.length)} detail={topSource ? `${topSource[0]} öne çıkıyor` : "Henüz gelen kayıt yok"} icon={Inbox} tone="accent" />
         <StatCard title="Giden mesaj" value={String(outboundLogs.length)} detail={`${outboundLogs.filter((log) => log.status === CommunicationStatus.SENT).length} başarılı gönderim`} icon={Send} tone="success" />
-        <StatCard title="En yoğun kanal" value={topChannel ? channelLabels[topChannel.channel] : "-"} detail={topChannel ? `${topChannel.total} toplam temas` : "Veri yok"} icon={BarChart3} tone="primary" />
+        <StatCard title="En yoğun kanal" value={topChannel ? channelLabel(topChannel.channel, locale) : "-"} detail={topChannel ? `${topChannel.total} toplam temas` : "Veri yok"} icon={BarChart3} tone="primary" />
         <StatCard title="Hasta/kanal görünürlüğü" value={String(patientChannelStats.length)} detail="kişi ve kanal eşleşmesi" icon={Users} tone="warning" />
       </div>
 
@@ -347,7 +347,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <TableBody>
                 {channelStats.map((stat) => (
                   <TableRow key={stat.channel}>
-                    <TableCell>{channelLabels[stat.channel]}</TableCell>
+                    <TableCell>{channelLabel(stat.channel, locale)}</TableCell>
                     <TableCell><Badge className="bg-sky-500/10 text-sky-700 dark:text-sky-300">{stat.inbound}</Badge></TableCell>
                     <TableCell><Badge variant="success">{stat.outbound}</Badge></TableCell>
                     <TableCell className="font-medium">{stat.total}</TableCell>
@@ -372,7 +372,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
                 {patientChannelStats.slice(0, 10).map((stat) => (
                   <TableRow key={`${stat.name}-${stat.channel}`}>
                     <TableCell>{stat.name}</TableCell>
-                    <TableCell>{channelLabels[stat.channel]}</TableCell>
+                    <TableCell>{channelLabel(stat.channel, locale)}</TableCell>
                     <TableCell>{stat.inbound}</TableCell>
                     <TableCell>{stat.outbound}</TableCell>
                     <TableCell className="max-w-[220px] truncate">{stat.lastSubject}</TableCell>
@@ -395,7 +395,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <TableRow><TableHead>Tarih</TableHead><TableHead>Kimden</TableHead><TableHead>Kanal</TableHead><TableHead>Konu / Kaynak</TableHead><TableHead>Mesaj</TableHead><TableHead>Durum</TableHead><TableHead>Kayıt</TableHead></TableRow>
             </TableHeader>
             <TableBody>
-              <CommunicationRows logs={inboundLogs} emptyText="Henüz gelen mesaj kaydı yok." />
+              <CommunicationRows logs={inboundLogs} emptyText="Henüz gelen mesaj kaydı yok." locale={locale} />
             </TableBody>
           </Table>
         </CardContent>
@@ -412,7 +412,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <TableRow><TableHead>Tarih</TableHead><TableHead>Alıcı</TableHead><TableHead>Kanal</TableHead><TableHead>Konu / Kaynak</TableHead><TableHead>Mesaj</TableHead><TableHead>Durum</TableHead><TableHead>Provider</TableHead></TableRow>
             </TableHeader>
             <TableBody>
-              <CommunicationRows logs={outboundLogs} emptyText="Henüz gönderilen mesaj kaydı yok." />
+              <CommunicationRows logs={outboundLogs} emptyText="Henüz gönderilen mesaj kaydı yok." locale={locale} />
             </TableBody>
           </Table>
         </CardContent>

@@ -10,6 +10,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { createPayment, getFinanceOverview } from "@/lib/services/financeService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { paymentSchema } from "@/lib/validations/finance";
@@ -27,6 +29,7 @@ async function createPaymentAction(formData: FormData) {
 
 export default async function PaymentsPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const finance = await getFinanceOverview(session.organizationId);
 
   return (
@@ -54,12 +57,12 @@ export default async function PaymentsPage() {
             <TableBody>
               {finance.payments.map((payment) => (
                 <TableRow key={payment.id}>
-                  <TableCell>{formatDate(payment.paidAt)}</TableCell>
+                  <TableCell>{formatDate(payment.paidAt, locale)}</TableCell>
                   <TableCell>{payment.patient ? `${payment.patient.firstName} ${payment.patient.lastName}` : "Klinik"}</TableCell>
-                  <TableCell>{payment.type}</TableCell>
-                  <TableCell>{payment.method}</TableCell>
-                  <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                  <TableCell><Badge variant={payment.status === "PAID" ? "success" : "warning"}>{payment.status}</Badge></TableCell>
+                  <TableCell>{statusLabel(payment.type, locale)}</TableCell>
+                  <TableCell>{statusLabel(payment.method, locale)}</TableCell>
+                  <TableCell>{formatCurrency(payment.amount, locale)}</TableCell>
+                  <TableCell><Badge variant={payment.status === "PAID" ? "success" : "warning"}>{statusLabel(payment.status, locale)}</Badge></TableCell>
                 </TableRow>
               ))}
             </TableBody>

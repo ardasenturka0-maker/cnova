@@ -12,6 +12,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { consentSchema } from "@/lib/validations/engagement";
 import { formatDateTime } from "@/lib/utils";
@@ -70,6 +72,7 @@ async function sendConsentAction(id: string) {
 
 export default async function ConsentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [patients, consents] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.consent.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 100 })
@@ -105,8 +108,8 @@ export default async function ConsentsPage({ searchParams }: { searchParams: { s
                 <TableRow key={consent.id}>
                   <TableCell>{consent.patient.firstName} {consent.patient.lastName}</TableCell>
                   <TableCell>{consent.templateName}</TableCell>
-                  <TableCell><Badge variant={consent.status === "SIGNED" ? "success" : "muted"}>{consent.status}</Badge></TableCell>
-                  <TableCell>{formatDateTime(consent.timestamp)}</TableCell>
+                  <TableCell><Badge variant={consent.status === "SIGNED" ? "success" : "muted"}>{statusLabel(consent.status, locale)}</Badge></TableCell>
+                  <TableCell>{formatDateTime(consent.timestamp, locale)}</TableCell>
                   <TableCell className="flex justify-end gap-2">
                     <form action={sendConsentAction.bind(null, consent.id)}><Button type="submit" variant="outline" size="sm"><Send className="h-4 w-4" />İmza gönder</Button></form>
                     <Button type="button" variant="outline" size="sm"><Download className="h-4 w-4" />PDF mock</Button>

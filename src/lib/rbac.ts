@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import { roleLabels, type Locale } from "@/lib/i18n";
 
 export type ModuleKey =
   | "dashboard"
@@ -30,15 +31,6 @@ export function canAccess(role: Role, module: ModuleKey) {
   return permissions[role]?.includes(module) ?? false;
 }
 
-export function roleLabel(role: Role) {
-  const labels: Record<Role, string> = {
-    SUPER_ADMIN: "Super Admin",
-    CLINIC_OWNER: "Klinik Sahibi",
-    MANAGER: "Yonetici",
-    DOCTOR: "Hekim",
-    ASSISTANT: "Asistan",
-    ACCOUNTANT: "Muhasebe",
-    RECEPTIONIST: "Resepsiyon"
-  };
-  return labels[role];
+export function roleLabel(role: Role, locale: Locale = "tr") {
+  return roleLabels[locale][role] ?? role;
 }

@@ -11,6 +11,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { deletePatient, getPatientById, updatePatient } from "@/lib/services/patientService";
 import { patientSchema } from "@/lib/validations/patient";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
@@ -33,6 +35,7 @@ async function deletePatientAction(id: string) {
 
 export default async function PatientDetailPage({ params }: { params: { id: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const patient = await getPatientById(session.organizationId, params.id);
 
   if (!patient) {
@@ -43,7 +46,7 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={Users} title={`${patient.firstName} ${patient.lastName}`} description={`${patient.branch.name} · ${patient.phone} · kayıt: ${formatDate(patient.createdAt)}`} />
+      <ModuleHeader icon={Users} title={`${patient.firstName} ${patient.lastName}`} description={`${patient.branch.name} · ${patient.phone} · kayıt: ${formatDate(patient.createdAt, locale)}`} />
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <Card>
           <CardHeader>
@@ -138,7 +141,7 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
             <CardContent className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border bg-background p-3">
                 <p className="text-xs text-muted-foreground">Toplam ödeme</p>
-                <p className="mt-1 text-xl font-semibold">{formatCurrency(totalPaid)}</p>
+                <p className="mt-1 text-xl font-semibold">{formatCurrency(totalPaid, locale)}</p>
               </div>
               <div className="rounded-md border bg-background p-3">
                 <p className="text-xs text-muted-foreground">Randevu</p>
@@ -146,7 +149,7 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
               </div>
               <div className="rounded-md border bg-background p-3">
                 <p className="text-xs text-muted-foreground">Etiket</p>
-                <p className="mt-2"><Badge>{patient.tag}</Badge></p>
+                <p className="mt-2"><Badge>{statusLabel(patient.tag, locale)}</Badge></p>
               </div>
             </CardContent>
           </Card>
@@ -158,7 +161,7 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
                 <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Doktor</TableHead><TableHead>İşlem</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {patient.appointments.slice(0, 6).map((item) => (
-                    <TableRow key={item.id}><TableCell>{formatDateTime(item.startsAt)}</TableCell><TableCell>{item.doctor.name}</TableCell><TableCell>{item.treatmentType}</TableCell><TableCell><Badge variant="muted">{item.status}</Badge></TableCell></TableRow>
+                    <TableRow key={item.id}><TableCell>{formatDateTime(item.startsAt, locale)}</TableCell><TableCell>{item.doctor.name}</TableCell><TableCell>{item.treatmentType}</TableCell><TableCell><Badge variant="muted">{statusLabel(item.status, locale)}</Badge></TableCell></TableRow>
                   ))}
                 </TableBody>
               </Table>
@@ -173,8 +176,8 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
           <CardContent className="space-y-3">
             {patient.treatments.slice(0, 6).map((item) => (
               <div key={item.id} className="rounded-md border bg-background p-3 text-sm">
-                <div className="font-medium">{item.treatmentType} · {formatCurrency(item.fee)}</div>
-                <div className="text-xs text-muted-foreground">{item.doctor.name} · {formatDate(item.performedAt)}</div>
+                <div className="font-medium">{item.treatmentType} · {formatCurrency(item.fee, locale)}</div>
+                <div className="text-xs text-muted-foreground">{item.doctor.name} · {formatDate(item.performedAt, locale)}</div>
               </div>
             ))}
           </CardContent>
@@ -185,7 +188,7 @@ export default async function PatientDetailPage({ params }: { params: { id: stri
             {patient.payments.slice(0, 6).map((item) => (
               <div key={item.id} className="flex justify-between rounded-md border bg-background p-3 text-sm">
                 <span>{item.description ?? item.method}</span>
-                <Badge variant={item.status === "PAID" ? "success" : "warning"}>{formatCurrency(item.amount)}</Badge>
+                <Badge variant={item.status === "PAID" ? "success" : "warning"}>{formatCurrency(item.amount, locale)}</Badge>
               </div>
             ))}
           </CardContent>

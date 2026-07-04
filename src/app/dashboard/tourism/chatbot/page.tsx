@@ -10,6 +10,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { runChatbotTest } from "@/lib/services/ai/tourismChatbotService";
@@ -35,6 +37,7 @@ async function chatTestAction(formData: FormData) {
 
 export default async function ChatbotPage({ searchParams }: { searchParams: { answer?: string; escalate?: string; lead?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [knowledge, conversations, messages, leads] = await Promise.all([
     prisma.chatbotKnowledgeBase.findMany({ where: { organizationId: session.organizationId }, orderBy: { category: "asc" }, take: 100 }),
     prisma.chatConversation.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
@@ -90,10 +93,10 @@ export default async function ChatbotPage({ searchParams }: { searchParams: { an
                 const lastMessage = messages.find((item) => item.conversationId === conversation.id);
                 return (
                   <TableRow key={conversation.id}>
-                    <TableCell>{formatDateTime(conversation.createdAt)}</TableCell>
-                    <TableCell>{conversation.channel}</TableCell>
+                    <TableCell>{formatDateTime(conversation.createdAt, locale)}</TableCell>
+                    <TableCell>{statusLabel(conversation.channel, locale)}</TableCell>
                     <TableCell>{conversation.language}</TableCell>
-                    <TableCell><Badge variant={statusTone(conversation.status)}>{conversation.status}</Badge></TableCell>
+                    <TableCell><Badge variant={statusTone(conversation.status)}>{statusLabel(conversation.status, locale)}</Badge></TableCell>
                     <TableCell>{lead?.fullName ?? "-"}</TableCell>
                     <TableCell className="max-w-[420px] truncate">{lastMessage?.message ?? "-"}</TableCell>
                   </TableRow>

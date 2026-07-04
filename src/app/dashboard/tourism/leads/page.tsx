@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { createOrUpdateLeadFromIntake, markLeadStatus, startFollowUpForLead } from "@/lib/services/tourismService";
@@ -53,6 +54,7 @@ async function startFollowUpAction(leadId: string) {
 
 export default async function TourismLeadsPage({ searchParams }: { searchParams: { q?: string; source?: string; status?: string; country?: string; treatment?: string; success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [leads, users, messages, packages, followUps] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { leadScore: "desc" }, take: 200 }),
     prisma.user.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" }, take: 50 }),
@@ -105,8 +107,8 @@ export default async function TourismLeadsPage({ searchParams }: { searchParams:
         <CardContent>
           <form className="grid gap-3 md:grid-cols-5">
             <div className="relative md:col-span-2"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" name="q" placeholder="Ad, telefon, ülke, tedavi ara" defaultValue={searchParams.q} /></div>
-            <Select name="source" defaultValue={searchParams.source ?? ""}><option value="">Tüm kaynaklar</option>{Object.values(TourismLeadSourceChannel).map((item) => <option key={item} value={item}>{sourceLabel(item)}</option>)}</Select>
-            <Select name="status" defaultValue={searchParams.status ?? ""}><option value="">Tüm durumlar</option>{Object.values(TourismLeadStatus).map((item) => <option key={item} value={item}>{leadStatusLabel(item)}</option>)}</Select>
+            <Select name="source" defaultValue={searchParams.source ?? ""}><option value="">Tüm kaynaklar</option>{Object.values(TourismLeadSourceChannel).map((item) => <option key={item} value={item}>{sourceLabel(item, locale)}</option>)}</Select>
+            <Select name="status" defaultValue={searchParams.status ?? ""}><option value="">Tüm durumlar</option>{Object.values(TourismLeadStatus).map((item) => <option key={item} value={item}>{leadStatusLabel(item, locale)}</option>)}</Select>
             <Button variant="outline" type="submit">Filtrele</Button>
             <Select name="country" defaultValue={searchParams.country ?? ""}><option value="">Tüm ülkeler</option>{countries.map((item) => <option key={item} value={item}>{item}</option>)}</Select>
             <Select name="treatment" defaultValue={searchParams.treatment ?? ""}><option value="">Tüm tedaviler</option>{treatments.map((item) => <option key={item} value={item}>{item}</option>)}</Select>
@@ -128,18 +130,18 @@ export default async function TourismLeadsPage({ searchParams }: { searchParams:
                 return (
                   <TableRow key={lead.id}>
                     <TableCell><div className="font-medium">{lead.fullName}</div><div className="text-xs text-muted-foreground">{lead.country} · {assignedUser?.name ?? "Atanmamış"}</div></TableCell>
-                    <TableCell>{sourceLabel(lead.sourceChannel)}</TableCell>
+                    <TableCell>{sourceLabel(lead.sourceChannel, locale)}</TableCell>
                     <TableCell>{lead.interestedTreatment}</TableCell>
-                    <TableCell><Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus)}</Badge></TableCell>
+                    <TableCell><Badge variant={statusTone(lead.leadStatus)}>{leadStatusLabel(lead.leadStatus, locale)}</Badge></TableCell>
                     <TableCell className="font-semibold">{lead.leadScore}</TableCell>
-                    <TableCell>{formatDate(lead.nextFollowUpAt ?? followUp?.nextRunAt ?? lead.createdAt)}</TableCell>
+                    <TableCell>{formatDate(lead.nextFollowUpAt ?? followUp?.nextRunAt ?? lead.createdAt, locale)}</TableCell>
                     <TableCell><div className="text-xs text-muted-foreground">{leadMessages.length} mesaj · {leadPackages.length} paket</div></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
                         <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/dashboard/tourism/package-builder?leadId=${lead.id}`}><PackagePlus className="h-4 w-4" />Paket</Link>
                         <form action={startFollowUpAction.bind(null, lead.id)}><Button size="sm" variant="outline"><Repeat className="h-4 w-4" />Takip</Button></form>
-                        <form action={setLeadStatusAction.bind(null, lead.id, TourismLeadStatus.BOOKED)}><Button size="sm" variant="outline">Booked</Button></form>
-                        <form action={setLeadStatusAction.bind(null, lead.id, TourismLeadStatus.LOST)}><Button size="sm" variant="ghost">Lost</Button></form>
+                        <form action={setLeadStatusAction.bind(null, lead.id, TourismLeadStatus.BOOKED)}><Button size="sm" variant="outline">{leadStatusLabel(TourismLeadStatus.BOOKED, locale)}</Button></form>
+                        <form action={setLeadStatusAction.bind(null, lead.id, TourismLeadStatus.LOST)}><Button size="sm" variant="ghost">{leadStatusLabel(TourismLeadStatus.LOST, locale)}</Button></form>
                       </div>
                     </TableCell>
                   </TableRow>

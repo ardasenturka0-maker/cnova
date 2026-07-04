@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { runDueFollowUps, startFollowUpForLead } from "@/lib/services/tourismService";
 import { formatDateTime } from "@/lib/utils";
@@ -35,6 +37,7 @@ async function startLeadFollowUpAction(leadId: string) {
 
 export default async function FollowUpsPage({ searchParams }: { searchParams: { success?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [sequences, followUps, leads, messages] = await Promise.all([
     prisma.followUpSequence.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "asc" }, take: 20 }),
     prisma.leadFollowUp.findMany({ where: { organizationId: session.organizationId }, orderBy: { nextRunAt: "asc" }, take: 100 }),
@@ -58,7 +61,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: { 
               return (
                 <div key={followUp.id} className="rounded-md border bg-background p-3">
                   <div className="flex items-center justify-between"><strong>{lead?.fullName ?? followUp.leadId}</strong><Badge variant="warning">Step {followUp.currentStep + 1}</Badge></div>
-                  <p className="mt-1 text-sm text-muted-foreground">{lead?.interestedTreatment ?? "-"} · {formatDateTime(followUp.nextRunAt)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{lead?.interestedTreatment ?? "-"} · {formatDateTime(followUp.nextRunAt, locale)}</p>
                 </div>
               );
             })}
@@ -91,7 +94,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: { 
           <CardContent className="space-y-2">
             {noFollowUpLeads.map((lead) => (
               <div key={lead.id} className="flex items-center justify-between rounded-md border bg-background p-3">
-                <div><p className="text-sm font-medium">{lead.fullName}</p><p className="text-xs text-muted-foreground">{lead.interestedTreatment} · {leadStatusLabel(lead.leadStatus)}</p></div>
+                <div><p className="text-sm font-medium">{lead.fullName}</p><p className="text-xs text-muted-foreground">{lead.interestedTreatment} · {leadStatusLabel(lead.leadStatus, locale)}</p></div>
                 <form action={startLeadFollowUpAction.bind(null, lead.id)}><Button size="sm" variant="outline">Başlat</Button></form>
               </div>
             ))}
@@ -110,10 +113,10 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: { 
                 return (
                   <TableRow key={followUp.id}>
                     <TableCell>{lead?.fullName ?? followUp.leadId}</TableCell>
-                    <TableCell><Badge variant={statusTone(followUp.status)}>{followUp.status}</Badge></TableCell>
+                    <TableCell><Badge variant={statusTone(followUp.status)}>{statusLabel(followUp.status, locale)}</Badge></TableCell>
                     <TableCell>{followUp.currentStep + 1}</TableCell>
-                    <TableCell>{followUp.lastMessageAt ? formatDateTime(followUp.lastMessageAt) : "-"}</TableCell>
-                    <TableCell>{formatDateTime(followUp.nextRunAt)}</TableCell>
+                    <TableCell>{followUp.lastMessageAt ? formatDateTime(followUp.lastMessageAt, locale) : "-"}</TableCell>
+                    <TableCell>{formatDateTime(followUp.nextRunAt, locale)}</TableCell>
                   </TableRow>
                 );
               })}

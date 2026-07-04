@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { gdprNotice, statusTone } from "@/lib/tourism";
 
@@ -58,6 +60,7 @@ async function createCaseAction(formData: FormData) {
 
 export default async function GalleryPage({ searchParams }: { searchParams: { success?: string; treatment?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const cases = await prisma.beforeAfterCase.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 });
   const treatments = [...new Set(cases.map((item) => item.treatmentType))];
   const filtered = searchParams.treatment ? cases.filter((item) => item.treatmentType === searchParams.treatment) : cases;
@@ -102,7 +105,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { su
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <div><CardTitle>{item.title}</CardTitle><CardDescription>{item.treatmentType} · {item.country ?? "-"}</CardDescription></div>
-                <Badge variant={statusTone(item.status)}>{item.status}</Badge>
+                <Badge variant={statusTone(item.status)}>{statusLabel(item.status, locale)}</Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

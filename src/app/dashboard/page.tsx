@@ -7,12 +7,15 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
+import { getLocale } from "@/lib/i18n-server";
 import { getAiAssistantSuggestion } from "@/lib/services/aiAssistantService";
 import { getDashboardMetrics } from "@/lib/services/reportService";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const session = await requireSession();
+  const locale = getLocale();
   const metrics = await getDashboardMetrics(session.organizationId);
   const assistant = await getAiAssistantSuggestion({ topic: "general" });
 
@@ -43,8 +46,8 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Bugünkü randevular" value={String(metrics.todayAppointments.length)} detail={`${metrics.weeklyAppointments} haftalık randevu`} icon={CalendarPlus} />
-        <StatCard title="Aylık gelir" value={formatCurrency(metrics.monthlyRevenue)} detail="Ödenmiş tahsilatlar" icon={WalletCards} tone="success" />
-        <StatCard title="Bekleyen ödemeler" value={formatCurrency(metrics.pendingAmount)} detail="Hasta bazlı açık bakiye" icon={CreditCard} tone="warning" />
+        <StatCard title="Aylık gelir" value={formatCurrency(metrics.monthlyRevenue, locale)} detail="Ödenmiş tahsilatlar" icon={WalletCards} tone="success" />
+        <StatCard title="Bekleyen ödemeler" value={formatCurrency(metrics.pendingAmount, locale)} detail="Hasta bazlı açık bakiye" icon={CreditCard} tone="warning" />
         <StatCard title="Aktif hastalar" value={String(metrics.activePatientCount)} detail={`${metrics.newPatientCount} yeni hasta`} icon={Users} tone="accent" />
       </div>
 
@@ -67,11 +70,11 @@ export default async function DashboardPage() {
               <TableBody>
                 {metrics.todayAppointments.map((appointment) => (
                   <TableRow key={appointment.id}>
-                    <TableCell>{formatDateTime(appointment.startsAt)}</TableCell>
+                    <TableCell>{formatDateTime(appointment.startsAt, locale)}</TableCell>
                     <TableCell>{appointment.patient.firstName} {appointment.patient.lastName}</TableCell>
                     <TableCell>{appointment.doctor.name}</TableCell>
                     <TableCell>{appointment.treatmentType}</TableCell>
-                    <TableCell><Badge variant="muted">{appointment.status}</Badge></TableCell>
+                    <TableCell><Badge variant="muted">{statusLabel(appointment.status, locale)}</Badge></TableCell>
                   </TableRow>
                 ))}
                 {metrics.todayAppointments.length === 0 ? (
@@ -135,13 +138,13 @@ export default async function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Recall listesi</CardTitle>
+            <CardTitle>Takip listesi</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {metrics.recalls.map((recall) => (
               <div key={recall.id} className="rounded-md border bg-background p-3 text-sm">
                 <div className="font-medium">{recall.patient.firstName} {recall.patient.lastName}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{recall.reason} · {formatDateTime(recall.dueDate)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{recall.reason} · {formatDateTime(recall.dueDate, locale)}</div>
               </div>
             ))}
           </CardContent>
@@ -157,7 +160,7 @@ export default async function DashboardPage() {
                   <span className="font-medium">{doctor.name}</span>
                   <Badge variant="success">{doctor.satisfaction}</Badge>
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground">{doctor.appointments} randevu · {doctor.treatments} tedavi · {formatCurrency(doctor.revenue)}</div>
+                <div className="mt-2 text-xs text-muted-foreground">{doctor.appointments} randevu · {doctor.treatments} tedavi · {formatCurrency(doctor.revenue, locale)}</div>
               </div>
             ))}
           </CardContent>

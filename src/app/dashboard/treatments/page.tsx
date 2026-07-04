@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n-server";
 import { buildPaymentPlan, paymentPlanLines, summarizePaymentPlan } from "@/lib/payment-plan";
 import { prisma } from "@/lib/prisma";
 import { treatmentSchema } from "@/lib/validations/treatment";
@@ -77,6 +78,7 @@ async function createTreatmentAction(formData: FormData) {
 
 export default async function TreatmentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
   const session = await requireSession();
+  const locale = getLocale();
   const [treatments, patients, doctors] = await Promise.all([
     prisma.treatment.findMany({
       where: { organizationId: session.organizationId },
@@ -124,11 +126,11 @@ export default async function TreatmentsPage({ searchParams }: { searchParams: {
             <TableBody>
               {treatments.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{formatDate(item.performedAt)}</TableCell>
+                  <TableCell>{formatDate(item.performedAt, locale)}</TableCell>
                   <TableCell>{item.patient ? `${item.patient.firstName} ${item.patient.lastName}` : "Hasta bulunamadı"}</TableCell>
                   <TableCell>{item.doctor?.name ?? "Doktor bulunamadı"}</TableCell>
                   <TableCell>{item.treatmentType} {item.toothNumber ? `#${item.toothNumber}` : ""}</TableCell>
-                  <TableCell>{formatCurrency(item.fee)}</TableCell>
+                  <TableCell>{formatCurrency(item.fee, locale)}</TableCell>
                   <TableCell>
                     <details className="max-w-xs">
                       <summary className="cursor-pointer list-none text-sm font-medium text-primary">{summarizePaymentPlan(item.paymentPlan)}</summary>
@@ -137,7 +139,7 @@ export default async function TreatmentsPage({ searchParams }: { searchParams: {
                       </div>
                     </details>
                   </TableCell>
-                  <TableCell><TreatmentStatusBadge status={item.status} /></TableCell>
+                  <TableCell><TreatmentStatusBadge status={item.status} locale={locale} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>
