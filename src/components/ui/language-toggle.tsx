@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useTransition } from "react";
 import { localeCookieName, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -21,10 +22,36 @@ export function LanguageToggle({
   className?: string;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const changeLockedRef = useRef(false);
+  const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    changeLockedRef.current = false;
+    if (unlockTimerRef.current) {
+      clearTimeout(unlockTimerRef.current);
+      unlockTimerRef.current = null;
+    }
+  }, [locale]);
+
+  useEffect(() => {
+    return () => {
+      if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+    };
+  }, []);
 
   function setLocale(nextLocale: Locale) {
+    if (changeLockedRef.current || isPending || nextLocale === locale) return;
+
+    changeLockedRef.current = true;
+    unlockTimerRef.current = setTimeout(() => {
+      changeLockedRef.current = false;
+      unlockTimerRef.current = null;
+    }, 2000);
     document.cookie = `${localeCookieName}=${nextLocale}; path=/; max-age=31536000; SameSite=Lax`;
-    router.refresh();
+    startTransition(() => {
+      router.refresh();
+    });
   }
 
   return (
@@ -48,6 +75,7 @@ export function LanguageToggle({
               variant === "prominent" ? "h-9 min-w-12 px-3 text-sm" : "h-8 min-w-9 px-2 text-xs",
               locale === language.locale ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
+            disabled={isPending || locale === language.locale}
             aria-pressed={locale === language.locale}
           >
             {language.label}

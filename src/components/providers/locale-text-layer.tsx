@@ -6,6 +6,19 @@ import { clientTextTranslations, type Locale } from "@/lib/i18n";
 const skippedTags = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG", "PATH"]);
 const translatedAttributes = ["placeholder", "aria-label", "title"];
 
+function applyTranslatedText(node: Text, value: string) {
+  if (node.nodeValue !== value) {
+    node.nodeValue = value;
+  }
+}
+
+function applyTranslatedAttribute(element: Element, attribute: string, value: string) {
+  const currentValue = element.getAttribute(attribute);
+  if (currentValue !== value) {
+    element.setAttribute(attribute, value);
+  }
+}
+
 function replacePreservingWhitespace(value: string, translations: Record<string, string>) {
   const trimmed = value.trim();
   const translated = translations[trimmed];
@@ -26,7 +39,7 @@ function translateRoot(root: ParentNode, translations: Record<string, string>) {
   if (root instanceof Element) {
     for (const attribute of translatedAttributes) {
       const value = root.getAttribute(attribute);
-      if (value) root.setAttribute(attribute, replacePreservingWhitespace(value, translations));
+      if (value) applyTranslatedAttribute(root, attribute, replacePreservingWhitespace(value, translations));
     }
   }
 
@@ -45,7 +58,7 @@ function translateRoot(root: ParentNode, translations: Record<string, string>) {
   }
 
   for (const node of nodes) {
-    node.nodeValue = replacePreservingWhitespace(node.nodeValue ?? "", translations);
+    applyTranslatedText(node, replacePreservingWhitespace(node.nodeValue ?? "", translations));
   }
 }
 

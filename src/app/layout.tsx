@@ -7,14 +7,17 @@ import { getLocale } from "@/lib/i18n-server";
 
 export const metadata: Metadata = {
   title: "ClinicNova | Diş Kliniği Yönetim Platformu",
-  description: "Diş klinikleri için hasta, randevu, tedavi, finans, stok ve raporlama yönetimi."
+  description: "Diş klinikleri için hasta, randevu, tedavi, finans, stok ve raporlama yönetimi.",
+  other: {
+    google: "notranslate"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = getLocale();
 
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={locale} className="notranslate" translate="no" suppressHydrationWarning>
       <body>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <WebviewHeartbeat />
