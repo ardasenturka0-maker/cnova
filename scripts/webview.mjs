@@ -1,6 +1,11 @@
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const nextBin = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");
 
 const appPort = Number(process.env.CLINICNOVA_PORT ?? 3000);
 const appHost = "127.0.0.1";
@@ -90,16 +95,31 @@ function shutdown(reason) {
   }
 
   if (nextProcess && !nextProcess.killed) {
-    nextProcess.kill("SIGTERM");
+    // detached:true ile başlatıldığı için tüm süreç grubunu öldür;
+    // tek PID'e sinyal yollamak next-server'ı yetim bırakıyordu.
+    killProcessTree(nextProcess, "SIGTERM");
     setTimeout(() => {
       if (nextProcess && !nextProcess.killed) {
-        nextProcess.kill("SIGKILL");
+        killProcessTree(nextProcess, "SIGKILL");
       }
+      killPort(appPort);
     }, 2500).unref();
   }
 
   monitor.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
+}
+
+function killProcessTree(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // Process may already be gone.
+    }
+  }
 }
 
 const monitor = http.createServer((request, response) => {
@@ -159,10 +179,12 @@ monitor.listen(0, "127.0.0.1", async () => {
   console.log("[webview] ClinicNova penceresi kapanınca dev server otomatik kapanacak.");
 
   nextProcess = spawn(
-    "npm",
-    ["run", "dev", "--", "--hostname", appHost, "--port", String(appPort)],
+    process.execPath,
+    [nextBin, "dev", "--hostname", appHost, "--port", String(appPort)],
     {
+      cwd: projectRoot,
       stdio: "inherit",
+      detached: true,
       env: {
         ...process.env,
         NEXT_PUBLIC_WEBVIEW_MONITOR_URL: monitorUrl

@@ -359,7 +359,6 @@ const englishPhraseTranslations: Record<string, string> = {
   "Açık": "Open",
   "Arandı": "Called",
   "Kapandı": "Closed",
-  "Planlandı": "Scheduled",
   "Kontrol Paneli": "Dashboard",
   "Hastalar": "Patients",
   "Randevular": "Appointments",
@@ -865,6 +864,7 @@ const additionalEnglishPhraseTranslations: Record<string, string> = {
   "Paket oluşturuldu, lead PACKAGE_SENT oldu ve n8n mock tetiklendi.": "Package created, lead became PACKAGE_SENT and n8n mock was triggered.",
   "Paket seçin.": "Select a package.",
   "Plan ekle": "Add plan",
+  "Plan yok": "No plan",
   "Randevu gelmeme": "No-show",
   "Randevu, hasta, tedavi, finans, stok, personel ve iletişim süreçlerinizi modern bir bulut sistemiyle merkezileştirin.": "Centralize appointment, patient, treatment, finance, stock, staff and communication workflows with a modern cloud system.",
   "Satış temsilcisi sahiplenir": "Sales representative takes ownership",
@@ -962,12 +962,23 @@ const additionalEnglishPhraseTranslations: Record<string, string> = {
 };
 
 function reverseTranslations(source: Record<string, string>, target: Record<string, string>) {
-  return Object.fromEntries(
-    Object.entries(source)
-      .map(([key, label]) => [label, target[key]])
-      .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1]))
-  );
+  const result: Record<string, string> = {};
+  for (const [key, label] of Object.entries(source)) {
+    const translated = target[key];
+    if (!label || !translated) continue;
+    // Aynı etiket birden çok anahtara eşleşiyorsa ilk eşleme kazanır;
+    // belirsiz etiketler ambiguousTurkishLabelOverrides ile sabitlenir.
+    if (!(label in result)) result[label] = translated;
+  }
+  return result;
 }
+
+const ambiguousTurkishLabelOverrides: Record<string, string> = {
+  "Planlandı": "Scheduled",
+  "Onaylandı": "Confirmed",
+  "Reddedildi": "Rejected",
+  "Tamamlandı": "Completed"
+};
 
 function invertTranslations(source: Record<string, string>) {
   return Object.fromEntries(Object.entries(source).map(([key, value]) => [value, key]));
@@ -979,7 +990,8 @@ function displayTextTranslations(locale: Locale) {
       ...reverseTranslations(statusLabels.tr, statusLabels.en),
       ...reverseTranslations(roleLabels.tr, roleLabels.en),
       ...reverseTranslations(dashboardNavLabels.tr, dashboardNavLabels.en),
-      ...reverseTranslations(shellText.tr, shellText.en)
+      ...reverseTranslations(shellText.tr, shellText.en),
+      ...ambiguousTurkishLabelOverrides
     };
   }
 
@@ -1009,7 +1021,12 @@ const englishPatternTranslations: Array<[RegExp, (...matches: string[]) => strin
   [/^(.+) gün$/, (_match, day) => `${day} days`],
   [/^geçerlilik (.+)$/, (_match, date) => `valid until ${date}`],
   [/^Ağrı seviyesi (.+)$/, (_match, level) => `Pain level ${level}`],
-  [/^Puan: (.+)$/, (_match, score) => `Score: ${score}`]
+  [/^Puan: (.+)$/, (_match, score) => `Score: ${score}`],
+  [/^Tek ödeme · (.+)$/, (_match, total) => `One-time payment · ${total}`],
+  [/^(.+) peşinat · (\d+) taksit · İlk: (.+)$/, (_match, down, count, first) => `${down} down payment · ${count} installments · First: ${first}`],
+  [/^(\d+) taksit · İlk: (.+)$/, (_match, count, first) => `${count} installments · First: ${first}`],
+  [/^Peşinat: (.+)$/, (_match, amount) => `Down payment: ${amount}`],
+  [/^(\d+)\. taksit: (.+)$/, (_match, number, rest) => `Installment ${number}: ${rest}`]
 ];
 
 const turkishPatternTranslations: Array<[RegExp, (...matches: string[]) => string]> = [
@@ -1018,7 +1035,12 @@ const turkishPatternTranslations: Array<[RegExp, (...matches: string[]) => strin
   [/^(\d+) total contacts$/, (_match, count) => `${count} toplam temas`],
   [/^(\d+) person\/channel matches$/, (_match, count) => `${count} kişi ve kanal eşleşmesi`],
   [/^(\d+) packages created$/, (_match, count) => `${count} paket üretildi`],
-  [/^(\d+) leads converted to sales$/, (_match, count) => `${count} lead satışa döndü`]
+  [/^(\d+) leads converted to sales$/, (_match, count) => `${count} lead satışa döndü`],
+  [/^One-time payment · (.+)$/, (_match, total) => `Tek ödeme · ${total}`],
+  [/^(.+) down payment · (\d+) installments · First: (.+)$/, (_match, down, count, first) => `${down} peşinat · ${count} taksit · İlk: ${first}`],
+  [/^(\d+) installments · First: (.+)$/, (_match, count, first) => `${count} taksit · İlk: ${first}`],
+  [/^Down payment: (.+)$/, (_match, amount) => `Peşinat: ${amount}`],
+  [/^Installment (\d+): (.+)$/, (_match, number, rest) => `${number}. taksit: ${rest}`]
 ];
 
 export function translateText(value: string, locale: Locale) {

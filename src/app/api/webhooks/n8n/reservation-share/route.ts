@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { shareReservation } from "@/lib/services/tourismService";
 import { reservationShareSchema } from "@/lib/validations/tourism";
+import { isWebhookRequestAuthorized } from "@/lib/webhook-auth";
 
 export async function POST(request: Request) {
+  if (!isWebhookRequestAuthorized(request)) {
+    return NextResponse.json({ ok: false, error: "Yetkisiz istek." }, { status: 401 });
+  }
+
   try {
     const payload = reservationShareSchema.parse(await request.json());
     const tourismPackage = await prisma.tourismPackage.findFirst({ where: { id: payload.packageId } });

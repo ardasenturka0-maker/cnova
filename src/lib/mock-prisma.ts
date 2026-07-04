@@ -920,39 +920,55 @@ function model(data: any[], rich = (item: any) => item) {
       return data.filter((item) => matchesWhere(item, args?.where)).length;
     },
     async create(args?: any) {
-      const item = { id: id("demo", data.length + 1), ...args?.data, createdAt: now, updatedAt: now };
+      const createdAt = new Date();
+      const item = { id: id("demo", data.length + 1), ...args?.data, createdAt, updatedAt: createdAt };
       data.unshift(item);
       return rich(item);
     },
     async createMany(args?: any) {
       const items = Array.isArray(args?.data) ? args.data : [];
-      items.forEach((entry: any, index: number) => data.unshift({ id: id("demo", data.length + index + 1), ...entry, createdAt: now, updatedAt: now }));
+      const createdAt = new Date();
+      items.forEach((entry: any, index: number) => data.unshift({ id: id("demo", data.length + index + 1), ...entry, createdAt, updatedAt: createdAt }));
       return { count: items.length };
     },
     async update(args?: any) {
       const item = data.find((entry) => matchesWhere(entry, args?.where));
-      if (item) Object.assign(item, args?.data, { updatedAt: now });
+      if (item) Object.assign(item, args?.data, { updatedAt: new Date() });
       return rich(item ?? data[0]);
     },
     async updateMany(args?: any) {
       let count = 0;
+      const updatedAt = new Date();
       data.forEach((item) => {
         if (matchesWhere(item, args?.where)) {
-          Object.assign(item, args?.data, { updatedAt: now });
+          Object.assign(item, args?.data, { updatedAt });
           count += 1;
         }
       });
       return { count };
     },
     async deleteMany(args?: any) {
-      return { count: data.filter((item) => matchesWhere(item, args?.where)).length };
+      let count = 0;
+      for (let index = data.length - 1; index >= 0; index -= 1) {
+        if (matchesWhere(data[index], args?.where)) {
+          data.splice(index, 1);
+          count += 1;
+        }
+      }
+      return { count };
     },
     async aggregate(args?: any) {
       const filtered = data.filter((item) => matchesWhere(item, args?.where));
-      return {
-        _sum: { amount: filtered.reduce((sum, item) => sum + Number(item.amount ?? 0), 0) },
-        _avg: { score: filtered.length ? filtered.reduce((sum, item) => sum + Number(item.score ?? 0), 0) / filtered.length : null }
-      };
+      const sumFields = Object.keys(args?._sum ?? { amount: true });
+      const avgFields = Object.keys(args?._avg ?? { score: true });
+      const result: { _sum: Record<string, number>; _avg: Record<string, number | null> } = { _sum: {}, _avg: {} };
+      sumFields.forEach((field) => {
+        result._sum[field] = filtered.reduce((sum, item) => sum + Number(item[field] ?? 0), 0);
+      });
+      avgFields.forEach((field) => {
+        result._avg[field] = filtered.length ? filtered.reduce((sum, item) => sum + Number(item[field] ?? 0), 0) / filtered.length : null;
+      });
+      return result;
     }
   };
 }

@@ -1,15 +1,10 @@
 import { jwtVerify } from "jose";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-
-const cookieName = "clinicnova_session";
-
-function secret() {
-  return new TextEncoder().encode(process.env.AUTH_SECRET ?? "development-secret-change-me-please-32-chars");
-}
+import { authCookieName, getAuthSecret } from "@/lib/auth-config";
 
 export async function middleware(request: NextRequest) {
-  const token = request.cookies.get(cookieName)?.value;
+  const token = request.cookies.get(authCookieName)?.value;
 
   if (!token) {
     const loginUrl = new URL("/login", request.url);
@@ -18,7 +13,7 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, secret());
+    await jwtVerify(token, getAuthSecret());
     return NextResponse.next();
   } catch {
     const loginUrl = new URL("/login", request.url);

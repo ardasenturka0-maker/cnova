@@ -5,10 +5,11 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
+import { authCookieName, getAuthSecret } from "@/lib/auth-config";
 import { isDemoMode } from "@/lib/demo-mode";
 import { prisma } from "@/lib/prisma";
 
-export const authCookieName = "clinicnova_session";
+export { authCookieName };
 
 export type AuthSession = {
   userId: string;
@@ -18,11 +19,6 @@ export type AuthSession = {
   organizationId: string;
   branchId: string | null;
 };
-
-function getSecret() {
-  const secret = process.env.AUTH_SECRET ?? "development-secret-change-me-please-32-chars";
-  return new TextEncoder().encode(secret);
-}
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
@@ -37,12 +33,12 @@ export async function createSessionToken(session: AuthSession) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("8h")
-    .sign(getSecret());
+    .sign(getAuthSecret());
 }
 
 export async function verifySessionToken(token: string): Promise<AuthSession | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getAuthSecret());
     return payload as AuthSession;
   } catch {
     return null;
