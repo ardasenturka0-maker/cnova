@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireSession } from "@/lib/auth";
-import { statusLabel, type Locale } from "@/lib/i18n";
+import { statusLabel, translateText, type Locale } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { sendMockMessage } from "@/lib/services/notificationService";
@@ -56,6 +56,10 @@ function personName(log: LogWithPatient) {
   if (log.patient) return `${log.patient.firstName} ${log.patient.lastName}`;
   if (log.contactName) return log.contactName;
   return "Genel";
+}
+
+function localizedPersonName(log: LogWithPatient, locale: Locale) {
+  return translateText(personName(log), locale);
 }
 
 function statusVariant(status: CommunicationStatus) {
@@ -158,15 +162,15 @@ function CommunicationRows({ logs, emptyText, locale }: { logs: LogWithPatient[]
         <TableRow key={log.id}>
           <TableCell className="whitespace-nowrap">{formatDateTime(log.createdAt, locale)}</TableCell>
           <TableCell>
-            <div className="font-medium">{personName(log)}</div>
+            <div className="font-medium">{localizedPersonName(log, locale)}</div>
             <div className="text-xs text-muted-foreground">{log.contactValue ?? "-"}</div>
           </TableCell>
           <TableCell>{channelLabel(log.channel, locale)}</TableCell>
           <TableCell>
-            <div className="font-medium">{log.subject ?? "Konu yok"}</div>
-            <div className="text-xs text-muted-foreground">{log.source ?? log.provider ?? "-"}</div>
+            <div className="font-medium">{translateText(log.subject ?? "Konu yok", locale)}</div>
+            <div className="text-xs text-muted-foreground">{log.source ?? log.provider ? translateText(log.source ?? log.provider ?? "-", locale) : "-"}</div>
           </TableCell>
-          <TableCell className="max-w-[320px] truncate">{log.message}</TableCell>
+          <TableCell className="max-w-[320px] truncate">{translateText(log.message, locale)}</TableCell>
           <TableCell>
             <Badge variant={statusVariant(log.status)}>{statusLabel(log.status, locale)}</Badge>
           </TableCell>
@@ -225,19 +229,20 @@ export default async function CommunicationPage({ searchParams }: { searchParams
       return acc;
     }, {})
   ).sort((a, b) => b.inbound + b.outbound - (a.inbound + a.outbound));
+  const t = (value: string) => translateText(value, locale);
 
   return (
     <div className="space-y-6">
       <ModuleHeader icon={MessageSquare} title="İletişim" description="Giden mesajlar, gelen hasta dönüşleri, kanal kırılımı ve görünürlük istatistikleri." />
 
-      {searchParams.success ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">{searchParams.success}</div> : null}
-      {searchParams.error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">{searchParams.error}</div> : null}
+      {searchParams.success ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">{t(searchParams.success)}</div> : null}
+      {searchParams.error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">{t(searchParams.error)}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Gelen mesaj" value={String(inboundLogs.length)} detail={topSource ? `${topSource[0]} öne çıkıyor` : "Henüz gelen kayıt yok"} icon={Inbox} tone="accent" />
-        <StatCard title="Giden mesaj" value={String(outboundLogs.length)} detail={`${outboundLogs.filter((log) => log.status === CommunicationStatus.SENT).length} başarılı gönderim`} icon={Send} tone="success" />
-        <StatCard title="En yoğun kanal" value={topChannel ? channelLabel(topChannel.channel, locale) : "-"} detail={topChannel ? `${topChannel.total} toplam temas` : "Veri yok"} icon={BarChart3} tone="primary" />
-        <StatCard title="Hasta/kanal görünürlüğü" value={String(patientChannelStats.length)} detail="kişi ve kanal eşleşmesi" icon={Users} tone="warning" />
+        <StatCard title="Gelen mesaj" value={String(inboundLogs.length)} detail={topSource ? t(`${topSource[0]} öne çıkıyor`) : t("Henüz gelen kayıt yok")} icon={Inbox} tone="accent" />
+        <StatCard title="Giden mesaj" value={String(outboundLogs.length)} detail={t(`${outboundLogs.filter((log) => log.status === CommunicationStatus.SENT).length} başarılı gönderim`)} icon={Send} tone="success" />
+        <StatCard title="En yoğun kanal" value={topChannel ? channelLabel(topChannel.channel, locale) : "-"} detail={topChannel ? t(`${topChannel.total} toplam temas`) : t("Veri yok")} icon={BarChart3} tone="primary" />
+        <StatCard title="Hasta/kanal görünürlüğü" value={String(patientChannelStats.length)} detail={t(`${patientChannelStats.length} kişi ve kanal eşleşmesi`)} icon={Users} tone="warning" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -251,7 +256,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <div className="space-y-2">
                 <Label>Hasta</Label>
                 <Select name="patientId">
-                  <option value="">Genel</option>
+                  <option value="">{t("Genel")}</option>
                   {typedPatients.map((patient) => (
                     <option key={patient.id} value={patient.id}>{patient.firstName} {patient.lastName}</option>
                   ))}
@@ -271,11 +276,11 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               </div>
               <div className="space-y-2">
                 <Label>Konu</Label>
-                <Input name="subject" defaultValue="Klinik bilgilendirmesi" />
+                <Input name="subject" defaultValue={t("Klinik bilgilendirmesi")} />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Mesaj</Label>
-                <Textarea name="message" defaultValue="ClinicNova bilgilendirme mesajı." />
+                <Textarea name="message" defaultValue={t("ClinicNova bilgilendirme mesajı.")} />
               </div>
               <Button className="w-fit md:col-span-2" type="submit"><ArrowUpRight className="h-4 w-4" />Mock Gönder</Button>
             </form>
@@ -292,7 +297,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <div className="space-y-2">
                 <Label>Hasta</Label>
                 <Select name="patientId">
-                  <option value="">Bilinmeyen kişi</option>
+                  <option value="">{t("Bilinmeyen kişi")}</option>
                   {typedPatients.map((patient) => (
                     <option key={patient.id} value={patient.id}>{patient.firstName} {patient.lastName}</option>
                   ))}
@@ -300,7 +305,7 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               </div>
               <div className="space-y-2">
                 <Label>Kimden</Label>
-                <Input name="contactName" placeholder="Ad soyad" />
+                <Input name="contactName" placeholder={t("Ad soyad")} />
               </div>
               <div className="space-y-2">
                 <Label>İletişim bilgisi</Label>
@@ -317,15 +322,15 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               </div>
               <div className="space-y-2">
                 <Label>Nereden geldi</Label>
-                <Input name="source" defaultValue="Hasta yanıtı" placeholder="WhatsApp yanıtı, telefon araması..." />
+                <Input name="source" defaultValue={t("Hasta yanıtı")} placeholder={t("WhatsApp yanıtı, telefon araması...")} />
               </div>
               <div className="space-y-2">
                 <Label>Konu</Label>
-                <Input name="subject" placeholder="Randevu değişikliği, ödeme sorusu..." required />
+                <Input name="subject" placeholder={t("Randevu değişikliği, ödeme sorusu...")} required />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Mesaj</Label>
-                <Textarea name="message" placeholder="Gelen mesaj veya görüşme notu" required />
+                <Textarea name="message" placeholder={t("Gelen mesaj veya görüşme notu")} required />
               </div>
               <Button className="w-fit md:col-span-2" type="submit"><ArrowDownLeft className="h-4 w-4" />Geleni Kaydet</Button>
             </form>
@@ -371,11 +376,11 @@ export default async function CommunicationPage({ searchParams }: { searchParams
               <TableBody>
                 {patientChannelStats.slice(0, 10).map((stat) => (
                   <TableRow key={`${stat.name}-${stat.channel}`}>
-                    <TableCell>{stat.name}</TableCell>
+                    <TableCell>{t(stat.name)}</TableCell>
                     <TableCell>{channelLabel(stat.channel, locale)}</TableCell>
                     <TableCell>{stat.inbound}</TableCell>
                     <TableCell>{stat.outbound}</TableCell>
-                    <TableCell className="max-w-[220px] truncate">{stat.lastSubject}</TableCell>
+                    <TableCell className="max-w-[220px] truncate">{t(stat.lastSubject)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

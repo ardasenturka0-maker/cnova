@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
-import { clientTextTranslations, type Locale } from "@/lib/i18n";
+import { translateText, type Locale } from "@/lib/i18n";
 
 const skippedTags = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG", "PATH"]);
 const translatedAttributes = ["placeholder", "aria-label", "title"];
+const skippedSelectors = [
+  "[data-no-translate]",
+  "nextjs-portal",
+  "[data-nextjs-dialog-overlay]",
+  "[data-nextjs-toast]",
+  "[data-nextjs-portal]"
+].join(",");
 
 function applyTranslatedText(node: Text, value: string) {
   if (node.nodeValue !== value) {
@@ -19,10 +26,10 @@ function applyTranslatedAttribute(element: Element, attribute: string, value: st
   }
 }
 
-function replacePreservingWhitespace(value: string, translations: Record<string, string>) {
+function replacePreservingWhitespace(value: string, locale: Locale) {
   const trimmed = value.trim();
-  const translated = translations[trimmed];
-  if (!translated) return value;
+  const translated = translateText(trimmed, locale);
+  if (translated === trimmed) return value;
 
   const leading = value.match(/^\s*/)?.[0] ?? "";
   const trailing = value.match(/\s*$/)?.[0] ?? "";
@@ -30,17 +37,22 @@ function replacePreservingWhitespace(value: string, translations: Record<string,
 }
 
 function shouldSkipElement(element: Element) {
-  return skippedTags.has(element.tagName) || element.closest("[data-no-translate]") !== null;
+  return skippedTags.has(element.tagName) || element.closest(skippedSelectors) !== null;
 }
 
-function translateRoot(root: ParentNode, translations: Record<string, string>) {
+function translateRoot(root: Node, locale: Locale) {
   if (root instanceof Element && shouldSkipElement(root)) return;
 
   if (root instanceof Element) {
     for (const attribute of translatedAttributes) {
       const value = root.getAttribute(attribute);
-      if (value) applyTranslatedAttribute(root, attribute, replacePreservingWhitespace(value, translations));
+      if (value) applyTranslatedAttribute(root, attribute, replacePreservingWhitespace(value, locale));
     }
+  }
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    applyTranslatedText(root as Text, replacePreservingWhitespace(root.nodeValue ?? "", locale));
+    return;
   }
 
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -58,39 +70,78 @@ function translateRoot(root: ParentNode, translations: Record<string, string>) {
   }
 
   for (const node of nodes) {
-    applyTranslatedText(node, replacePreservingWhitespace(node.nodeValue ?? "", translations));
+    applyTranslatedText(node, replacePreservingWhitespace(node.nodeValue ?? "", locale));
   }
 }
 
 export function LocaleTextLayer({ locale }: { locale: Locale }) {
   useEffect(() => {
-    const translations = clientTextTranslations(locale);
-    translateRoot(document.body, translations);
+    let observer: MutationObserver | null = null;
+    let cancelled = false;
+    let idleHandle: number | null = null;
 
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === "childList") {
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
-              translateRoot(node as ParentNode, translations);
-            }
-          });
+    function startTranslationLayer() {
+      if (cancelled) return;
+
+      translateRoot(document.body, locale);
+
+      observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === "childList") {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
+                translateRoot(node, locale);
+              }
+            });
+          }
+
+          if (mutation.type === "attributes" && mutation.target instanceof Element) {
+            translateRoot(mutation.target, locale);
+          }
+
+          if (mutation.type === "characterData") {
+            translateRoot(mutation.target, locale);
+          }
         }
+      });
 
-        if (mutation.type === "attributes" && mutation.target instanceof Element) {
-          translateRoot(mutation.target, translations);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: translatedAttributes
+      });
+    }
+
+    const timeout = window.setTimeout(() => {
+      const idleWindow = window as Window & {
+        requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      };
+
+      if (idleWindow.requestIdleCallback) {
+        idleHandle = idleWindow.requestIdleCallback(startTranslationLayer, { timeout: 1000 });
+      } else {
+        startTranslationLayer();
+      }
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+
+      if (idleHandle !== null) {
+        const idleWindow = window as Window & {
+          cancelIdleCallback?: (handle: number) => void;
+        };
+
+        if (idleWindow.cancelIdleCallback) {
+          idleWindow.cancelIdleCallback(idleHandle);
         }
       }
-    });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: translatedAttributes
-    });
-
-    return () => observer.disconnect();
+      observer?.disconnect();
+    };
   }, [locale]);
 
   return null;
