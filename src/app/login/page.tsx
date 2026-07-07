@@ -22,6 +22,12 @@ export default function LoginPage({ searchParams }: { searchParams: { next?: str
                 Klinik oluştur
               </Link>
             </p>
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              Hasta mısınız?{" "}
+              <Link className="font-medium text-primary" href="/portal/login">
+                Hasta portalı girişi
+              </Link>
+            </p>
           </CardContent>
         </Card>
       </main>
