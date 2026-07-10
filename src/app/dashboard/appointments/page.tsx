@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { BellRing, CalendarDays, Check, Send, UserRound, X } from "lucide-react";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,36 +21,67 @@ import { appointmentSchema } from "@/lib/validations/appointment";
 import { formatDateTime } from "@/lib/utils";
 import { CommunicationChannel } from "@prisma/client";
 
+function resultUrl(type: "success" | "error", message: string) {
+  return `/dashboard/appointments?${type}=${encodeURIComponent(message)}`;
+}
+
+function actionErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 async function createAppointmentAction(formData: FormData) {
   "use server";
   const session = await requireSession();
-  const payload = appointmentSchema.parse(Object.fromEntries(formData));
-  await createAppointment(session.organizationId, payload);
+  const parsed = appointmentSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirect(resultUrl("error", parsed.error.issues[0]?.message ?? "Randevu formu geçersiz."));
+  }
+
+  try {
+    await createAppointment(session.organizationId, parsed.data);
+  } catch (error) {
+    redirect(resultUrl("error", actionErrorMessage(error, "Randevu oluşturulamadı. Lütfen bilgileri kontrol edip tekrar deneyin.")));
+  }
+
   revalidatePath("/dashboard/appointments");
+  redirect(resultUrl("success", "Randevu oluşturuldu."));
 }
 
 async function resolveRequestAction(appointmentId: string, decision: "approve" | "reject") {
   "use server";
   const session = await requireSession();
-  await resolvePortalAppointmentRequest(session.organizationId, appointmentId, decision);
+  try {
+    await resolvePortalAppointmentRequest(session.organizationId, appointmentId, decision);
+  } catch (error) {
+    redirect(resultUrl("error", actionErrorMessage(error, "Portal talebi güncellenemedi.")));
+  }
+
   revalidatePath("/dashboard/appointments");
   revalidatePath("/portal/appointments");
   revalidatePath("/portal");
+  redirect(resultUrl("success", decision === "approve" ? "Portal randevu talebi onaylandı." : "Portal randevu talebi reddedildi."));
 }
 
 async function sendReminderAction(patientId: string, phone: string) {
   "use server";
   const session = await requireSession();
   const branchId = await getWritableBranchId(session);
-  await sendMockMessage({
-    organizationId: session.organizationId,
-    branchId,
-    patientId,
-    to: phone,
-    message: "ClinicNova randevu hatırlatma: yaklaşan randevunuz için sizi bekliyoruz.",
-    channel: CommunicationChannel.WHATSAPP
-  });
+  try {
+    await sendMockMessage({
+      organizationId: session.organizationId,
+      branchId,
+      patientId,
+      to: phone,
+      message: "ClinicNova randevu hatırlatma: yaklaşan randevunuz için sizi bekliyoruz.",
+      channel: CommunicationChannel.WHATSAPP
+    });
+  } catch (error) {
+    redirect(resultUrl("error", actionErrorMessage(error, "Hatırlatma gönderilemedi.")));
+  }
+
   revalidatePath("/dashboard/communication");
+  redirect(resultUrl("success", "Randevu hatırlatması mock olarak gönderildi."));
 }
 
 function startOfDay(date: Date) {
@@ -58,7 +90,7 @@ function startOfDay(date: Date) {
   return next;
 }
 
-export default async function AppointmentsPage() {
+export default async function AppointmentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
   const session = await requireSession();
   const locale = getLocale();
   const [appointments, options, portalRequests] = await Promise.all([
@@ -76,6 +108,13 @@ export default async function AppointmentsPage() {
   return (
     <div className="space-y-6">
       <ModuleHeader icon={CalendarDays} title="Randevu Modülü" description="Takvim, liste, günlük/haftalık görünüm, doktor müsaitliği ve mock hatırlatma." />
+
+      {searchParams.success ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">{searchParams.success}</div>
+      ) : null}
+      {searchParams.error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{searchParams.error}</div>
+      ) : null}
 
       {portalRequests.length > 0 ? (
         <Card className="border-amber-300/60">
