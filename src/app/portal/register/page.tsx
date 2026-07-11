@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { createPatientSessionToken, patientCookieName } from "@/lib/patient-auth";
 import { registerPortalPatient } from "@/lib/services/portalService";
 import { portalRegisterSchema } from "@/lib/validations/portal";
@@ -31,10 +32,12 @@ async function patientRegisterAction(formData: FormData) {
     branchId: result.patient.branchId
   });
 
-  cookies().set(patientCookieName, token, {
+  const cookieStore = await cookies();
+  cookieStore.set(patientCookieName, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
+    priority: "high",
     path: "/",
     maxAge: 60 * 60 * 24 * 30
   });
@@ -47,7 +50,8 @@ const errors: Record<string, string> = {
   exists: "Bu telefon numarasıyla zaten bir kayıt var. Giriş yapabilirsiniz."
 };
 
-export default function PortalRegisterPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function PortalRegisterPage(props: { searchParams: Promise<{ error?: string }> }) {
+  const searchParams = await props.searchParams;
   const error = searchParams.error ? errors[searchParams.error] : null;
 
   return (

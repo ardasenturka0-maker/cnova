@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { isDemoMode } from "@/lib/demo-mode";
 import {
   createPatientSessionToken,
@@ -34,10 +35,12 @@ async function patientLoginAction(formData: FormData) {
     branchId: patient.branchId
   });
 
-  cookies().set(patientCookieName, token, {
+  const cookieStore = await cookies();
+  cookieStore.set(patientCookieName, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
+    priority: "high",
     path: "/",
     maxAge: 60 * 60 * 24 * 30
   });
@@ -45,7 +48,8 @@ async function patientLoginAction(formData: FormData) {
   redirect("/portal");
 }
 
-export default function PortalLoginPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function PortalLoginPage(props: { searchParams: Promise<{ error?: string }> }) {
+  const searchParams = await props.searchParams;
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-4">

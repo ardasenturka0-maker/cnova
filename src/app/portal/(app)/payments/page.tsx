@@ -9,7 +9,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function PortalPaymentsPage() {
   const session = await requirePatientSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const { payments, paidTotal, pendingTotal, upcoming } = await getPatientPayments(session);
 
   return (

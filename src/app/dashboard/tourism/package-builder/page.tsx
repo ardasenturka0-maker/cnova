@@ -95,9 +95,12 @@ async function createPackageAction(formData: FormData) {
   redirect(resultUrl("success", "Paket oluşturuldu, lead PACKAGE_SENT oldu ve n8n mock tetiklendi."));
 }
 
-export default async function PackageBuilderPage({ searchParams }: { searchParams: { leadId?: string; success?: string; error?: string } }) {
+export default async function PackageBuilderPage(
+  props: { searchParams: Promise<{ leadId?: string; success?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [leads, packages, items, hotels, transfers] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { leadScore: "desc" }, take: 100 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),

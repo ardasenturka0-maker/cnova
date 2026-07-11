@@ -24,7 +24,7 @@ async function saveHealthInfoAction(formData: FormData) {
 
 export default async function PortalHomePage() {
   const session = await requirePatientSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const overview = await getPortalOverview(session);
 
   return (

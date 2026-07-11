@@ -14,7 +14,7 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function FinancePage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const finance = await getFinanceOverview(session.organizationId);
 
   return (

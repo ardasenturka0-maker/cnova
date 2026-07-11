@@ -38,9 +38,10 @@ async function sendCareMessageAction(id: string) {
   redirect(resultUrl("Tedavi sonrası bakım mesajı mock gönderildi."));
 }
 
-export default async function PostTreatmentPage({ searchParams }: { searchParams: { success?: string } }) {
+export default async function PostTreatmentPage(props: { searchParams: Promise<{ success?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [followUps, patients, packages] = await Promise.all([
     prisma.postTreatmentFollowUp.findMany({ where: { organizationId: session.organizationId }, orderBy: { nextMessageAt: "asc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),

@@ -18,9 +18,10 @@ function tagVariant(tag: string): "success" | "danger" | "warning" | "muted" {
   return "muted";
 }
 
-export default async function PatientsPage({ searchParams }: { searchParams: { q?: string } }) {
+export default async function PatientsPage(props: { searchParams: Promise<{ q?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const patients = await getPatients(session.organizationId, searchParams.q);
 
   return (

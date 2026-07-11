@@ -40,9 +40,10 @@ async function sendReviewAction(id: string) {
   redirect(resultUrl("Yorum isteği mock olarak gönderildi."));
 }
 
-export default async function ReviewsPage({ searchParams }: { searchParams: { success?: string } }) {
+export default async function ReviewsPage(props: { searchParams: Promise<{ success?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [requests, patients] = await Promise.all([
     prisma.reviewRequest.findMany({ where: { organizationId: session.organizationId }, orderBy: { scheduledAt: "asc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 })

@@ -49,9 +49,9 @@ export const dashboardNavLabels: Record<Locale, Record<string, string>> = {
 export const shellText = {
   tr: {
     clinicOs: "Klinik OS",
-    mockIntegration: "Mock entegrasyon",
+    mockIntegration: "Entegrasyon merkezi",
     active: "Aktif",
-    integrationDetail: "SMS, WhatsApp, POS, e-Fatura adapterleri hazır.",
+    integrationDetail: "Sağlayıcı adaptörleri ve işlem logları hazır.",
     searchPlaceholder: "Hasta, randevu, ödeme veya tedavi ara",
     notifications: "Bildirimler",
     logout: "Çıkış",
@@ -63,9 +63,9 @@ export const shellText = {
   },
   en: {
     clinicOs: "Clinic OS",
-    mockIntegration: "Mock integration",
+    mockIntegration: "Integration center",
     active: "Active",
-    integrationDetail: "SMS, WhatsApp, POS and e-Invoice adapters are ready.",
+    integrationDetail: "Provider adapters and delivery logs are ready.",
     searchPlaceholder: "Search patient, appointment, payment or treatment",
     notifications: "Notifications",
     logout: "Log out",

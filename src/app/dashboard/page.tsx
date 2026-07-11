@@ -1,4 +1,4 @@
-import { CalendarPlus, Clock, CreditCard, MessageSquare, Sparkles, Stethoscope, UserPlus, Users, WalletCards } from "lucide-react";
+import { ArrowUpRight, CalendarPlus, CircleDollarSign, Clock, CreditCard, MessageSquare, Plane, Sparkles, Stethoscope, UserPlus, Users, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -23,7 +23,7 @@ const statusTones: Record<string, "default" | "success" | "warning" | "danger" |
 
 export default async function DashboardPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const metrics = await getDashboardMetrics(session.organizationId);
   const assistant = await getAiAssistantSuggestion({ topic: "general" });
 
@@ -53,6 +53,34 @@ export default async function DashboardPage() {
           ))}
         </div>
       </div>
+
+      <section aria-labelledby="revenue-opportunities-title" className="overflow-hidden rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 via-background to-emerald-50 shadow-sm dark:border-orange-950 dark:from-orange-950/35 dark:to-emerald-950/25">
+        <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] md:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-500 text-white shadow-sm">
+              <ArrowUpRight className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 id="revenue-opportunities-title" className="text-lg font-semibold">Gelir fırsatları hazır</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {metrics.hotLeadCount} sıcak lead ve {metrics.overduePaymentCount} geciken tahsilat bugün aksiyon bekliyor.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link href="/dashboard/tourism/leads" className="group flex min-h-16 items-center gap-3 rounded-lg border bg-background/85 p-3 transition hover:border-primary/40 hover:bg-background">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"><Plane className="h-4 w-4" /></span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm">{metrics.hotLeadCount} sıcak lead</strong><small className="text-xs text-muted-foreground">Lead havuzunu aç</small></span>
+              <ArrowUpRight className="h-4 w-4 text-muted-foreground transition group-hover:text-primary" />
+            </Link>
+            <Link href="/dashboard/payments" className="group flex min-h-16 items-center gap-3 rounded-lg border bg-background/85 p-3 transition hover:border-primary/40 hover:bg-background">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><CircleDollarSign className="h-4 w-4" /></span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm">{metrics.overduePaymentCount} geciken tahsilat</strong><small className="text-xs text-muted-foreground">Tahsilatları aç</small></span>
+              <ArrowUpRight className="h-4 w-4 text-muted-foreground transition group-hover:text-primary" />
+            </Link>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Bugünkü randevular" value={String(metrics.todayAppointments.length)} detail={`${metrics.weeklyAppointments} haftalık randevu`} icon={CalendarPlus} />

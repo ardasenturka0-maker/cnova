@@ -39,7 +39,7 @@ async function createRecallAction(formData: FormData) {
 
 export default async function RecallsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [patients, recalls] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.recall.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, branch: true }, orderBy: { dueDate: "asc" }, take: 100 })

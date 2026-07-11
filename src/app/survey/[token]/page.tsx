@@ -41,7 +41,11 @@ async function submitSurveyAction(formData: FormData) {
   redirect(`/survey/${parsed.data.token}?success=Teşekkürler, cevabınız kaydedildi.`);
 }
 
-export default async function SurveyPage({ params, searchParams }: { params: { token: string }; searchParams: { success?: string; error?: string } }) {
+export default async function SurveyPage(
+  props: { params: Promise<{ token: string }>; searchParams: Promise<{ success?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const tourismPackage = await prisma.tourismPackage.findFirst({ where: { publicToken: params.token } });
   if (!tourismPackage) notFound();
 

@@ -12,7 +12,7 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function ReportsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const reports = await getReports(session.organizationId);
 
   const cards = [

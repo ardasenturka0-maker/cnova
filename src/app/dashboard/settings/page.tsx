@@ -13,7 +13,7 @@ import { formatDateTime } from "@/lib/utils";
 
 export default async function SettingsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [organization, branches, users, auditLogs] = await Promise.all([
     prisma.organization.findFirst({ where: { id: session.organizationId } }),
     prisma.branch.findMany({ where: { organizationId: session.organizationId }, orderBy: { name: "asc" } }),

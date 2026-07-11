@@ -12,7 +12,7 @@ export default function HomePage() {
   return (
     <>
       <MarketingNav />
-      <main>
+      <main id="main-content">
         <ProductHero />
         <section className="container py-16">
           <div className="mb-8 max-w-2xl">
@@ -25,7 +25,7 @@ export default function HomePage() {
           <div className="container grid gap-10 lg:grid-cols-2">
             <div>
               <h2 className="text-3xl font-semibold tracking-normal">Neden ClinicNova?</h2>
-              <p className="mt-3 text-muted-foreground">Özgün ürün tasarımı, tenant güvenliği ve mock adapter mimarisiyle gerçek entegrasyonlara hazır bir temel.</p>
+              <p className="mt-3 text-muted-foreground">Klinik operasyonu, hasta deneyimi ve gelir takibini güvenli, ölçülebilir bir sistemde birleştirir.</p>
             </div>
             <div className="grid gap-3">
               {reasons.map((reason) => (
@@ -41,7 +41,7 @@ export default function HomePage() {
           <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <h2 className="text-3xl font-semibold tracking-normal">Entegrasyonlara hazır</h2>
-              <p className="mt-3 text-muted-foreground">MVP içinde gerçek API yerine adapter tabanlı mock servisler kullanılır.</p>
+              <p className="mt-3 text-muted-foreground">Sağlayıcıdan bağımsız entegrasyon katmanı; mesajlaşma, ödeme, e-belge ve otomasyon servislerine bağlanmaya hazırdır.</p>
             </div>
             <Link href="/integrations" className={cn(buttonVariants({ variant: "outline" }), "w-fit")}>
               Tümünü Gör

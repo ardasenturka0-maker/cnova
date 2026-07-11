@@ -4,12 +4,12 @@ export const features = [
   { title: "Randevu Yönetimi", description: "Günlük, haftalık ve liste görünümleriyle çakışma kontrollü planlama.", icon: CalendarDays },
   { title: "Hasta Takibi", description: "Medikal notlar, etiketler, ziyaret geçmişi ve iletişim kayıtları.", icon: Users },
   { title: "Tedavi Planlama", description: "Diş numarası, hekim, durum, ücret ve klinik notlarıyla plan akışı.", icon: Stethoscope },
-  { title: "Finans ve Tahsilat", description: "Gelir, gider, ödeme, fatura ve sanal POS mock katmanı.", icon: CreditCard },
+  { title: "Finans ve Tahsilat", description: "Gelir, gider, ödeme, fatura ve sağlayıcı bağımsız sanal POS katmanı.", icon: CreditCard },
   { title: "Stok Yönetimi", description: "Minimum stok uyarıları, hareket geçmişi ve tedarikçi takibi.", icon: Boxes },
   { title: "Personel ve Hekim", description: "Çalışma saatleri, hakediş, performans ve rol bazlı erişim.", icon: Building2 },
-  { title: "Dijital Onam", description: "Şablon, imza gönderimi, PDF indirme ve zaman damgası mock akışı.", icon: ClipboardCheck },
+  { title: "Dijital Onam", description: "Şablon, imza gönderimi, kayıt ve zaman damgası için izlenebilir onam akışı.", icon: ClipboardCheck },
   { title: "Memnuniyet Anketleri", description: "1-5 puanlama, yorum ve düşük skorlar için takip listesi.", icon: HeartPulse },
-  { title: "WhatsApp / SMS / E-posta", description: "Adapter yapılı mock bildirim servisleri.", icon: MessageSquare },
+  { title: "WhatsApp / SMS / E-posta", description: "Sağlayıcıdan bağımsız mesajlaşma katmanı ve iletişim geçmişi.", icon: MessageSquare },
   { title: "Çoklu Şube", description: "Organization, branch ve tenant filtreli veri mimarisi.", icon: DatabaseZap },
   { title: "Raporlama", description: "Gelir, doluluk, doktor performansı ve şube karşılaştırması.", icon: BarChart3 },
   { title: "Veri Aktarımı", description: "Eski sistemlerden geçiş için import yaklaşımına hazır mimari.", icon: Repeat }
@@ -21,7 +21,7 @@ export const reasons = [
   "Bulut altyapısına uygun mimari",
   "Rol bazlı yetkilendirme ve güvenlik",
   "Otomatik yedekleme mantığına hazır veri katmanı",
-  "KVKK uyumuna uygun audit ve onam kayıtları",
+  "KVKK/GDPR hazırlığı için audit ve onam kayıtları",
   "Kolay geçiş ve veri import yaklaşımı"
 ];
 
@@ -49,7 +49,7 @@ export const plans = [
     name: "Klinik",
     price: "₺3.490",
     description: "Operasyonunu tek panelden büyüten klinikler için.",
-    limits: ["12 kullanıcı", "8 doktor", "3 şube", "Finans ve stok", "Dijital onam", "WhatsApp/SMS mock", "Gelişmiş raporlar"],
+    limits: ["12 kullanıcı", "8 doktor", "3 şube", "Finans ve stok", "Dijital onam", "Mesajlaşma entegrasyon katmanı", "Gelişmiş raporlar"],
     highlighted: true
   },
   {
@@ -62,7 +62,7 @@ export const plans = [
 
 export const faqs = [
   ["Sistem kurulumu gerekiyor mu?", "Hayır. ClinicNova bulut mimarisine uygun tasarlanır; yerel kurulum gerektirmez."],
-  ["Veriler güvenli mi?", "Şifre hashleme, rol bazlı erişim, tenant filtresi ve audit log yaklaşımı MVP içinde hazırdır."],
+  ["Veriler güvenli mi?", "Şifre hashleme, rol bazlı erişim, organizasyon filtresi, güvenlik başlıkları ve audit log yaklaşımı uygulanır."],
   ["Eski yazılımdan veri aktarılır mı?", "Evet. Veri import katmanı için mimari hazırlandı; gerçek import sonraki fazda genişletilebilir."],
   ["Mobilde çalışır mı?", "Evet. Landing ve dashboard responsive tasarıma sahiptir."],
   ["Çoklu şube desteklenir mi?", "Evet. Organization ve Branch modelleriyle çoklu şube yapısı kuruludur."],
@@ -70,8 +70,8 @@ export const faqs = [
 ];
 
 export const highlightCards = [
-  { label: "AI mock", value: "Akıllı öneriler", icon: Sparkles },
+  { label: "Operasyon AI", value: "Akıllı öncelikler", icon: Sparkles },
   { label: "Güvenlik", value: "RBAC + Audit", icon: ShieldCheck },
   { label: "Uyarılar", value: "Stok, ödeme, recall", icon: BellRing },
-  { label: "Export", value: "CSV/PDF mock", icon: FileText }
+  { label: "Raporlama", value: "CSV + yönetim özeti", icon: FileText }
 ];

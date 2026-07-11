@@ -3,7 +3,8 @@ import { LoginForm } from "@/components/forms/login-form";
 import { MarketingNav } from "@/components/landing/marketing-nav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function LoginPage({ searchParams }: { searchParams: { next?: string } }) {
+export default async function LoginPage(props: { searchParams: Promise<{ next?: string }> }) {
+  const searchParams = await props.searchParams;
   const nextPath = searchParams.next?.startsWith("/dashboard") ? searchParams.next : "/dashboard";
   return (
     <>

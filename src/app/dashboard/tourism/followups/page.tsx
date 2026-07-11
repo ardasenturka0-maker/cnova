@@ -35,9 +35,10 @@ async function startLeadFollowUpAction(leadId: string) {
   redirect(resultUrl("Lead için satış kurtarma dizisi başlatıldı."));
 }
 
-export default async function FollowUpsPage({ searchParams }: { searchParams: { success?: string } }) {
+export default async function FollowUpsPage(props: { searchParams: Promise<{ success?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [sequences, followUps, leads, messages] = await Promise.all([
     prisma.followUpSequence.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "asc" }, take: 20 }),
     prisma.leadFollowUp.findMany({ where: { organizationId: session.organizationId }, orderBy: { nextRunAt: "asc" }, take: 100 }),

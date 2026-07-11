@@ -74,13 +74,14 @@ function localDateString(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export default async function PortalAppointmentsPage({
-  searchParams
-}: {
-  searchParams: { success?: string; cancelled?: string; error?: string };
-}) {
+export default async function PortalAppointmentsPage(
+  props: {
+    searchParams: Promise<{ success?: string; cancelled?: string; error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await requirePatientSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [{ upcoming, past }, doctors] = await Promise.all([
     getPatientAppointments(session),
     getPortalDoctors(session.organizationId)

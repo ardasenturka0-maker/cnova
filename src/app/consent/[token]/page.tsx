@@ -33,8 +33,12 @@ async function signConsentAction(formData: FormData) {
   redirect(`/consent/${parsed.data.token}?success=Onam imzalandı. Demo zaman damgası oluşturuldu.`);
 }
 
-export default async function ConsentPage({ params, searchParams }: { params: { token: string }; searchParams: { success?: string; error?: string } }) {
-  const locale = getLocale();
+export default async function ConsentPage(
+  props: { params: Promise<{ token: string }>; searchParams: Promise<{ success?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
+  const locale = await getLocale();
   const consent = await prisma.digitalConsent.findFirst({ where: { publicToken: params.token } });
   if (!consent) notFound();
 

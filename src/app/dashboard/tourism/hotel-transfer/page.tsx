@@ -85,9 +85,10 @@ async function shareReservationAction(formData: FormData) {
   redirect(resultUrl("success", "Otel ve transfer bilgisi n8n mock ile paylaşıldı."));
 }
 
-export default async function HotelTransferPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
+export default async function HotelTransferPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [hotels, transfers, packages, reservations] = await Promise.all([
     prisma.hotelPartner.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.transferPartner.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),

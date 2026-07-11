@@ -3,7 +3,8 @@ import { requireSession } from "@/lib/auth";
 import { deletePatient, getPatientById, updatePatient } from "@/lib/services/patientService";
 import { patientSchema } from "@/lib/validations/patient";
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await requireSession();
   const patient = await getPatientById(session.organizationId, params.id);
   if (!patient) {
@@ -12,7 +13,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   return NextResponse.json({ patient });
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const session = await requireSession();
     const payload = patientSchema.parse(await request.json());
@@ -23,7 +25,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await requireSession();
   await deletePatient(session.organizationId, params.id);
   return NextResponse.json({ ok: true });

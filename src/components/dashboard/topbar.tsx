@@ -1,6 +1,7 @@
 import { LogOut, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { Button } from "@/components/ui/button";
 import { LanguageToggle } from "@/components/ui/language-toggle";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -13,9 +14,9 @@ import { shellText, type Locale } from "@/lib/i18n";
 
 async function logoutAction() {
   "use server";
-  const { cookies } = await import("next/headers");
   const { authCookieName } = await import("@/lib/auth");
-  cookies().set(authCookieName, "", { path: "/", maxAge: 0 });
+  const cookieStore = await cookies();
+  cookieStore.set(authCookieName, "", { path: "/", maxAge: 0 });
   redirect("/login");
 }
 

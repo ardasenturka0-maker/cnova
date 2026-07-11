@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { localeCookieName, normalizeLocale } from "@/lib/i18n";
 
-export function getLocale() {
-  return normalizeLocale(cookies().get(localeCookieName)?.value);
+export async function getLocale() {
+  const cookieStore = await cookies();
+  return normalizeLocale(cookieStore.get(localeCookieName)?.value);
 }

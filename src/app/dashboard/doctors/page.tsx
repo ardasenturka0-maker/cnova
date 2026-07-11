@@ -10,7 +10,7 @@ import { formatCurrency } from "@/lib/utils";
 
 export default async function DoctorsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [profiles, metrics] = await Promise.all([
     prisma.doctorProfile.findMany({
       where: { staff: { organizationId: session.organizationId } },

@@ -1,7 +1,7 @@
 import { jwtVerify } from "jose";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { authCookieName, getAuthSecret } from "@/lib/auth-config";
+import { authAudience, authCookieName, authIssuer, getAuthSecret } from "@/lib/auth-config";
 
 const patientCookieName = "clinicnova_patient_session";
 
@@ -9,9 +9,12 @@ async function verifyToken(token: string | undefined, expectedKind: "patient" | 
   if (!token) return false;
 
   try {
-    const { payload } = await jwtVerify(token, getAuthSecret());
+    const { payload } = await jwtVerify(token, getAuthSecret(), {
+      issuer: authIssuer,
+      audience: authAudience
+    });
     if (expectedKind === "patient") return payload.kind === "patient";
-    return payload.kind === undefined;
+    return payload.kind === "staff";
   } catch {
     return false;
   }

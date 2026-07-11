@@ -11,15 +11,15 @@ export function ProductHero() {
       <div className="container grid min-h-[86svh] gap-10 py-16 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
         <div className="relative z-10 max-w-2xl">
           <Badge variant="success" className="mb-5">
-            ClinicNova Klinik Yönetim Platformu
+            Dental Growth OS · Klinik + Sağlık Turizmi
           </Badge>
-          <h1 className="text-4xl font-semibold tracking-normal text-foreground sm:text-5xl lg:text-6xl">Diş Kliniklerini Tek Panelden Yönetin</h1>
+          <h1 className="text-4xl font-semibold tracking-normal text-foreground sm:text-5xl lg:text-6xl">Lead’den tedaviye, klinik büyümesini tek panelden yönetin</h1>
           <p className="mt-6 max-w-xl text-lg leading-8 text-muted-foreground">
-            Randevu, hasta, tedavi, finans, stok, personel ve iletişim süreçlerinizi modern bir bulut sistemiyle merkezileştirin.
+            Hasta edinimi, randevu, tedavi planı, tahsilat, stok ve sağlık turizmi operasyonlarını kayıpsız bir dijital yolculukta birleştirin.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link href="/demo" className={buttonVariants({ size: "lg" })}>
-              Demo Talep Et
+              Ürünü Keşfet
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link href="/features" className={buttonVariants({ variant: "outline", size: "lg" })}>

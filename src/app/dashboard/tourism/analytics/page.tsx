@@ -34,7 +34,7 @@ function TopBars({ data }: { data: Record<string, number> }) {
 
 export default async function TourismAnalyticsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [leads, packages, followUps, reviews, surveys] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 300 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 200 }),

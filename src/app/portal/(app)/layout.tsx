@@ -10,13 +10,14 @@ import { requirePatientSession } from "@/lib/patient-auth";
 async function patientLogoutAction() {
   "use server";
   const { patientCookieName } = await import("@/lib/patient-auth");
-  cookies().set(patientCookieName, "", { path: "/", maxAge: 0 });
+  const cookieStore = await cookies();
+  cookieStore.set(patientCookieName, "", { path: "/", maxAge: 0 });
   redirect("/portal/login");
 }
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await requirePatientSession();
-  const locale = getLocale();
+  const locale = await getLocale();
 
   return (
     <div className="min-h-screen bg-background">

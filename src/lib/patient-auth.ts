@@ -3,7 +3,7 @@ import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAuthSecret } from "@/lib/auth-config";
+import { authAudience, authIssuer, getAuthSecret } from "@/lib/auth-config";
 import { prisma } from "@/lib/prisma";
 
 export const patientCookieName = "clinicnova_patient_session";
@@ -31,6 +31,8 @@ export async function findPatientByPhone(phone: string) {
 export async function createPatientSessionToken(session: PatientSession) {
   return new SignJWT(session)
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(authIssuer)
+    .setAudience(authAudience)
     .setIssuedAt()
     .setExpirationTime("30d")
     .sign(getAuthSecret());
@@ -38,7 +40,10 @@ export async function createPatientSessionToken(session: PatientSession) {
 
 export async function verifyPatientSessionToken(token: string): Promise<PatientSession | null> {
   try {
-    const { payload } = await jwtVerify(token, getAuthSecret());
+    const { payload } = await jwtVerify(token, getAuthSecret(), {
+      issuer: authIssuer,
+      audience: authAudience
+    });
     if (payload.kind !== "patient") return null;
     return payload as PatientSession;
   } catch {
@@ -47,7 +52,8 @@ export async function verifyPatientSessionToken(token: string): Promise<PatientS
 }
 
 export async function getPatientSession() {
-  const token = cookies().get(patientCookieName)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(patientCookieName)?.value;
   if (!token) return null;
   return verifyPatientSessionToken(token);
 }

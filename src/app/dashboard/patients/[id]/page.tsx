@@ -35,9 +35,10 @@ async function deletePatientAction(id: string) {
   redirect("/dashboard/patients");
 }
 
-export default async function PatientDetailPage({ params }: { params: { id: string } }) {
+export default async function PatientDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const patient = await getPatientById(session.organizationId, params.id);
 
   if (!patient) {

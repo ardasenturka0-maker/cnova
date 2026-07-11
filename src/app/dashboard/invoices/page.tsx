@@ -28,7 +28,7 @@ async function sendInvoiceAction(invoiceId: string) {
 
 export default async function InvoicesPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const invoices = await prisma.invoice.findMany({
     where: { organizationId: session.organizationId },
     include: { patient: true },

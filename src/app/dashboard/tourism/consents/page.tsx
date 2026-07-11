@@ -14,7 +14,7 @@ import { gdprNotice, statusTone } from "@/lib/tourism";
 
 export default async function TourismConsentsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [templates, consents, leads, patients] = await Promise.all([
     prisma.consentTemplate.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.digitalConsent.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 }),

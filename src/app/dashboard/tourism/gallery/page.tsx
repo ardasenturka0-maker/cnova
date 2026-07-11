@@ -58,9 +58,10 @@ async function createCaseAction(formData: FormData) {
   redirect(resultUrl("Önce/sonra vakası eklendi."));
 }
 
-export default async function GalleryPage({ searchParams }: { searchParams: { success?: string; treatment?: string } }) {
+export default async function GalleryPage(props: { searchParams: Promise<{ success?: string; treatment?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const cases = await prisma.beforeAfterCase.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 });
   const treatments = [...new Set(cases.map((item) => item.treatmentType))];
   const filtered = searchParams.treatment ? cases.filter((item) => item.treatmentType === searchParams.treatment) : cases;

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { getLocale } from "@/lib/i18n-server";
 import { tourismRoutes } from "@/lib/tourism";
 
-export function TourismNav() {
-  const locale = getLocale();
+export async function TourismNav() {
+  const locale = await getLocale();
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">

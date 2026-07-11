@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="clinicnova_primary">#0F766E</color>
+    <color name="clinicnova_background">#F8FAFC</color>
+    <color name="clinicnova_nav">#FFFFFF</color>
+</resources>

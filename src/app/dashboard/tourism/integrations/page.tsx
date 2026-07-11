@@ -19,7 +19,7 @@ const endpoints = [
 
 export default async function TourismIntegrationsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const logs = await prisma.integrationLog.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 120 });
 
   return (

@@ -41,7 +41,7 @@ async function createPlanAction(formData: FormData) {
 
 export default async function TreatmentPlansPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [plans, patients, doctors] = await Promise.all([
     prisma.treatmentPlan.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, doctor: { select: { name: true } } }, orderBy: { plannedAt: "desc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),

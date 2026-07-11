@@ -5,13 +5,14 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
-import { authCookieName, getAuthSecret } from "@/lib/auth-config";
+import { authAudience, authCookieName, authIssuer, getAuthSecret } from "@/lib/auth-config";
 import { isDemoMode } from "@/lib/demo-mode";
 import { prisma } from "@/lib/prisma";
 
 export { authCookieName };
 
 export type AuthSession = {
+  kind: "staff";
   userId: string;
   name: string;
   email: string;
@@ -31,6 +32,8 @@ export async function verifyPassword(password: string, hash: string) {
 export async function createSessionToken(session: AuthSession) {
   return new SignJWT(session)
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(authIssuer)
+    .setAudience(authAudience)
     .setIssuedAt()
     .setExpirationTime("8h")
     .sign(getAuthSecret());
@@ -38,7 +41,11 @@ export async function createSessionToken(session: AuthSession) {
 
 export async function verifySessionToken(token: string): Promise<AuthSession | null> {
   try {
-    const { payload } = await jwtVerify(token, getAuthSecret());
+    const { payload } = await jwtVerify(token, getAuthSecret(), {
+      issuer: authIssuer,
+      audience: authAudience
+    });
+    if (payload.kind !== "staff") return null;
     return payload as AuthSession;
   } catch {
     return null;
@@ -49,6 +56,7 @@ export async function loginWithPassword(email: string, password: string) {
   if (isDemoMode() && password === "password123") {
     const demoUsers: Record<string, AuthSession> = {
       "owner@clinicnova.test": {
+        kind: "staff",
         userId: "user_owner",
         name: "Derya Nova",
         email: "owner@clinicnova.test",
@@ -57,6 +65,7 @@ export async function loginWithPassword(email: string, password: string) {
         branchId: "branch_01"
       },
       "doctor@clinicnova.test": {
+        kind: "staff",
         userId: "user_doctor",
         name: "Dr. Emir Aydın",
         email: "doctor@clinicnova.test",
@@ -65,6 +74,7 @@ export async function loginWithPassword(email: string, password: string) {
         branchId: "branch_01"
       },
       "receptionist@clinicnova.test": {
+        kind: "staff",
         userId: "user_receptionist",
         name: "Seda Resepsiyon",
         email: "receptionist@clinicnova.test",
@@ -91,6 +101,7 @@ export async function loginWithPassword(email: string, password: string) {
   }
 
   return {
+    kind: "staff",
     userId: user.id,
     name: user.name,
     email: user.email,
@@ -101,7 +112,8 @@ export async function loginWithPassword(email: string, password: string) {
 }
 
 export async function getCurrentSession() {
-  const token = cookies().get(authCookieName)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(authCookieName)?.value;
   if (!token) {
     return null;
   }

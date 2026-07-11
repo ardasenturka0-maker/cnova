@@ -54,7 +54,7 @@ export function NotificationsBell({
 
   return (
     <div className="relative" ref={containerRef}>
-      <Button variant="outline" size="icon" aria-label={label} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <Button variant="outline" size="icon" aria-label={label} aria-expanded={open} aria-controls="dashboard-notifications" aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
         <Bell className="h-4 w-4" />
         {unreadCount > 0 ? (
           <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
@@ -63,7 +63,7 @@ export function NotificationsBell({
         ) : null}
       </Button>
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-80 rounded-md border bg-card shadow-lg">
+        <div id="dashboard-notifications" role="dialog" aria-label={label} className="absolute right-0 z-50 mt-2 w-[calc(100vw-2rem)] max-w-80 rounded-md border bg-card shadow-lg">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-sm font-semibold">Bildirimler</span>
             {unreadCount > 0 ? (

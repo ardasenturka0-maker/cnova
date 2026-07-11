@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [organization, notifications] = await Promise.all([
     prisma.organization.findFirst({
       where: { id: session.organizationId },

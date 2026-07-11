@@ -10,7 +10,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function PortalTreatmentsPage() {
   const session = await requirePatientSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const { treatments, plans } = await getPatientTreatments(session);
 
   return (

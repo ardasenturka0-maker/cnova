@@ -76,9 +76,10 @@ async function createTreatmentAction(formData: FormData) {
   redirect(resultUrl("success", "Tedavi kaydı oluşturuldu."));
 }
 
-export default async function TreatmentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
+export default async function TreatmentsPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [treatments, patients, doctors] = await Promise.all([
     prisma.treatment.findMany({
       where: { organizationId: session.organizationId },

@@ -42,8 +42,12 @@ async function questionAction(formData: FormData) {
   redirect(`/package/${parsed.data.token}?success=Sorunuz satış ekibine iletildi.`);
 }
 
-export default async function PublicPackagePage({ params, searchParams }: { params: { publicToken: string }; searchParams: { success?: string; error?: string } }) {
-  const locale = getLocale();
+export default async function PublicPackagePage(
+  props: { params: Promise<{ publicToken: string }>; searchParams: Promise<{ success?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
+  const locale = await getLocale();
   const tourismPackage = await prisma.tourismPackage.findFirst({ where: { publicToken: params.publicToken } });
   if (!tourismPackage) notFound();
   const [lead, items] = await Promise.all([

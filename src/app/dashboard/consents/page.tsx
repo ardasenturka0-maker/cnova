@@ -70,9 +70,10 @@ async function sendConsentAction(id: string) {
   redirect(resultUrl("success", "İmza gönderimi mock olarak kaydedildi."));
 }
 
-export default async function ConsentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
+export default async function ConsentsPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [patients, consents] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.consent.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 100 })

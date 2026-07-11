@@ -35,9 +35,12 @@ async function chatTestAction(formData: FormData) {
   redirect(`/dashboard/tourism/chatbot?answer=${encodeURIComponent(result.answer)}&escalate=${result.escalate ? "1" : "0"}${result.lead ? `&lead=${encodeURIComponent(result.lead.id)}` : ""}`);
 }
 
-export default async function ChatbotPage({ searchParams }: { searchParams: { answer?: string; escalate?: string; lead?: string; error?: string } }) {
+export default async function ChatbotPage(
+  props: { searchParams: Promise<{ answer?: string; escalate?: string; lead?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [knowledge, conversations, messages, leads] = await Promise.all([
     prisma.chatbotKnowledgeBase.findMany({ where: { organizationId: session.organizationId }, orderBy: { category: "asc" }, take: 100 }),
     prisma.chatConversation.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),

@@ -33,7 +33,7 @@ const workflow = [
 
 export default async function TourismDashboardPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [leads, packages, followUps, reservations, postCare, reviews, tasks] = await Promise.all([
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, orderBy: { leadScore: "desc" }, take: 60 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 30 }),

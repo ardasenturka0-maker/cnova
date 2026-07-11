@@ -4,6 +4,14 @@ node_modules
 .env.local
 dist
 coverage
+playwright-report
+test-results
+mobile/build
+mobile/.cache
+.android-signing
+releases/*.apk
+releases/*.idsig
+releases/*.zip
 *.log
 *.tsbuildinfo
 .DS_Store

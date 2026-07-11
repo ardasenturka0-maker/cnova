@@ -36,7 +36,7 @@ async function createMovementAction(formData: FormData) {
 
 export default async function StocksPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const stocks = await getStocks(session.organizationId);
 
   return (

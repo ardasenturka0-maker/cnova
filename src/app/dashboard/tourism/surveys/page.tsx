@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 export default async function TourismSurveysPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [responses, patients, packages, leads, templates] = await Promise.all([
     prisma.surveyResponse.findMany({ where: { organizationId: session.organizationId, surveyTemplateId: { not: null } }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),

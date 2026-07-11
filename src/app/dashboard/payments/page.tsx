@@ -26,7 +26,7 @@ async function createPaymentAction(formData: FormData) {
 
 export default async function PaymentsPage() {
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const finance = await getFinanceOverview(session.organizationId);
 
   const formPatients = finance.patients.map((patient) => ({ id: patient.id, name: `${patient.firstName} ${patient.lastName}` }));

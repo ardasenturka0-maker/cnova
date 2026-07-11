@@ -35,7 +35,11 @@ async function submitCareCheckAction(formData: FormData) {
   redirect(`/care-check/${parsed.data.token}?success=${issue ? "Sorun bildiriminiz ekibe iletildi." : "Teşekkürler, kaydınız alındı."}`);
 }
 
-export default async function CareCheckPage({ params, searchParams }: { params: { token: string }; searchParams: { success?: string; error?: string } }) {
+export default async function CareCheckPage(
+  props: { params: Promise<{ token: string }>; searchParams: Promise<{ success?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const followUp = await prisma.postTreatmentFollowUp.findFirst({ where: { publicToken: params.token } });
   if (!followUp) notFound();
   const patient = await prisma.patient.findFirst({ where: { id: followUp.patientId, organizationId: followUp.organizationId } });

@@ -90,9 +90,10 @@ function startOfDay(date: Date) {
   return next;
 }
 
-export default async function AppointmentsPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
+export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [appointments, options, portalRequests] = await Promise.all([
     getAppointments(session.organizationId),
     getAppointmentFormOptions(session.organizationId),

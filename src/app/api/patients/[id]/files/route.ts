@@ -13,7 +13,8 @@ function parseCategory(value: unknown): PatientFileCategory {
     : PatientFileCategory.OTHER;
 }
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await requireSession();
   const files = await prisma.patientFile.findMany({
     where: { patientId: params.id, organizationId: session.organizationId },
@@ -32,7 +33,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   });
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const session = await requireSession();
     const patient = await prisma.patient.findFirst({ where: { id: params.id, organizationId: session.organizationId } });

@@ -181,9 +181,10 @@ function CommunicationRows({ logs, emptyText, locale }: { logs: LogWithPatient[]
   );
 }
 
-export default async function CommunicationPage({ searchParams }: { searchParams: { success?: string; error?: string } }) {
+export default async function CommunicationPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await requireSession();
-  const locale = getLocale();
+  const locale = await getLocale();
   const [patients, logs] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.communicationLog.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 150 })

@@ -1,5 +1,8 @@
+"use client";
+
 import { Activity, BarChart3, BellRing, Boxes, CalendarDays, ClipboardCheck, CreditCard, HeartPulse, LayoutDashboard, MessageSquare, Plane, Settings, Stethoscope, Users, UserRoundCog } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { dashboardNavLabels, shellText, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -22,6 +25,7 @@ const navItems = [
 ];
 
 export function Sidebar({ className, locale = "tr" }: { className?: string; locale?: Locale }) {
+  const pathname = usePathname();
   const text = shellText[locale];
   const labels = dashboardNavLabels[locale];
 
@@ -37,12 +41,15 @@ export function Sidebar({ className, locale = "tr" }: { className?: string; loca
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} className="flex min-h-10 items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+        {navItems.map((item) => {
+          const active = item.href === "/dashboard" ? pathname === item.href : pathname.startsWith(item.href);
+          return (
+          <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={cn("flex min-h-10 items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground", active && "bg-primary/10 font-medium text-primary")}>
             <item.icon className="h-4 w-4" />
             <span>{labels[item.key]}</span>
           </Link>
-        ))}
+          );
+        })}
       </nav>
       <div className="border-t p-4">
         <div className="rounded-lg bg-muted p-3">
