@@ -82,7 +82,8 @@
     { name: "Stok", detail: "Kritik seviye ve hareketler", icon: "i-box", color: "#2774c7" },
     { name: "İletişim", detail: "WhatsApp, SMS, e-posta", icon: "i-message", color: "#7257b7" },
     { name: "Raporlar", detail: "Gelir ve performans", icon: "i-chart", color: "#b76b12" },
-    { name: "Dijital onam", detail: "Onam ve imza kayıtları", icon: "i-shield", color: "#16845b" }
+    { name: "Dijital onam", detail: "Onam ve imza kayıtları", icon: "i-shield", color: "#16845b" },
+    { name: "Çöp Kutusu", detail: "30 gün saklanan silinmiş kayıtlar", icon: "i-box", color: "#a64458" }
   ];
 
   let hotLeads = storage.get("clinicnova.hotLeads", defaultHotLeads);
@@ -90,6 +91,7 @@
   let stockItems = storage.get("clinicnova.stockItems", defaultStockItems);
   let communicationLog = storage.get("clinicnova.communicationLog", defaultCommunicationLog);
   let consentRecords = storage.get("clinicnova.consentRecords", defaultConsentRecords);
+  let trashItems = storage.get("clinicnova.trashItems", []);
 
   const state = {
     patients: storage.get("clinicnova.patients", defaultPatients),
@@ -136,6 +138,23 @@
     storage.set("clinicnova.stockItems", stockItems);
     storage.set("clinicnova.communicationLog", communicationLog);
     storage.set("clinicnova.consentRecords", consentRecords);
+    storage.set("clinicnova.trashItems", trashItems);
+  }
+
+  function moveToTrash(kind, label, payload) {
+    const deletedAt = Date.now();
+    trashItems.unshift({ id: deletedAt + Math.random(), kind, label, payload, deletedAt, expiresAt: deletedAt + 30 * 24 * 60 * 60 * 1000 });
+  }
+
+  function purgeExpiredTrash() {
+    const active = trashItems.filter((item) => Number(item.expiresAt) > Date.now());
+    if (active.length === trashItems.length) return;
+    trashItems = active;
+    storage.set("clinicnova.trashItems", trashItems);
+  }
+
+  function trashDaysLeft(item) {
+    return Math.max(1, Math.ceil((Number(item.expiresAt) - Date.now()) / (24 * 60 * 60 * 1000)));
   }
 
   function outstandingAmount(item) {
@@ -423,7 +442,8 @@
       "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record record-deletable"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="stockItems" aria-label="${escapeHtml(item.name)} stok kaydını sil">Sil</button></article>`; }).join("") || `<p class="empty-inline">Stok kaydı yok.</p>`}</div>`,
       "İletişim": `<div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}<p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
       "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Demo hareketleri</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>Gelir − gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>Toplam plan</small></article></div><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
-      "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Demo kayıtları inceleme içindir. Kimlik doğrulamalı imza gönderimi ve yasal kayıt canlı sistemde yapılır.</p></div>`
+      "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Demo kayıtları inceleme içindir. Kimlik doğrulamalı imza gönderimi ve yasal kayıt canlı sistemde yapılır.</p></div>`,
+      "Çöp Kutusu": `<div class="modal-grid"><p class="modal-note">Silinen kayıtlar 30 gün burada saklanır. Süre dolunca otomatik ve kalıcı olarak temizlenir.</p><div class="list-stack">${trashItems.map((item) => `<article class="trash-record"><span class="record-icon">♻</span><span class="patient-copy"><strong>${escapeHtml(item.label)}</strong><small>${trashDaysLeft(item)} gün kaldı</small></span><button class="mini-action" data-restore-trash="${item.id}">Geri yükle</button><button class="delete-button" data-purge-trash="${item.id}" aria-label="${escapeHtml(item.label)} kaydını kalıcı sil">Kalıcı sil</button></article>`).join("") || `<p class="empty-inline">Çöp Kutusu boş.</p>`}</div>${trashItems.length ? `<button class="button button-secondary" data-empty-trash>Çöp Kutusunu boşalt</button>` : ""}</div>`
     };
     const routes = { "Tedavi planları": "treatment-plans", "Sağlık turizmi": "tourism/leads", "Stok": "stocks", "İletişim": "communication", "Raporlar": "reports", "Dijital onam": "consents" };
     const serverUrl = storage.get("clinicnova.serverUrl", "");
@@ -538,11 +558,48 @@
     if (target.dataset.go) { closeModal(); return navigate(target.dataset.go); }
     if (target.dataset.date) { state.selectedDate = target.dataset.date; renderAppointments(); return; }
     if (target.dataset.filter) { state.patientFilter = target.dataset.filter; $$("#patientFilters button").forEach((button) => button.classList.toggle("active", button === target)); renderPatients(); return; }
+    if (target.dataset.restoreTrash) {
+      const trashId = Number(target.dataset.restoreTrash);
+      const trashItem = trashItems.find((item) => Number(item.id) === trashId);
+      if (!trashItem) return;
+      const payload = trashItem.payload;
+      if (trashItem.kind === "patientBundle") {
+        state.patients.unshift(payload.patient);
+        state.appointments.push(...payload.appointments);
+        state.transactions.push(...payload.transactions);
+        if (payload.treatmentHistory?.length) state.treatmentHistory[payload.patient.id] = payload.treatmentHistory;
+        if (payload.media?.length) state.patientMedia[payload.patient.id] = payload.media;
+      }
+      if (trashItem.kind === "appointment") state.appointments.push(payload);
+      if (trashItem.kind === "transaction") state.transactions.unshift(payload);
+      if (trashItem.kind === "treatmentHistory") (state.treatmentHistory[payload.patientId] ||= []).splice(payload.index, 0, payload.item);
+      if (trashItem.kind === "media") (state.patientMedia[payload.patientId] ||= []).unshift(payload.item);
+      if (trashItem.kind === "treatmentPlans") treatmentPlans.unshift(payload);
+      if (trashItem.kind === "hotLeads") hotLeads.unshift(payload);
+      if (trashItem.kind === "stockItems") stockItems.unshift(payload);
+      if (trashItem.kind === "communicationLog") communicationLog.unshift(payload);
+      if (trashItem.kind === "consentRecords") consentRecords.unshift(payload);
+      trashItems = trashItems.filter((item) => Number(item.id) !== trashId);
+      saveData(); renderAll(); openModule("Çöp Kutusu"); showToast("Kayıt geri yüklendi."); return;
+    }
+    if (target.dataset.purgeTrash) {
+      const trashId = Number(target.dataset.purgeTrash);
+      if (!window.confirm("Bu kayıt kalıcı olarak silinsin mi? Bu işlem geri alınamaz.")) return;
+      trashItems = trashItems.filter((item) => Number(item.id) !== trashId);
+      saveData(); openModule("Çöp Kutusu"); showToast("Kayıt kalıcı olarak silindi."); return;
+    }
+    if (target.hasAttribute("data-empty-trash")) {
+      if (!window.confirm("Çöp Kutusundaki tüm kayıtlar kalıcı olarak silinsin mi?")) return;
+      trashItems = []; saveData(); openModule("Çöp Kutusu"); showToast("Çöp Kutusu boşaltıldı."); return;
+    }
     if (target.dataset.deleteRecord) {
       const id = Number(target.dataset.deleteRecord);
       const kind = target.dataset.recordKind;
       const moduleByKind = { treatmentPlans: "Tedavi planları", hotLeads: "Sağlık turizmi", stockItems: "Stok", communicationLog: "İletişim", consentRecords: "Dijital onam" };
       if (!moduleByKind[kind] || !window.confirm("Bu kayıt silinsin mi?")) return;
+      const sourceByKind = { treatmentPlans, hotLeads, stockItems, communicationLog, consentRecords };
+      const deletedRecord = sourceByKind[kind].find((item) => item.id === id);
+      if (deletedRecord) moveToTrash(kind, deletedRecord.name || deletedRecord.patient || deletedRecord.form || "Silinen kayıt", deletedRecord);
       if (kind === "treatmentPlans") treatmentPlans = treatmentPlans.filter((item) => item.id !== id);
       if (kind === "hotLeads") hotLeads = hotLeads.filter((item) => item.id !== id);
       if (kind === "stockItems") stockItems = stockItems.filter((item) => item.id !== id);
@@ -557,6 +614,7 @@
       const patientId = Number(target.dataset.deletePatient);
       const patient = patientById(patientId);
       if (!patient || !window.confirm(`${patient.name} ve bağlı randevu, ödeme, tedavi ve fotoğraf kayıtları silinsin mi?`)) return;
+      moveToTrash("patientBundle", patient.name, { patient, appointments: state.appointments.filter((item) => item.patientId === patientId), transactions: state.transactions.filter((item) => item.patientId === patientId), treatmentHistory: state.treatmentHistory[patientId] || [], media: state.patientMedia[patientId] || [] });
       state.patients = state.patients.filter((item) => item.id !== patientId);
       state.appointments = state.appointments.filter((item) => item.patientId !== patientId);
       state.transactions = state.transactions.filter((item) => item.patientId !== patientId);
@@ -567,6 +625,8 @@
     if (target.dataset.deleteAppointment) {
       const appointmentId = Number(target.dataset.deleteAppointment);
       if (!window.confirm("Bu randevu silinsin mi?")) return;
+      const deletedAppointment = state.appointments.find((item) => item.id === appointmentId);
+      if (deletedAppointment) moveToTrash("appointment", `${patientById(deletedAppointment.patientId)?.name || "Hasta"} randevusu`, deletedAppointment);
       state.appointments = state.appointments.filter((item) => item.id !== appointmentId);
       saveData(); renderAll(); closeModal(); showToast("Randevu silindi."); return;
     }
@@ -574,6 +634,8 @@
       const transactionId = Number(target.dataset.deleteTransaction);
       const patientId = Number(target.dataset.patientId);
       if (!window.confirm("Bu finans kaydı silinsin mi?")) return;
+      const deletedTransaction = state.transactions.find((item) => item.id === transactionId);
+      if (deletedTransaction) moveToTrash("transaction", `${deletedTransaction.name} · ${deletedTransaction.detail}`, deletedTransaction);
       state.transactions = state.transactions.filter((item) => item.id !== transactionId);
       saveData(); renderAll();
       if (patientId && patientById(patientId)) openPatientDetail(patientId); else closeModal();
@@ -583,6 +645,8 @@
       const patientId = Number(target.dataset.patientId);
       const index = Number(target.dataset.deleteTreatment);
       if (!window.confirm("Bu tedavi geçmişi kaydı silinsin mi?")) return;
+      const deletedTreatment = (state.treatmentHistory[patientId] || [])[index];
+      if (deletedTreatment) moveToTrash("treatmentHistory", `${patientById(patientId)?.name || "Hasta"} · ${deletedTreatment.treatment}`, { patientId, index, item: deletedTreatment });
       state.treatmentHistory[patientId] = (state.treatmentHistory[patientId] || []).filter((_, itemIndex) => itemIndex !== index);
       saveData(); openPatientDetail(patientId); showToast("Tedavi kaydı silindi."); return;
     }
@@ -590,6 +654,8 @@
       const patientId = Number(target.dataset.patientId);
       const mediaId = Number(target.dataset.deleteMedia);
       if (!window.confirm("Bu fotoğraf silinsin mi?")) return;
+      const deletedMedia = (state.patientMedia[patientId] || []).find((item) => item.id === mediaId);
+      if (deletedMedia) moveToTrash("media", `${patientById(patientId)?.name || "Hasta"} · ${deletedMedia.kind} fotoğrafı`, { patientId, item: deletedMedia });
       state.patientMedia[patientId] = (state.patientMedia[patientId] || []).filter((item) => item.id !== mediaId);
       saveData(); openPatientDetail(patientId); showToast("Fotoğraf silindi."); return;
     }
@@ -617,6 +683,7 @@
       stockItems = JSON.parse(JSON.stringify(defaultStockItems));
       communicationLog = JSON.parse(JSON.stringify(defaultCommunicationLog));
       consentRecords = JSON.parse(JSON.stringify(defaultConsentRecords));
+      trashItems = [];
       state.transactionFilter = "ALL";
       storage.set("clinicnova.notificationsRead", false);
       $("#notificationDot").hidden = false;
@@ -721,6 +788,7 @@
     }
   });
 
+  purgeExpiredTrash();
   configureEntryMode();
   if (storage.get("clinicnova.theme", "light") === "dark") document.documentElement.classList.add("dark");
   $("#notificationDot").hidden = storage.get("clinicnova.notificationsRead", false);

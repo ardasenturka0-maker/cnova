@@ -136,6 +136,17 @@ test("bundled Android interface works offline", async ({ page }) => {
     await expect(page.getByRole("button", { name: new RegExp(`^${module}`) })).toBeFocused();
   }
 
+  await page.getByRole("button", { name: /^Çöp Kutusu/ }).click();
+  await expect(page.getByRole("heading", { name: "Çöp Kutusu" })).toBeVisible();
+  await expect(page.getByText("30 gün kaldı").first()).toBeVisible();
+  const trashedStock = page.locator(".trash-record").filter({ hasText: "Anestezi kartuşu" });
+  await trashedStock.getByRole("button", { name: "Geri yükle" }).click();
+  await expect(page.locator(".trash-record").filter({ hasText: "Anestezi kartuşu" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Stok/ }).click();
+  await expect(page.getByText("Anestezi kartuşu", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   expect(errors).toEqual([]);
 });
