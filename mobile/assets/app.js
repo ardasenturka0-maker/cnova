@@ -50,6 +50,27 @@
     { id: 2, name: "Emily Carter", country: "Birleşik Krallık", treatment: "Hollywood Smile", score: 88, phone: "+44 700 000 1001" },
     { id: 3, name: "Lukas Weber", country: "Almanya", treatment: "Zirkonyum kaplama", score: 82, phone: "+49 700 000 1002" }
   ];
+  const treatmentPlans = [
+    { patient: "Ayşe Yılmaz", treatment: "İmplant", total: 42000, paid: 18500, status: "Devam ediyor" },
+    { patient: "Mehmet Demir", treatment: "Kanal tedavisi", total: 12000, paid: 7200, status: "2. seans" },
+    { patient: "Can Şahin", treatment: "Ortodonti", total: 36000, paid: 29500, status: "Kontrol bekliyor" }
+  ];
+  const stockItems = [
+    { name: "Anestezi kartuşu", amount: 8, minimum: 20, unit: "adet" },
+    { name: "İmplant seti", amount: 14, minimum: 10, unit: "set" },
+    { name: "Cerrahi eldiven", amount: 85, minimum: 50, unit: "kutu" },
+    { name: "Kompozit dolgu", amount: 11, minimum: 8, unit: "tüp" }
+  ];
+  const communicationLog = [
+    { patient: "Ayşe Yılmaz", channel: "WhatsApp", message: "Yarınki kontrol randevunuz 14:30'da.", status: "Teslim edildi" },
+    { patient: "Mehmet Demir", channel: "SMS", message: "Tedavi sonrası kontrolünüz için bizi arayabilirsiniz.", status: "Teslim edildi" },
+    { patient: "Emily Carter", channel: "E-posta", message: "Your treatment package is ready for review.", status: "Demo taslak" }
+  ];
+  const consentRecords = [
+    { patient: "Ayşe Yılmaz", form: "İmplant aydınlatılmış onamı", status: "İmzalandı", date: "Bugün, 09:12" },
+    { patient: "Mehmet Demir", form: "Kanal tedavisi onamı", status: "İmzalandı", date: "Dün, 15:40" },
+    { patient: "Emily Carter", form: "International treatment consent", status: "İmza bekliyor", date: "10 Temmuz" }
+  ];
   const modules = [
     { name: "Tedavi planları", detail: "Vaka ve ödeme planı", icon: "i-tooth", color: "#0f766e" },
     { name: "Sağlık turizmi", detail: "Lead ve paket yönetimi", icon: "i-plane", color: "#ed6b3a" },
@@ -204,7 +225,12 @@
   function navigate(view) {
     state.activeView = view;
     $$(".view").forEach((section) => section.classList.toggle("active", section.dataset.view === view));
-    $$(".bottom-nav [data-go]").forEach((button) => button.classList.toggle("active", button.dataset.go === view));
+    $$(".bottom-nav [data-go]").forEach((button) => {
+      const active = button.dataset.go === view;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (view === "patients") renderPatients();
     if (view === "appointments") renderAppointments();
@@ -219,8 +245,9 @@
     showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
   }
 
+  let modalOpener = null;
   function openModal(eyebrow, title, content) {
-    const opener = document.activeElement;
+    modalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     $("#modalEyebrow").textContent = eyebrow;
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = content;
@@ -228,13 +255,16 @@
     document.body.style.overflow = "hidden";
     setTimeout(() => {
       if ($("#modalBackdrop").hidden) return;
-      if (document.activeElement !== opener && document.activeElement !== document.body) return;
+      if (document.activeElement !== modalOpener && document.activeElement !== document.body) return;
       ($("#modalBody input, #modalBody select, #modalBody button") || $("#modalClose"))?.focus();
     }, 80);
   }
   function closeModal() {
+    if ($("#modalBackdrop").hidden) return;
     $("#modalBackdrop").hidden = true;
     document.body.style.overflow = "";
+    if (modalOpener?.isConnected) modalOpener.focus();
+    modalOpener = null;
   }
 
   function openAddPatient() {
@@ -349,17 +379,20 @@
   }
 
   function openModule(name) {
-    const details = {
-      "Tedavi planları": "Vaka, ücret ve taksit planlarını web paneliyle birlikte yönetin.",
-      "Sağlık turizmi": "Sıcak lead, paket, otel ve transfer süreçlerini tek akışta izleyin.",
-      "Stok": "Kritik malzemeleri ve stok hareketlerini takip edin.",
-      "İletişim": "WhatsApp, SMS ve e-posta geçmişini hasta bazında yönetin.",
-      "Raporlar": "Gelir, randevu ve ekip performansını analiz edin.",
-      "Dijital onam": "Onam formlarını gönderin ve imza durumunu takip edin."
+    const paidIncome = state.transactions.filter((item) => item.type === "income" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
+    const expenses = state.transactions.filter((item) => item.type === "expense" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
+    const moduleContent = {
+      "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span></article>`).join("")}</div>`,
+      "Sağlık turizmi": `<div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a></article>`).join("")}</div>`,
+      "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span></article>`; }).join("")}</div>`,
+      "İletişim": `<div class="list-stack">${communicationLog.map((item) => `<article class="offline-record"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span></article>`).join("")}<p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
+      "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Demo hareketleri</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>Gelir − gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>Toplam plan</small></article></div><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
+      "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span></article>`).join("")}<p class="modal-note">Demo kayıtları inceleme içindir. Kimlik doğrulamalı imza gönderimi ve yasal kayıt canlı sistemde yapılır.</p></div>`
     };
     const routes = { "Tedavi planları": "treatment-plans", "Sağlık turizmi": "tourism/leads", "Stok": "stocks", "İletişim": "communication", "Raporlar": "reports", "Dijital onam": "consents" };
     const serverUrl = storage.get("clinicnova.serverUrl", "");
-    openModal("MODÜL", name, `<div class="modal-grid"><p class="modal-note">${escapeHtml(details[name] || "Bu modül canlı ClinicNova paneliyle birlikte çalışır.")}</p>${serverUrl ? `<a class="button button-primary" href="${escapeHtml(serverUrl.replace(/\/$/, ""))}/dashboard/${routes[name] || ""}">Canlı panelde aç</a>` : `<button class="button button-primary" data-action="connect">Canlı sisteme bağlan</button>`}</div>`);
+    const liveButton = serverUrl ? `<a class="button button-secondary" href="${escapeHtml(serverUrl.replace(/\/$/, ""))}/dashboard/${routes[name] || ""}">Canlı panelde aç</a>` : "";
+    openModal("ÇEVRİMDIŞI DEMO", name, `<div class="modal-grid">${moduleContent[name] || `<p class="modal-note">Bu modül için demo bulunmuyor.</p>`}${liveButton}</div>`);
   }
 
   function openNotifications() {
@@ -390,6 +423,12 @@
     $("#loginScreen").hidden = false;
   }
 
+  function openLocalPreview() {
+    storage.set("clinicnova.previewSession", { createdAt: Date.now() });
+    showApp();
+    showToast("Örnek verilerle demo açıldı.");
+  }
+
   function normalizedServerUrl(value) {
     const parsed = new URL(String(value || "").trim());
     if (parsed.protocol !== "https:") throw new Error("HTTPS gerekli");
@@ -414,6 +453,7 @@
 
   function configureEntryMode() {
     if (demoMode) {
+      $("#previewDemoButton").hidden = true;
       $("#serverUrlField").hidden = true;
       $("#serverUrl").required = false;
       $("#demoLoginFields").hidden = false;
@@ -429,6 +469,7 @@
     }
 
     $("#serverUrlField").hidden = false;
+    $("#previewDemoButton").hidden = false;
     $("#serverUrl").required = true;
     $("#demoLoginFields").hidden = true;
     $("#loginEmail").required = false;
@@ -453,6 +494,7 @@
     showApp();
     showToast("Hoş geldiniz, Derya.");
   });
+  $("#previewDemoButton").addEventListener("click", openLocalPreview);
 
   document.addEventListener("click", (event) => {
     const target = event.target.closest("button, [data-go], [data-action]");
@@ -492,7 +534,7 @@
     if (action === "transaction-filter") return openTransactionFilter();
     if (action === "connect") return openConnection();
     if (action === "security") return openSecurity();
-    if (action === "logout") { storage.set("clinicnova.session", null); closeModal(); showLogin(); showToast("Oturum kapatıldı."); return; }
+    if (action === "logout") { storage.set("clinicnova.session", null); storage.set("clinicnova.previewSession", null); closeModal(); showLogin(); showToast("Oturum kapatıldı."); return; }
   });
 
   $("#patientSearch").addEventListener("input", (event) => { state.patientQuery = event.target.value; renderPatients(); });
@@ -506,7 +548,15 @@
   window.addEventListener("online", updateNetworkBadge);
   window.addEventListener("offline", updateNetworkBadge);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("#modalBackdrop").hidden) closeModal();
+    if ($("#modalBackdrop").hidden) return;
+    if (event.key === "Escape") return closeModal();
+    if (event.key !== "Tab") return;
+    const focusable = $$("#modalBackdrop button:not([disabled]), #modalBackdrop a[href], #modalBackdrop input:not([disabled]), #modalBackdrop select:not([disabled]), #modalBackdrop textarea:not([disabled])").filter((element) => element.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   });
 
   document.addEventListener("submit", (event) => {
@@ -563,5 +613,8 @@
     return false;
   };
   updateNetworkBadge();
-  if (demoMode && storage.get("clinicnova.session", null)) showApp(); else showLogin();
+  if (demoMode && mobileConfig.autoOpenDemo) {
+    storage.set("clinicnova.previewSession", { createdAt: Date.now(), source: "ios-file-demo" });
+    showApp();
+  } else if ((demoMode && storage.get("clinicnova.session", null)) || storage.get("clinicnova.previewSession", null)) showApp(); else showLogin();
 })();

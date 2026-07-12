@@ -3,6 +3,31 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 const mobileUrl = pathToFileURL(path.resolve("mobile/assets/index.html")).href;
+const iphoneDemoUrl = pathToFileURL(path.resolve("releases/ClinicNova-iPhone-Demo.html")).href;
+
+test("single-file iPhone demo opens without network or extra files", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (!request.url().startsWith("file:")) requests.push(request.url());
+  });
+  await page.goto(iphoneDemoUrl);
+  await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
+  await expect(page.locator("#loginScreen")).toBeHidden();
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.getByRole("button", { name: /^Stok/ }).click();
+  await expect(page.getByText("Anestezi kartuşu", { exact: true })).toBeVisible();
+  expect(requests).toEqual([]);
+});
+
+test("iPhone file preview never exposes the login gate when scripts are blocked", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto(iphoneDemoUrl);
+  await expect(page.locator("#loginScreen")).toBeHidden();
+  await expect(page.locator("#appShell")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
+  await context.close();
+});
 
 test("bundled Android interface works offline", async ({ page }) => {
   const errors: string[] = [];
@@ -57,6 +82,24 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: /Yeni sağlık turizmi lead/ }).click();
   await expect(page.getByRole("heading", { name: "Bugünkü fırsatlar" })).toBeVisible();
 
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Diğer", exact: true })).toHaveAttribute("aria-current", "page");
+  for (const [module, expected] of [
+    ["Tedavi planları", "Ayşe Yılmaz"],
+    ["Sağlık turizmi", "John Smith"],
+    ["Stok", "Anestezi kartuşu"],
+    ["İletişim", "Demo taslak"],
+    ["Raporlar", "Net akış"],
+    ["Dijital onam", "İmza bekliyor"]
+  ]) {
+    await page.getByRole("button", { name: new RegExp(`^${module}`) }).click();
+    await expect(page.getByRole("heading", { name: module })).toBeVisible();
+    await expect(page.locator("#modalBody").getByText(expected, { exact: true }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: new RegExp(`^${module}`) })).toBeFocused();
+  }
+
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   expect(errors).toEqual([]);
 });
@@ -67,9 +110,13 @@ test("production Android bootstrap requires a secure ClinicNova server", async (
   await expect(page.getByLabel("ClinicNova sunucu adresi")).toBeVisible();
   await expect(page.getByLabel("E-posta")).toBeHidden();
   await expect(page.getByLabel("Şifre")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Demo olarak incele" })).toBeVisible();
 
   await page.getByLabel("ClinicNova sunucu adresi").fill("http://guvensiz.example.com");
   await page.getByRole("button", { name: "Güvenli sisteme bağlan" }).click();
   await expect(page.getByRole("status")).toContainText("Geçerli bir HTTPS ClinicNova adresi girin.");
   await expect(page).toHaveURL(mobileUrl);
+
+  await page.getByRole("button", { name: "Demo olarak incele" }).click();
+  await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
 });

@@ -226,6 +226,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .module-card .module-icon svg { width: 19px; height: 19px; }
 .module-card strong { margin-top: 12px; font-size: 11px; }
 .module-card small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.35; }
+.module-card small::after { content: " · Çevrimdışı"; color: var(--success); font-weight: 750; }
 .settings-card { margin-top: 20px; overflow: hidden; border: 1px solid var(--line); border-radius: 19px; background: var(--surface); }
 .settings-card button { width: 100%; border: 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; color: var(--text); background: transparent; padding: 14px; text-align: left; }
 .settings-card button:last-child { border-bottom: 0; }
@@ -260,6 +261,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .opportunity-heading > strong { min-width: 30px; border-radius: 10px; color: var(--primary); background: var(--primary-soft); padding: 6px 9px; text-align: center; font-size: 13px; }
 .opportunity-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 12px; }
 .opportunity-card > strong:last-child { white-space: nowrap; font-size: 11px; }
+.offline-record { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 12px; }
+.record-icon, .record-channel { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 13px; color: var(--primary); background: var(--primary-soft); font-size: 16px; font-weight: 850; }
+.record-channel { font-size: 12px; }
+.record-value { color: var(--success); text-align: right; white-space: nowrap; font-size: 11px; font-weight: 850; }
+.record-value.critical { color: var(--danger); }
+.record-value small { display: block; margin-top: 3px; color: var(--muted); font-size: 7px; font-weight: 650; }
+.record-state { max-width: 74px; color: var(--muted); text-align: right; font-size: 8px; font-weight: 750; }
+.record-progress { display: block; height: 4px; margin-top: 7px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+.record-progress i { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .score-badge { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 13px; color: white; background: linear-gradient(145deg, var(--primary-2), #0a5f59); font-size: 12px; font-weight: 850; }
 .mini-action { border: 1px solid var(--line); border-radius: 10px; color: var(--primary); background: var(--surface); padding: 7px 9px; text-decoration: none; font-size: 9px; font-weight: 800; }
 .filter-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

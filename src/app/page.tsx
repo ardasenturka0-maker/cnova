@@ -1,5 +1,6 @@
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { FeatureGrid } from "@/components/landing/feature-grid";
 import { MarketingNav } from "@/components/landing/marketing-nav";
 import { PricingCards } from "@/components/landing/pricing-cards";
@@ -7,8 +8,11 @@ import { ProductHero } from "@/components/landing/product-hero";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { integrations, reasons } from "@/lib/marketing";
+import { isDemoMode } from "@/lib/demo-mode";
 
 export default function HomePage() {
+  if (isDemoMode()) redirect("/demo-open");
+
   return (
     <>
       <MarketingNav />
