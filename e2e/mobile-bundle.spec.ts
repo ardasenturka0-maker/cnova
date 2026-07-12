@@ -115,17 +115,23 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
   await expect(page.getByRole("button", { name: "Diğer", exact: true })).toHaveAttribute("aria-current", "page");
-  for (const [module, expected] of [
-    ["Tedavi planları", "Ayşe Yılmaz"],
-    ["Sağlık turizmi", "John Smith"],
-    ["Stok", "Anestezi kartuşu"],
-    ["İletişim", "Demo taslak"],
-    ["Raporlar", "Net akış"],
-    ["Dijital onam", "İmza bekliyor"]
-  ]) {
+  const moduleCases: Array<[string, string, string | null]> = [
+    ["Tedavi planları", "Ayşe Yılmaz", "Ayşe Yılmaz tedavi planını sil"],
+    ["Sağlık turizmi", "John Smith", "John Smith lead kaydını sil"],
+    ["Stok", "Anestezi kartuşu", "Anestezi kartuşu stok kaydını sil"],
+    ["İletişim", "Demo taslak", "Emily Carter iletişim kaydını sil"],
+    ["Raporlar", "Net akış", null],
+    ["Dijital onam", "İmza bekliyor", "Emily Carter onam kaydını sil"]
+  ];
+  for (const [module, expected, deleteName] of moduleCases) {
     await page.getByRole("button", { name: new RegExp(`^${module}`) }).click();
     await expect(page.getByRole("heading", { name: module })).toBeVisible();
     await expect(page.locator("#modalBody").getByText(expected, { exact: true }).first()).toBeVisible();
+    if (deleteName) {
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: deleteName }).click();
+      await expect(page.locator("#modalBody").getByText(expected, { exact: true })).toHaveCount(0);
+    }
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: new RegExp(`^${module}`) })).toBeFocused();
   }

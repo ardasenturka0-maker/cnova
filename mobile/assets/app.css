@@ -291,6 +291,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .opportunity-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 12px; }
 .opportunity-card > strong:last-child { white-space: nowrap; font-size: 11px; }
 .offline-record { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 12px; }
+.record-deletable { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .record-icon, .record-channel { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 13px; color: var(--primary); background: var(--primary-soft); font-size: 16px; font-weight: 850; }
 .record-channel { font-size: 12px; }
 .record-value { color: var(--success); text-align: right; white-space: nowrap; font-size: 11px; font-weight: 850; }

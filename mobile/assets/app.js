@@ -50,31 +50,31 @@
     2: [{ date: "11 Temmuz 2026", treatment: "Kanal tedavisi · 2. seans", doctor: "Dr. Emir Aydın", note: "Geçici dolgu yenilendi." }],
     3: [{ date: "9 Temmuz 2026", treatment: "Kompozit dolgu", doctor: "Dr. Lara Er", note: "Kontrol randevusu önerildi." }]
   };
-  const hotLeads = [
+  const defaultHotLeads = [
     { id: 1, name: "John Smith", country: "Birleşik Krallık", treatment: "İmplant + otel", score: 94, phone: "+44 700 000 1000" },
     { id: 2, name: "Emily Carter", country: "Birleşik Krallık", treatment: "Hollywood Smile", score: 88, phone: "+44 700 000 1001" },
     { id: 3, name: "Lukas Weber", country: "Almanya", treatment: "Zirkonyum kaplama", score: 82, phone: "+49 700 000 1002" }
   ];
-  const treatmentPlans = [
-    { patient: "Ayşe Yılmaz", treatment: "İmplant", total: 42000, paid: 18500, status: "Devam ediyor" },
-    { patient: "Mehmet Demir", treatment: "Kanal tedavisi", total: 12000, paid: 7200, status: "2. seans" },
-    { patient: "Can Şahin", treatment: "Ortodonti", total: 36000, paid: 29500, status: "Kontrol bekliyor" }
+  const defaultTreatmentPlans = [
+    { id: 1, patient: "Ayşe Yılmaz", treatment: "İmplant", total: 42000, paid: 18500, status: "Devam ediyor" },
+    { id: 2, patient: "Mehmet Demir", treatment: "Kanal tedavisi", total: 12000, paid: 7200, status: "2. seans" },
+    { id: 3, patient: "Can Şahin", treatment: "Ortodonti", total: 36000, paid: 29500, status: "Kontrol bekliyor" }
   ];
-  const stockItems = [
-    { name: "Anestezi kartuşu", amount: 8, minimum: 20, unit: "adet" },
-    { name: "İmplant seti", amount: 14, minimum: 10, unit: "set" },
-    { name: "Cerrahi eldiven", amount: 85, minimum: 50, unit: "kutu" },
-    { name: "Kompozit dolgu", amount: 11, minimum: 8, unit: "tüp" }
+  const defaultStockItems = [
+    { id: 1, name: "Anestezi kartuşu", amount: 8, minimum: 20, unit: "adet" },
+    { id: 2, name: "İmplant seti", amount: 14, minimum: 10, unit: "set" },
+    { id: 3, name: "Cerrahi eldiven", amount: 85, minimum: 50, unit: "kutu" },
+    { id: 4, name: "Kompozit dolgu", amount: 11, minimum: 8, unit: "tüp" }
   ];
-  const communicationLog = [
-    { patient: "Ayşe Yılmaz", channel: "WhatsApp", message: "Yarınki kontrol randevunuz 14:30'da.", status: "Teslim edildi" },
-    { patient: "Mehmet Demir", channel: "SMS", message: "Tedavi sonrası kontrolünüz için bizi arayabilirsiniz.", status: "Teslim edildi" },
-    { patient: "Emily Carter", channel: "E-posta", message: "Your treatment package is ready for review.", status: "Demo taslak" }
+  const defaultCommunicationLog = [
+    { id: 1, patient: "Ayşe Yılmaz", channel: "WhatsApp", message: "Yarınki kontrol randevunuz 14:30'da.", status: "Teslim edildi" },
+    { id: 2, patient: "Mehmet Demir", channel: "SMS", message: "Tedavi sonrası kontrolünüz için bizi arayabilirsiniz.", status: "Teslim edildi" },
+    { id: 3, patient: "Emily Carter", channel: "E-posta", message: "Your treatment package is ready for review.", status: "Demo taslak" }
   ];
-  const consentRecords = [
-    { patient: "Ayşe Yılmaz", form: "İmplant aydınlatılmış onamı", status: "İmzalandı", date: "Bugün, 09:12" },
-    { patient: "Mehmet Demir", form: "Kanal tedavisi onamı", status: "İmzalandı", date: "Dün, 15:40" },
-    { patient: "Emily Carter", form: "International treatment consent", status: "İmza bekliyor", date: "10 Temmuz" }
+  const defaultConsentRecords = [
+    { id: 1, patient: "Ayşe Yılmaz", form: "İmplant aydınlatılmış onamı", status: "İmzalandı", date: "Bugün, 09:12" },
+    { id: 2, patient: "Mehmet Demir", form: "Kanal tedavisi onamı", status: "İmzalandı", date: "Dün, 15:40" },
+    { id: 3, patient: "Emily Carter", form: "International treatment consent", status: "İmza bekliyor", date: "10 Temmuz" }
   ];
   const modules = [
     { name: "Tedavi planları", detail: "Vaka ve ödeme planı", icon: "i-tooth", color: "#0f766e" },
@@ -84,6 +84,12 @@
     { name: "Raporlar", detail: "Gelir ve performans", icon: "i-chart", color: "#b76b12" },
     { name: "Dijital onam", detail: "Onam ve imza kayıtları", icon: "i-shield", color: "#16845b" }
   ];
+
+  let hotLeads = storage.get("clinicnova.hotLeads", defaultHotLeads);
+  let treatmentPlans = storage.get("clinicnova.treatmentPlans", defaultTreatmentPlans);
+  let stockItems = storage.get("clinicnova.stockItems", defaultStockItems);
+  let communicationLog = storage.get("clinicnova.communicationLog", defaultCommunicationLog);
+  let consentRecords = storage.get("clinicnova.consentRecords", defaultConsentRecords);
 
   const state = {
     patients: storage.get("clinicnova.patients", defaultPatients),
@@ -125,6 +131,11 @@
     storage.set("clinicnova.transactions", state.transactions);
     storage.set("clinicnova.treatmentHistory", state.treatmentHistory);
     storage.set("clinicnova.patientMedia", state.patientMedia);
+    storage.set("clinicnova.hotLeads", hotLeads);
+    storage.set("clinicnova.treatmentPlans", treatmentPlans);
+    storage.set("clinicnova.stockItems", stockItems);
+    storage.set("clinicnova.communicationLog", communicationLog);
+    storage.set("clinicnova.consentRecords", consentRecords);
   }
 
   function outstandingAmount(item) {
@@ -407,12 +418,12 @@
     const paidIncome = state.transactions.filter((item) => item.type === "income" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
     const expenses = state.transactions.filter((item) => item.type === "expense" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
     const moduleContent = {
-      "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span></article>`).join("")}</div>`,
-      "Sağlık turizmi": `<div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a></article>`).join("")}</div>`,
-      "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span></article>`; }).join("")}</div>`,
-      "İletişim": `<div class="list-stack">${communicationLog.map((item) => `<article class="offline-record"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span></article>`).join("")}<p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
+      "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span><button class="delete-button" data-delete-record="${plan.id}" data-record-kind="treatmentPlans" aria-label="${escapeHtml(plan.patient)} tedavi planını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Tedavi planı yok.</p>`}</div>`,
+      "Sağlık turizmi": `<div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card record-deletable"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a><button class="delete-button" data-delete-record="${lead.id}" data-record-kind="hotLeads" aria-label="${escapeHtml(lead.name)} lead kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Lead kaydı yok.</p>`}</div>`,
+      "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record record-deletable"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="stockItems" aria-label="${escapeHtml(item.name)} stok kaydını sil">Sil</button></article>`; }).join("") || `<p class="empty-inline">Stok kaydı yok.</p>`}</div>`,
+      "İletişim": `<div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}<p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
       "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Demo hareketleri</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>Gelir − gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>Toplam plan</small></article></div><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
-      "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span></article>`).join("")}<p class="modal-note">Demo kayıtları inceleme içindir. Kimlik doğrulamalı imza gönderimi ve yasal kayıt canlı sistemde yapılır.</p></div>`
+      "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Demo kayıtları inceleme içindir. Kimlik doğrulamalı imza gönderimi ve yasal kayıt canlı sistemde yapılır.</p></div>`
     };
     const routes = { "Tedavi planları": "treatment-plans", "Sağlık turizmi": "tourism/leads", "Stok": "stocks", "İletişim": "communication", "Raporlar": "reports", "Dijital onam": "consents" };
     const serverUrl = storage.get("clinicnova.serverUrl", "");
@@ -527,6 +538,21 @@
     if (target.dataset.go) { closeModal(); return navigate(target.dataset.go); }
     if (target.dataset.date) { state.selectedDate = target.dataset.date; renderAppointments(); return; }
     if (target.dataset.filter) { state.patientFilter = target.dataset.filter; $$("#patientFilters button").forEach((button) => button.classList.toggle("active", button === target)); renderPatients(); return; }
+    if (target.dataset.deleteRecord) {
+      const id = Number(target.dataset.deleteRecord);
+      const kind = target.dataset.recordKind;
+      const moduleByKind = { treatmentPlans: "Tedavi planları", hotLeads: "Sağlık turizmi", stockItems: "Stok", communicationLog: "İletişim", consentRecords: "Dijital onam" };
+      if (!moduleByKind[kind] || !window.confirm("Bu kayıt silinsin mi?")) return;
+      if (kind === "treatmentPlans") treatmentPlans = treatmentPlans.filter((item) => item.id !== id);
+      if (kind === "hotLeads") hotLeads = hotLeads.filter((item) => item.id !== id);
+      if (kind === "stockItems") stockItems = stockItems.filter((item) => item.id !== id);
+      if (kind === "communicationLog") communicationLog = communicationLog.filter((item) => item.id !== id);
+      if (kind === "consentRecords") consentRecords = consentRecords.filter((item) => item.id !== id);
+      const originalOpener = modalOpener;
+      saveData();
+      if (kind === "hotLeads") renderDashboard();
+      openModule(moduleByKind[kind]); modalOpener = originalOpener; showToast("Kayıt silindi."); return;
+    }
     if (target.dataset.deletePatient) {
       const patientId = Number(target.dataset.deletePatient);
       const patient = patientById(patientId);
@@ -586,6 +612,11 @@
       state.transactions = JSON.parse(JSON.stringify(defaultTransactions));
       state.treatmentHistory = JSON.parse(JSON.stringify(defaultTreatmentHistory));
       state.patientMedia = {};
+      hotLeads = JSON.parse(JSON.stringify(defaultHotLeads));
+      treatmentPlans = JSON.parse(JSON.stringify(defaultTreatmentPlans));
+      stockItems = JSON.parse(JSON.stringify(defaultStockItems));
+      communicationLog = JSON.parse(JSON.stringify(defaultCommunicationLog));
+      consentRecords = JSON.parse(JSON.stringify(defaultConsentRecords));
       state.transactionFilter = "ALL";
       storage.set("clinicnova.notificationsRead", false);
       $("#notificationDot").hidden = false;
