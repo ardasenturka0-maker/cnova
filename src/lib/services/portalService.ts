@@ -3,8 +3,14 @@ import type { PatientSession } from "@/lib/patient-auth";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import type { PortalAppointmentInput, PortalHealthInput, PortalRegisterInput } from "@/lib/validations/portal";
+import { normalizePhone } from "@/lib/phone";
 
 export const portalTreatmentTypes = ["Muayene", "Dolgu", "Kanal tedavisi", "İmplant", "Diş çekimi", "Protez", "Ortodonti", "Temizlik"];
+
+async function requireActivePortalPatient(session: PatientSession) {
+  const patient = await prisma.patient.findFirst({ where: { id: session.patientId, organizationId: session.organizationId, deletedAt: null }, select: { id: true } });
+  if (!patient) throw new Error("Hasta hesabı aktif değil.");
+}
 
 export function buildChronicDiseases(input: PortalHealthInput) {
   const conditions = [
@@ -19,14 +25,14 @@ export function buildChronicDiseases(input: PortalHealthInput) {
 }
 
 export async function registerPortalPatient(input: PortalRegisterInput) {
-  const { findPatientByPhone } = await import("@/lib/patient-auth");
-  const existing = await findPatientByPhone(input.phone);
+  const organization = await prisma.organization.findFirst({ where: { slug: input.organizationSlug } });
+  if (!organization) throw new Error("Klinik bulunamadı.");
+  const { findPatientByPhoneInOrganization } = await import("@/lib/patient-auth");
+  const existing = await findPatientByPhoneInOrganization(organization.id, input.phone);
   if (existing) {
     return { conflict: true as const, patient: existing };
   }
 
-  const organization = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!organization) throw new Error("Organizasyon bulunamadı.");
   const branch = await prisma.branch.findFirst({ where: { organizationId: organization.id }, orderBy: { createdAt: "asc" } });
   if (!branch) throw new Error("Şube bulunamadı.");
 
@@ -35,6 +41,7 @@ export async function registerPortalPatient(input: PortalRegisterInput) {
       firstName: input.firstName.trim(),
       lastName: input.lastName.trim(),
       phone: input.phone.trim(),
+      phoneNormalized: normalizePhone(input.phone),
       email: input.email?.trim() || null,
       birthDate: input.birthDate ? new Date(input.birthDate) : null,
       allergies: input.allergies?.trim() || null,
@@ -52,7 +59,7 @@ export async function registerPortalPatient(input: PortalRegisterInput) {
 
 export async function updatePatientHealthInfo(session: PatientSession, input: PortalHealthInput) {
   return prisma.patient.updateMany({
-    where: { id: session.patientId, organizationId: session.organizationId },
+    where: { id: session.patientId, organizationId: session.organizationId, deletedAt: null },
     data: {
       allergies: input.allergies?.trim() || null,
       chronicDiseases: buildChronicDiseases(input),
@@ -68,6 +75,7 @@ export async function getPortalOverview(session: PatientSession) {
     prisma.appointment.findFirst({
       where: {
         patientId: session.patientId,
+        organizationId: session.organizationId,
         startsAt: { gte: now },
         status: { in: [AppointmentStatus.PLANNED, AppointmentStatus.PENDING_CONFIRMATION] }
       },
@@ -75,13 +83,13 @@ export async function getPortalOverview(session: PatientSession) {
       orderBy: { startsAt: "asc" }
     }),
     prisma.treatment.findMany({
-      where: { patientId: session.patientId },
+      where: { patientId: session.patientId, organizationId: session.organizationId },
       include: { doctor: { select: { name: true } } },
       orderBy: { performedAt: "desc" },
       take: 3
     }),
     prisma.payment.findMany({
-      where: { patientId: session.patientId, type: PaymentType.INCOME },
+      where: { patientId: session.patientId, organizationId: session.organizationId, type: PaymentType.INCOME },
       orderBy: { paidAt: "desc" }
     })
   ]);
@@ -95,7 +103,7 @@ export async function getPortalOverview(session: PatientSession) {
 export async function getPatientAppointments(session: PatientSession) {
   const now = new Date();
   const appointments = await prisma.appointment.findMany({
-    where: { patientId: session.patientId },
+    where: { patientId: session.patientId, organizationId: session.organizationId },
     include: { doctor: { select: { name: true } }, branch: { select: { name: true } } },
     orderBy: { startsAt: "desc" },
     take: 100
@@ -118,6 +126,7 @@ export async function getPortalDoctors(organizationId: string) {
 }
 
 export async function bookAppointment(session: PatientSession, input: PortalAppointmentInput) {
+  await requireActivePortalPatient(session);
   const doctor = await prisma.user.findFirst({
     where: { id: input.doctorId, organizationId: session.organizationId, role: Role.DOCTOR, active: true },
     select: { id: true }
@@ -163,7 +172,7 @@ export async function cancelAppointment(session: PatientSession, appointmentId: 
 
 export async function getPortalAppointmentRequests(organizationId: string) {
   return prisma.appointment.findMany({
-    where: { organizationId, status: AppointmentStatus.PENDING_CONFIRMATION },
+    where: { organizationId, status: AppointmentStatus.PENDING_CONFIRMATION, patient: { deletedAt: null } },
     include: {
       patient: { select: { firstName: true, lastName: true, phone: true } },
       doctor: { select: { name: true } },
@@ -176,7 +185,7 @@ export async function getPortalAppointmentRequests(organizationId: string) {
 
 export async function resolvePortalAppointmentRequest(organizationId: string, appointmentId: string, decision: "approve" | "reject") {
   const appointment = await prisma.appointment.findFirst({
-    where: { id: appointmentId, organizationId, status: AppointmentStatus.PENDING_CONFIRMATION }
+    where: { id: appointmentId, organizationId, status: AppointmentStatus.PENDING_CONFIRMATION, patient: { deletedAt: null } }
   });
   if (!appointment) {
     throw new Error("Onay bekleyen randevu bulunamadı.");
@@ -191,13 +200,13 @@ export async function resolvePortalAppointmentRequest(organizationId: string, ap
 export async function getPatientTreatments(session: PatientSession) {
   const [treatments, plans] = await Promise.all([
     prisma.treatment.findMany({
-      where: { patientId: session.patientId },
+      where: { patientId: session.patientId, organizationId: session.organizationId },
       include: { doctor: { select: { name: true } } },
       orderBy: { performedAt: "desc" },
       take: 50
     }),
     prisma.treatmentPlan.findMany({
-      where: { patientId: session.patientId },
+      where: { patientId: session.patientId, organizationId: session.organizationId },
       include: { doctor: { select: { name: true } } },
       orderBy: { plannedAt: "desc" },
       take: 50
@@ -209,7 +218,7 @@ export async function getPatientTreatments(session: PatientSession) {
 
 export async function getPatientPayments(session: PatientSession) {
   const payments = await prisma.payment.findMany({
-    where: { patientId: session.patientId, type: PaymentType.INCOME },
+    where: { patientId: session.patientId, organizationId: session.organizationId, type: PaymentType.INCOME },
     include: { treatment: { select: { treatmentType: true } } },
     orderBy: { paidAt: "desc" },
     take: 100

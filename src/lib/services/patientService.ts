@@ -2,6 +2,7 @@ import { Gender, PatientTag } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PatientInput } from "@/lib/validations/patient";
 import { writeAuditLog } from "@/lib/services/auditLogService";
+import { normalizePhone } from "@/lib/phone";
 
 function optional(value?: string | null) {
   return value && value.length > 0 ? value : null;
@@ -55,6 +56,7 @@ export async function createPatient(organizationId: string, branchId: string, in
       lastName: input.lastName,
       nationalId: optional(input.nationalId),
       phone: input.phone,
+      phoneNormalized: normalizePhone(input.phone),
       email: optional(input.email),
       birthDate: input.birthDate ? new Date(input.birthDate) : null,
       gender: input.gender as Gender,
@@ -71,12 +73,13 @@ export async function createPatient(organizationId: string, branchId: string, in
 
 export async function updatePatient(organizationId: string, id: string, input: PatientInput) {
   return prisma.patient.updateMany({
-    where: { id, organizationId },
+    where: { id, organizationId, deletedAt: null },
     data: {
       firstName: input.firstName,
       lastName: input.lastName,
       nationalId: optional(input.nationalId),
       phone: input.phone,
+      phoneNormalized: normalizePhone(input.phone),
       email: optional(input.email),
       birthDate: input.birthDate ? new Date(input.birthDate) : null,
       gender: input.gender as Gender,
@@ -101,8 +104,9 @@ export async function deletePatient(organizationId: string, id: string, userId: 
 }
 
 export async function getDeletedPatients(organizationId: string) {
+  const now = new Date();
   return prisma.patient.findMany({
-    where: { organizationId, deletedAt: { not: null } },
+    where: { organizationId, deletedAt: { not: null }, purgeAt: { gt: now } },
     include: { branch: { select: { name: true } } },
     orderBy: { deletedAt: "desc" },
     take: 200
@@ -113,7 +117,7 @@ export async function restorePatient(organizationId: string, id: string, userId:
   const now = new Date();
   const result = await prisma.patient.updateMany({
     where: { id, organizationId, deletedAt: { not: null }, purgeAt: { gt: now } },
-    data: { deletedAt: null, purgeAt: null, deletedById: null, restoredAt: now, restoredById: userId }
+    data: { deletedAt: null, purgeAt: null, restoredAt: now, restoredById: userId }
   });
   if (result.count > 0) await writeAuditLog({ userId, action: "RESTORE_PATIENT", module: "patients", entityId: id, organizationId, branchId });
   return result;

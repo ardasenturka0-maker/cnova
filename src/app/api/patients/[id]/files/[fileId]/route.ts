@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { canDeletePatientFile, requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { readPatientFile } from "@/lib/secure-file-storage";
 import { writeAuditLog } from "@/lib/services/auditLogService";
@@ -41,6 +41,7 @@ export async function DELETE(
 ) {
   const params = await props.params;
   const session = await requireSession();
+  if (!canDeletePatientFile(session.role)) return NextResponse.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 });
   const now = new Date();
   const result = await prisma.patientFile.updateMany({
     where: { id: params.fileId, patientId: params.id, organizationId: session.organizationId, deletedAt: null },

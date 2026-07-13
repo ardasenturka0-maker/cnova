@@ -125,7 +125,21 @@ export async function requireSession() {
   if (!session) {
     redirect("/login");
   }
-  return session;
+  if (isDemoMode()) return session;
+  const user = await prisma.user.findFirst({
+    where: { id: session.userId, organizationId: session.organizationId, active: true },
+    select: { name: true, email: true, role: true, branchId: true }
+  });
+  if (!user) redirect("/login?error=inactive");
+  return { ...session, name: user.name, email: user.email, role: user.role, branchId: user.branchId } satisfies AuthSession;
+}
+
+export function canManageTrash(role: Role) {
+  return role === Role.CLINIC_OWNER || role === Role.MANAGER;
+}
+
+export function canDeletePatientFile(role: Role) {
+  return canManageTrash(role) || role === Role.DOCTOR;
 }
 
 export async function getCurrentUser() {

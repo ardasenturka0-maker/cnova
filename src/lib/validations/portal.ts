@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const portalLoginSchema = z.object({
-  phone: z.string().min(7, "Telefon numarasi gecersiz.")
+  organizationSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Klinik kodu gecersiz."),
+  phone: z.string().min(7, "Telefon numarasi gecersiz."),
+  birthDate: z.string().date("Dogum tarihi gecersiz.")
 });
 
 export const portalAppointmentSchema = z.object({
@@ -30,11 +32,12 @@ export const portalHealthSchema = z.object({
 });
 
 export const portalRegisterSchema = portalHealthSchema.extend({
+  organizationSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Klinik kodu gecersiz."),
   firstName: z.string().min(2, "Ad gerekli."),
   lastName: z.string().min(2, "Soyad gerekli."),
   phone: z.string().min(7, "Telefon numarasi gecersiz."),
   email: z.string().email("E-posta gecersiz.").optional().or(z.literal("")),
-  birthDate: z.string().optional().or(z.literal(""))
+  birthDate: z.string().date("Dogum tarihi gecersiz.")
 });
 
 export type PortalHealthInput = z.infer<typeof portalHealthSchema>;

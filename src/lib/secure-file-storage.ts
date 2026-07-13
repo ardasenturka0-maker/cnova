@@ -63,18 +63,34 @@ async function scanForMalware(bytes: Buffer) {
   await mkdir(tempDirectory, { recursive: true, mode: 0o700 });
   try {
     await writeFile(tempFile, bytes, { mode: 0o600 });
-    const result = await new Promise<{ code: number | null; error?: NodeJS.ErrnoException }>((resolve) => {
-      const child = spawn(command, ["--no-summary", tempFile], { stdio: "ignore", shell: false });
-      child.once("error", (error: NodeJS.ErrnoException) => resolve({ code: null, error }));
-      child.once("close", (code) => resolve({ code }));
-    });
+    const result = await runCommand(command, ["--no-summary", tempFile], 30_000);
     if (result.error?.code === "ENOENT" && !required) return;
     if (result.error) throw new Error("Antivirüs tarayıcısı çalıştırılamadı.");
+    if (result.timedOut) throw new Error("Antivirüs taraması zaman aşımına uğradı.");
     if (result.code === 1) throw new Error("Dosya antivirüs taramasından geçemedi.");
     if (result.code !== 0) throw new Error("Antivirüs taraması tamamlanamadı.");
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });
   }
+}
+
+function runCommand(command: string, args: string[], timeoutMs: number) {
+  return new Promise<{ code: number | null; error?: NodeJS.ErrnoException; timedOut?: boolean }>((resolve) => {
+    const child = spawn(command, args, { stdio: "ignore", shell: false });
+    let settled = false;
+    const finish = (result: { code: number | null; error?: NodeJS.ErrnoException; timedOut?: boolean }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish({ code: null, timedOut: true });
+    }, timeoutMs);
+    child.once("error", (error: NodeJS.ErrnoException) => finish({ code: null, error }));
+    child.once("close", (code) => finish({ code }));
+  });
 }
 
 export async function preparePatientUpload(input: Buffer): Promise<PreparedUpload> {
@@ -114,8 +130,12 @@ export async function storePatientFile(organizationId: string, patientId: string
   const payload = Buffer.concat([HEADER, iv, cipher.getAuthTag(), encrypted]);
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
   const temporary = `${destination}.${randomUUID()}.tmp`;
-  await writeFile(temporary, payload, { mode: 0o600 });
-  await rename(temporary, destination);
+  try {
+    await writeFile(temporary, payload, { mode: 0o600 });
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   return storageKey;
 }
 
@@ -141,5 +161,14 @@ export async function assertFileStorageReady() {
   await mkdir(root, { recursive: true, mode: 0o700 });
   await access(root, constants.R_OK | constants.W_OK);
   encryptionKey();
+  return root;
+}
+
+export async function assertFileSecurityReady() {
+  const root = await assertFileStorageReady();
+  if (process.env.FILE_AV_REQUIRED === "true" || process.env.NODE_ENV === "production") {
+    const result = await runCommand(process.env.FILE_AV_COMMAND || "clamscan", ["--version"], 5_000);
+    if (result.error || result.timedOut || result.code !== 0) throw new Error("Antivirüs tarayıcısı hazır değil.");
+  }
   return root;
 }

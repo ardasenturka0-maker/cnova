@@ -42,7 +42,7 @@ export default async function RecallsPage() {
   const locale = await getLocale();
   const [patients, recalls] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
-    prisma.recall.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, branch: true }, orderBy: { dueDate: "asc" }, take: 100 })
+    prisma.recall.findMany({ where: { organizationId: session.organizationId, patient: { deletedAt: null } }, include: { patient: true, branch: true }, orderBy: { dueDate: "asc" }, take: 100 })
   ]);
 
   return (

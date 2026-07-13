@@ -91,8 +91,9 @@ const patients = names.map(([firstName, lastName], index) => ({
   lastName,
   nationalId: index % 3 === 0 ? String(10000000000 + index) : null,
   phone: `+90 532 555 ${String(1000 + index).slice(0, 4)}`,
+  phoneNormalized: `532555${String(1000 + index).slice(0, 4)}`,
   email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@mail.test`,
-  birthDate: new Date(1985 + index, index % 12, 10),
+  birthDate: new Date(Date.UTC(1985 + index, index % 12, 10)),
   gender: index % 2 === 0 ? Gender.FEMALE : Gender.MALE,
   address: "İstanbul",
   allergies: index % 5 === 0 ? "Penisilin hassasiyeti" : null,
@@ -721,6 +722,7 @@ function patientOf(patientId: string | null | undefined) {
 function richPatient(patient: any) {
   return {
     ...patient,
+    organization,
     branch: branchOf(patient.branchId),
     appointments: appointments.filter((item) => item.patientId === patient.id).map(richAppointment),
     treatmentPlans: treatmentPlans.filter((item) => item.patientId === patient.id).map(richTreatmentPlan),
@@ -874,7 +876,7 @@ function normalizeValue(value: any) {
   return value instanceof Date ? value.getTime() : value;
 }
 
-function matchesValue(itemValue: any, condition: any) {
+function matchesValue(itemValue: any, condition: any): boolean {
   if (condition === undefined) return true;
   if (condition === null) return itemValue === null || itemValue === undefined;
   if (typeof condition !== "object" || condition instanceof Date || Array.isArray(condition)) {
@@ -898,10 +900,16 @@ function matchesValue(itemValue: any, condition: any) {
     if (!haystack.includes(needle)) return false;
   }
 
+  const operators = ["equals", "in", "notIn", "not", "lte", "lt", "gte", "gt", "contains", "mode"];
+  if (Object.keys(condition).some((key) => !operators.includes(key))) {
+    if (itemValue === null || itemValue === undefined) return false;
+    return matchesWhere(itemValue, condition);
+  }
+
   return true;
 }
 
-function matchesWhere(item: any, where: any) {
+function matchesWhere(item: any, where: any): boolean {
   if (!where) return true;
   if (where.OR && !where.OR.some((entry: any) => matchesWhere(item, entry))) return false;
   if (where.AND && !where.AND.every((entry: any) => matchesWhere(item, entry))) return false;
@@ -933,18 +941,18 @@ function sortRows(rows: any[], orderBy: any) {
 function model(data: any[], rich = (item: any) => item) {
   return {
     async findMany(args?: any) {
-      const rows = sortRows(data.filter((item) => matchesWhere(item, args?.where)), args?.orderBy);
+      const rows = sortRows(data.filter((item) => matchesWhere(rich(item), args?.where)), args?.orderBy);
       return rows.slice(args?.skip ?? 0, args?.take ? (args?.skip ?? 0) + args.take : undefined).map(rich);
     },
     async findFirst(args?: any) {
-      const rows = sortRows(data.filter((item) => matchesWhere(item, args?.where)), args?.orderBy);
+      const rows = sortRows(data.filter((item) => matchesWhere(rich(item), args?.where)), args?.orderBy);
       return rows.map(rich)[0] ?? null;
     },
     async findUnique(args?: any) {
-      return data.filter((item) => matchesWhere(item, args?.where)).map(rich)[0] ?? null;
+      return data.filter((item) => matchesWhere(rich(item), args?.where)).map(rich)[0] ?? null;
     },
     async count(args?: any) {
-      return data.filter((item) => matchesWhere(item, args?.where)).length;
+      return data.filter((item) => matchesWhere(rich(item), args?.where)).length;
     },
     async create(args?: any) {
       const createdAt = new Date();
@@ -985,7 +993,7 @@ function model(data: any[], rich = (item: any) => item) {
       return { count };
     },
     async aggregate(args?: any) {
-      const filtered = data.filter((item) => matchesWhere(item, args?.where));
+      const filtered = data.filter((item) => matchesWhere(rich(item), args?.where));
       const sumFields = Object.keys(args?._sum ?? { amount: true });
       const avgFields = Object.keys(args?._avg ?? { score: true });
       const result: { _sum: Record<string, number>; _avg: Record<string, number | null> } = { _sum: {}, _avg: {} };

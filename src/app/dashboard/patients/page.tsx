@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { requireSession } from "@/lib/auth";
+import { canManageTrash, requireSession } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { getPatients } from "@/lib/services/patientService";
@@ -78,10 +78,10 @@ export default async function PatientsPage(props: { searchParams: Promise<{ q?: 
         <UserPlus className="h-4 w-4" />
         Yeni hasta ekle
       </Link>
-      <Link className={cn(buttonVariants({ variant: "ghost" }), "w-fit")} href="/dashboard/patients/trash">
+      {canManageTrash(session.role) ? <Link className={cn(buttonVariants({ variant: "ghost" }), "w-fit")} href="/dashboard/patients/trash">
         <Trash2 className="h-4 w-4" />
         Çöp kutusu
-      </Link>
+      </Link> : null}
     </div>
   );
 }

@@ -65,7 +65,7 @@ async function createConsentAction(formData: FormData) {
 async function sendConsentAction(id: string) {
   "use server";
   const session = await requireSession();
-  const consent = await prisma.consent.findFirst({ where: { id, organizationId: session.organizationId } });
+  const consent = await prisma.consent.findFirst({ where: { id, organizationId: session.organizationId, patient: { deletedAt: null } } });
   if (!consent) redirect(resultUrl("error", "Gönderilecek onam bulunamadı."));
   const patient = await prisma.patient.findFirst({ where: { id: consent.patientId, organizationId: session.organizationId, deletedAt: null } });
   if (!patient) redirect(resultUrl("error", "Onam kaydının hastası bulunamadı."));
@@ -118,7 +118,7 @@ export default async function ConsentsPage(props: { searchParams: Promise<{ succ
   const locale = await getLocale();
   const [patients, consents] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
-    prisma.consent.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 100 })
+    prisma.consent.findMany({ where: { organizationId: session.organizationId, patient: { deletedAt: null } }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 100 })
   ]);
 
   return (

@@ -26,7 +26,7 @@ export default async function SurveysPage() {
   const session = await requireSession();
   const [surveys, responses] = await Promise.all([
     prisma.survey.findMany({ where: { organizationId: session.organizationId }, include: { responses: true }, orderBy: { createdAt: "desc" } }),
-    prisma.surveyResponse.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, survey: true }, orderBy: { createdAt: "desc" }, take: 80 })
+    prisma.surveyResponse.findMany({ where: { organizationId: session.organizationId, patient: { deletedAt: null } }, include: { patient: true, survey: true }, orderBy: { createdAt: "desc" }, take: 80 })
   ]);
   const average = responses.length ? responses.reduce((sum, item) => sum + item.score, 0) / responses.length : 0;
 

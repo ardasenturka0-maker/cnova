@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { createPatientSessionToken, patientCookieName } from "@/lib/patient-auth";
 import { registerPortalPatient } from "@/lib/services/portalService";
+import { allowServerAction } from "@/lib/server-action-rate-limit";
+import { isDemoMode } from "@/lib/demo-mode";
 import { portalRegisterSchema } from "@/lib/validations/portal";
 
 async function patientRegisterAction(formData: FormData) {
@@ -18,8 +20,14 @@ async function patientRegisterAction(formData: FormData) {
   if (!parsed.success) {
     redirect("/portal/register?error=form");
   }
+  if (!await allowServerAction("portal-register", 3, 60 * 60 * 1000)) redirect("/portal/register?error=rate");
 
-  const result = await registerPortalPatient(parsed.data);
+  let result;
+  try {
+    result = await registerPortalPatient(parsed.data);
+  } catch {
+    redirect("/portal/register?error=clinic");
+  }
   if (result.conflict) {
     redirect("/portal/register?error=exists");
   }
@@ -47,7 +55,9 @@ async function patientRegisterAction(formData: FormData) {
 
 const errors: Record<string, string> = {
   form: "Lütfen zorunlu alanları kontrol edin.",
-  exists: "Bu telefon numarasıyla zaten bir kayıt var. Giriş yapabilirsiniz."
+  exists: "Bu telefon numarasıyla zaten bir kayıt var. Giriş yapabilirsiniz.",
+  clinic: "Klinik kodu bulunamadı.",
+  rate: "Çok fazla kayıt denemesi yapıldı. Lütfen daha sonra tekrar deneyin."
 };
 
 export default async function PortalRegisterPage(props: { searchParams: Promise<{ error?: string }> }) {
@@ -73,6 +83,10 @@ export default async function PortalRegisterPage(props: { searchParams: Promise<
           </CardHeader>
           <CardContent>
             <form action={patientRegisterAction} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="organizationSlug">Klinik kodu</Label>
+                <Input id="organizationSlug" name="organizationSlug" placeholder="ornek-klinik" defaultValue={isDemoMode() ? "nova-dental-demo" : ""} autoComplete="organization" required />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="firstName">Ad</Label>
@@ -94,7 +108,7 @@ export default async function PortalRegisterPage(props: { searchParams: Promise<
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="birthDate">Doğum tarihi</Label>
-                  <Input id="birthDate" name="birthDate" type="date" />
+                  <Input id="birthDate" name="birthDate" type="date" required />
                 </div>
               </div>
 

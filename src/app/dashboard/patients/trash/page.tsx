@@ -1,11 +1,12 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArchiveRestore, FileText, Trash2 } from "lucide-react";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { requireSession } from "@/lib/auth";
+import { canManageTrash, requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { restorePatient, getDeletedPatients } from "@/lib/services/patientService";
 import { writeAuditLog } from "@/lib/services/auditLogService";
@@ -14,6 +15,7 @@ import { cn, formatDateTime } from "@/lib/utils";
 async function restorePatientAction(id: string) {
   "use server";
   const session = await requireSession();
+  if (!canManageTrash(session.role)) redirect("/dashboard?error=forbidden");
   await restorePatient(session.organizationId, id, session.userId, session.branchId);
   revalidatePath("/dashboard/patients");
   revalidatePath("/dashboard/patients/trash");
@@ -22,10 +24,11 @@ async function restorePatientAction(id: string) {
 async function restoreFileAction(id: string) {
   "use server";
   const session = await requireSession();
+  if (!canManageTrash(session.role)) redirect("/dashboard?error=forbidden");
   const now = new Date();
   const file = await prisma.patientFile.findFirst({ where: { id, organizationId: session.organizationId, deletedAt: { not: null }, purgeAt: { gt: now }, patient: { deletedAt: null } } });
   if (!file) return;
-  await prisma.patientFile.update({ where: { id: file.id }, data: { deletedAt: null, purgeAt: null, deletedById: null, restoredAt: now, restoredById: session.userId } });
+  await prisma.patientFile.update({ where: { id: file.id }, data: { deletedAt: null, purgeAt: null, restoredAt: now, restoredById: session.userId } });
   await writeAuditLog({ userId: session.userId, action: "RESTORE_PATIENT_FILE", module: "patients", entityId: file.id, metadata: { patientId: file.patientId }, organizationId: session.organizationId, branchId: session.branchId });
   revalidatePath("/dashboard/patients/trash");
   revalidatePath(`/dashboard/patients/${file.patientId}`);
@@ -33,9 +36,10 @@ async function restoreFileAction(id: string) {
 
 export default async function PatientTrashPage() {
   const session = await requireSession();
+  if (!canManageTrash(session.role)) redirect("/dashboard?error=forbidden");
   const [patients, files] = await Promise.all([
     getDeletedPatients(session.organizationId),
-    prisma.patientFile.findMany({ where: { organizationId: session.organizationId, deletedAt: { not: null }, patient: { deletedAt: null } }, include: { patient: { select: { firstName: true, lastName: true } } }, orderBy: { deletedAt: "desc" }, take: 200 })
+    prisma.patientFile.findMany({ where: { organizationId: session.organizationId, deletedAt: { not: null }, purgeAt: { gt: new Date() }, patient: { deletedAt: null } }, include: { patient: { select: { firstName: true, lastName: true } } }, orderBy: { deletedAt: "desc" }, take: 200 })
   ]);
 
   return (

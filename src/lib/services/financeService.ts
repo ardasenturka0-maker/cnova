@@ -6,7 +6,7 @@ import type { PaymentInput } from "@/lib/validations/finance";
 export async function getFinanceOverview(organizationId: string) {
   const [payments, invoices, patients, treatments] = await Promise.all([
     prisma.payment.findMany({
-      where: { organizationId },
+      where: { organizationId, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
       include: {
         patient: { select: { firstName: true, lastName: true } },
         treatment: { select: { treatmentType: true, fee: true } },
@@ -16,14 +16,14 @@ export async function getFinanceOverview(organizationId: string) {
       take: 80
     }),
     prisma.invoice.findMany({
-      where: { organizationId },
+      where: { organizationId, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
       include: { patient: { select: { firstName: true, lastName: true } } },
       orderBy: { createdAt: "desc" },
       take: 80
     }),
     prisma.patient.findMany({ where: { organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.treatment.findMany({
-      where: { organizationId },
+      where: { organizationId, patient: { deletedAt: null } },
       include: { patient: { select: { firstName: true, lastName: true } } },
       orderBy: { performedAt: "desc" },
       take: 100
@@ -54,7 +54,7 @@ export async function createPayment(organizationId: string, fallbackBranchId: st
       ? prisma.patient.findFirst({ where: { id: input.patientId, organizationId, deletedAt: null }, select: { id: true, branchId: true } })
       : null,
     input.treatmentId
-      ? prisma.treatment.findFirst({ where: { id: input.treatmentId, organizationId }, select: { id: true, patientId: true, branchId: true, fee: true } })
+      ? prisma.treatment.findFirst({ where: { id: input.treatmentId, organizationId, patient: { deletedAt: null } }, select: { id: true, patientId: true, branchId: true, fee: true } })
       : null
   ]);
 

@@ -27,7 +27,7 @@ async function publishCaseAction(id: string) {
   const session = await requireSession();
   const beforeAfterCase = await prisma.beforeAfterCase.findFirst({ where: { id, organizationId: session.organizationId } });
   if (!beforeAfterCase || !beforeAfterCase.consentGiven || !beforeAfterCase.consentId) redirect(resultUrl("İmzalı onamı olmayan vaka yayınlanamaz."));
-  const consent = await prisma.consent.findFirst({ where: { id: beforeAfterCase.consentId, organizationId: session.organizationId, status: ConsentStatus.SIGNED } });
+  const consent = await prisma.consent.findFirst({ where: { id: beforeAfterCase.consentId, organizationId: session.organizationId, status: ConsentStatus.SIGNED, patient: { deletedAt: null } } });
   if (!consent) redirect(resultUrl("Vakanın imzalı yayın onamı doğrulanamadı."));
   await prisma.beforeAfterCase.update({ where: { id }, data: { status: BeforeAfterStatus.PUBLISHED_WEBSITE } });
   const organization = await prisma.organization.findFirst({ where: { id: session.organizationId } });
@@ -40,7 +40,7 @@ async function createCaseAction(formData: FormData) {
   "use server";
   const session = await requireSession();
   const consentId = String(formData.get("consentId") ?? "");
-  const consent = await prisma.consent.findFirst({ where: { id: consentId, organizationId: session.organizationId, status: ConsentStatus.SIGNED } });
+  const consent = await prisma.consent.findFirst({ where: { id: consentId, organizationId: session.organizationId, status: ConsentStatus.SIGNED, patient: { deletedAt: null } } });
   if (!consent) redirect(resultUrl("Yayın için imzalı hasta onamı seçilmelidir."));
   await prisma.beforeAfterCase.create({
     data: {
@@ -72,7 +72,7 @@ export default async function GalleryPage(props: { searchParams: Promise<{ succe
   const [organization, cases, signedConsents] = await Promise.all([
     prisma.organization.findFirst({ where: { id: session.organizationId } }),
     prisma.beforeAfterCase.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 }),
-    prisma.consent.findMany({ where: { organizationId: session.organizationId, status: ConsentStatus.SIGNED }, include: { patient: true }, orderBy: { signedAt: "desc" }, take: 100 })
+    prisma.consent.findMany({ where: { organizationId: session.organizationId, status: ConsentStatus.SIGNED, patient: { deletedAt: null } }, include: { patient: true }, orderBy: { signedAt: "desc" }, take: 100 })
   ]);
   const treatments = [...new Set(cases.map((item) => item.treatmentType))];
   const filtered = searchParams.treatment ? cases.filter((item) => item.treatmentType === searchParams.treatment) : cases;

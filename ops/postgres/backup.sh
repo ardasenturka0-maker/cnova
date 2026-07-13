@@ -13,7 +13,7 @@ install -d -m 0700 "$destination/base" "$WAL_ARCHIVE_ROOT"
 pg_basebackup --dbname="$DATABASE_URL" --pgdata="$destination/base" --format=plain --wal-method=stream --checkpoint=fast --progress
 pg_dump --dbname="$DATABASE_URL" --format=custom --file="$destination/clinicnova.dump"
 date -u +%FT%TZ > "$destination/completed-at.txt"
-find "$destination" -type f -print0 | sort -z | xargs -0 sha256sum > "$destination/SHA256SUMS"
+(cd "$destination" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum) > "$destination/SHA256SUMS"
 
 rclone copy "$destination" "$BACKUP_REMOTE/base/$timestamp" --immutable
 rclone copy "$WAL_ARCHIVE_ROOT" "$BACKUP_REMOTE/wal" --immutable

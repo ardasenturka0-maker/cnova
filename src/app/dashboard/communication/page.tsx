@@ -191,7 +191,7 @@ export default async function CommunicationPage(props: { searchParams: Promise<{
   const locale = await getLocale();
   const [patients, logs] = await Promise.all([
     prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
-    prisma.communicationLog.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 150 })
+    prisma.communicationLog.findMany({ where: { organizationId: session.organizationId, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 150 })
   ]);
 
   const typedPatients = patients as PatientOption[];

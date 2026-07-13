@@ -4,7 +4,7 @@ import type { AppointmentInput } from "@/lib/validations/appointment";
 
 export async function getAppointments(organizationId: string) {
   return prisma.appointment.findMany({
-    where: { organizationId },
+    where: { organizationId, patient: { deletedAt: null } },
     include: {
       patient: { select: { firstName: true, lastName: true, phone: true } },
       doctor: { select: { name: true } },

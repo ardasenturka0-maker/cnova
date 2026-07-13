@@ -39,7 +39,7 @@ function formatSize(bytes: number) {
   return `${bytes} B`;
 }
 
-export function PatientFiles({ patientId, initialFiles }: { patientId: string; initialFiles: PatientFileMeta[] }) {
+export function PatientFiles({ patientId, initialFiles, canDelete = false }: { patientId: string; initialFiles: PatientFileMeta[]; canDelete?: boolean }) {
   const [files, setFiles] = useState<PatientFileMeta[]>(initialFiles);
   const [category, setCategory] = useState<PatientFileMeta["category"]>("BEFORE");
   const [uploading, setUploading] = useState(false);
@@ -156,9 +156,9 @@ export function PatientFiles({ patientId, initialFiles }: { patientId: string; i
               {new Date(file.createdAt).toLocaleDateString("tr-TR")} · {formatSize(file.size)}
             </p>
           </div>
-          <Button type="button" variant="ghost" size="sm" className="shrink-0 text-destructive" onClick={() => removeFile(file.id)} aria-label="Dosyayı sil">
+          {canDelete ? <Button type="button" variant="ghost" size="sm" className="shrink-0 text-destructive" onClick={() => removeFile(file.id)} aria-label="Dosyayı sil">
             <Trash2 className="h-4 w-4" />
-          </Button>
+          </Button> : null}
         </div>
       </div>
     );

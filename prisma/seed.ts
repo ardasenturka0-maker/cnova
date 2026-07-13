@@ -273,13 +273,15 @@ async function main() {
       const branchId = index % 3 === 0 ? secondBranch.id : mainBranch.id;
       const firstName = firstNames[index % firstNames.length];
       const lastName = lastNames[(index + 3) % lastNames.length];
+      const phone = "+90 5" + String(320000000 + index * 137).padStart(9, "0");
       return {
         firstName,
         lastName,
         nationalId: index % 4 === 0 ? String(10000000000 + index) : null,
-        phone: "+90 5" + String(320000000 + index * 137).padStart(9, "0"),
+        phone,
+        phoneNormalized: phone.replace(/\D/g, "").slice(-10),
         email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${index}@mail.test`,
-        birthDate: new Date(1980 + (index % 30), index % 12, (index % 27) + 1),
+        birthDate: new Date(Date.UTC(1980 + (index % 30), index % 12, (index % 27) + 1)),
         gender: index % 2 === 0 ? Gender.FEMALE : Gender.MALE,
         address: "Istanbul",
         allergies: index % 9 === 0 ? "Penisilin hassasiyeti" : null,

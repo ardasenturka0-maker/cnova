@@ -44,6 +44,49 @@ test("demo can open without a live database", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Gelir fırsatları hazır" })).toBeVisible();
 });
 
+test("patient portal scopes identity and revokes a deleted patient's session", async ({ page }) => {
+  await page.goto("/portal/login");
+  await page.getByLabel("Telefon numaranız").fill("+90 532 555 1000");
+  await page.getByLabel("Doğum tarihiniz").fill("1985-01-11");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL(/\/portal\/login\?error=1$/);
+
+  await page.getByLabel("Telefon numaranız").fill("+90 532 555 1000");
+  await page.getByLabel("Doğum tarihiniz").fill("1985-01-10");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL(/\/portal$/);
+  await expect(page.getByRole("heading", { name: "Merhaba, Ayşe Yılmaz" })).toBeVisible();
+
+  await page.goto("/login");
+  await page.getByLabel("E-posta").fill("owner@clinicnova.test");
+  await page.getByLabel("Şifre").fill("password123");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await page.goto("/dashboard/patients/patient_01");
+  await page.getByRole("button", { name: "Hastayı Sil" }).click();
+  await expect(page).toHaveURL(/\/dashboard\/patients$/);
+
+  await page.goto("/portal");
+  await expect(page).toHaveURL(/\/portal\/login\?error=inactive$/);
+
+  await page.goto("/dashboard/patients/trash");
+  await expect(page.getByText("Ayşe Yılmaz")).toBeVisible();
+  await page.getByRole("button", { name: "Geri yükle" }).first().click();
+  await expect(page.getByText("Silinen hasta yok.")).toBeVisible();
+});
+
+test("reception staff cannot delete patient records", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("E-posta").fill("receptionist@clinicnova.test");
+  await page.getByLabel("Şifre").fill("password123");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  const response = await page.request.delete("/api/patients/patient_02");
+  expect(response.status()).toBe(403);
+  await page.goto("/dashboard/patients/patient_02");
+  await expect(page.getByRole("heading", { name: "Mehmet Demir" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hastayı Sil" })).toHaveCount(0);
+});
+
 test("staff can sign in, use the dashboard and sign out", async ({ page }, testInfo) => {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
@@ -84,7 +127,7 @@ test("staff can sign in, use the dashboard and sign out", async ({ page }, testI
 
   const health = await page.request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.1.1" });
+  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.1.2" });
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

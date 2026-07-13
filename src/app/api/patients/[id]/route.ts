@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { canManageTrash, requireSession } from "@/lib/auth";
 import { deletePatient, getPatientById, updatePatient } from "@/lib/services/patientService";
 import { patientSchema } from "@/lib/validations/patient";
 
@@ -28,6 +28,7 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
 export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await requireSession();
+  if (!canManageTrash(session.role)) return NextResponse.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 });
   await deletePatient(session.organizationId, params.id, session.userId, session.branchId);
   return NextResponse.json({ ok: true });
 }

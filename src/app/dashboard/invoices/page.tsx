@@ -16,7 +16,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 async function sendInvoiceAction(invoiceId: string) {
   "use server";
   const session = await requireSession();
-  const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, organizationId: session.organizationId } });
+  const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, organizationId: session.organizationId, OR: [{ patientId: null }, { patient: { deletedAt: null } }] } });
   if (!invoice) throw new Error("Fatura bulunamadi.");
   const result = await sendEInvoice(invoice.number);
   if (!result.ok) throw new Error(result.message || "Fatura sağlayıcıya teslim edilemedi.");
@@ -31,7 +31,7 @@ export default async function InvoicesPage() {
   const session = await requireSession();
   const locale = await getLocale();
   const invoices = await prisma.invoice.findMany({
-    where: { organizationId: session.organizationId },
+    where: { organizationId: session.organizationId, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
     include: { patient: true },
     orderBy: { createdAt: "desc" },
     take: 100

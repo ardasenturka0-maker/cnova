@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { requireSession } from "@/lib/auth";
+import { canDeletePatientFile, canManageTrash, requireSession } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { deletePatient, getPatientById, updatePatient } from "@/lib/services/patientService";
@@ -30,6 +30,7 @@ async function updatePatientAction(id: string, formData: FormData) {
 async function deletePatientAction(id: string) {
   "use server";
   const session = await requireSession();
+  if (!canManageTrash(session.role)) redirect(`/dashboard/patients/${id}?error=forbidden`);
   await deletePatient(session.organizationId, id, session.userId, session.branchId);
   revalidatePath("/dashboard/patients");
   redirect("/dashboard/patients");
@@ -141,12 +142,12 @@ export default async function PatientDetailPage(props: { params: Promise<{ id: s
                 </Button>
               </div>
             </form>
-            <form action={deletePatientAction.bind(null, patient.id)} className="mt-3">
+            {canManageTrash(session.role) ? <form action={deletePatientAction.bind(null, patient.id)} className="mt-3">
               <Button type="submit" variant="destructive">
                 <Trash2 className="h-4 w-4" />
                 Hastayı Sil
               </Button>
-            </form>
+            </form> : null}
           </CardContent>
         </Card>
 
@@ -187,7 +188,7 @@ export default async function PatientDetailPage(props: { params: Promise<{ id: s
         </div>
       </div>
 
-      <PatientFiles patientId={patient.id} initialFiles={initialFiles} />
+      <PatientFiles patientId={patient.id} initialFiles={initialFiles} canDelete={canDeletePatientFile(session.role)} />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card>

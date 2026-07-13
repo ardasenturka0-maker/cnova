@@ -397,6 +397,7 @@ model Patient {
   lastName        String
   nationalId      String?
   phone           String
+  phoneNormalized String?
   email           String?
   birthDate       DateTime?
   gender          Gender             @default(UNSPECIFIED)
@@ -432,6 +433,7 @@ model Patient {
   @@index([organizationId])
   @@index([branchId])
   @@index([phone])
+  @@index([organizationId, phoneNormalized])
   @@index([tag])
   @@index([organizationId, deletedAt])
   @@index([purgeAt])

@@ -82,7 +82,7 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
   const locale = await getLocale();
   const [treatments, patients, doctors] = await Promise.all([
     prisma.treatment.findMany({
-      where: { organizationId: session.organizationId },
+      where: { organizationId: session.organizationId, patient: { deletedAt: null } },
       include: { patient: true, doctor: { select: { name: true } }, branch: { select: { name: true } } },
       orderBy: { performedAt: "desc" },
       take: 100

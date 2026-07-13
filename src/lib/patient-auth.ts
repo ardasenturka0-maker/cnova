@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { authAudience, authIssuer, getAuthSecret } from "@/lib/auth-config";
 import { prisma } from "@/lib/prisma";
+import { normalizePhone } from "@/lib/phone";
 
 export const patientCookieName = "clinicnova_patient_session";
 
@@ -16,16 +17,24 @@ export type PatientSession = {
   branchId: string;
 };
 
-export function normalizePhone(value: string) {
-  return value.replace(/\D/g, "").slice(-10);
-}
-
-export async function findPatientByPhone(phone: string) {
+export async function findPatientForPortal(organizationSlug: string, phone: string, birthDate: string) {
   const digits = normalizePhone(phone);
   if (digits.length < 7) return null;
+  const parsedBirthDate = new Date(`${birthDate}T00:00:00.000Z`);
+  if (Number.isNaN(parsedBirthDate.getTime())) return null;
 
-  const patients = await prisma.patient.findMany({ where: { deletedAt: null }, take: 500 });
-  return patients.find((patient) => normalizePhone(patient.phone) === digits) ?? null;
+  const patients = await prisma.patient.findMany({
+    where: { organization: { slug: organizationSlug }, phoneNormalized: digits, birthDate: parsedBirthDate, deletedAt: null },
+    take: 2
+  });
+  return patients.length === 1 ? patients[0] : null;
+}
+
+export async function findPatientByPhoneInOrganization(organizationId: string, phone: string) {
+  const digits = normalizePhone(phone);
+  if (digits.length < 7) return null;
+  const patients = await prisma.patient.findMany({ where: { organizationId, phoneNormalized: digits, deletedAt: null }, take: 2 });
+  return patients[0] ?? null;
 }
 
 export async function createPatientSessionToken(session: PatientSession) {
@@ -62,6 +71,10 @@ export async function requirePatientSession() {
   const session = await getPatientSession();
   if (!session) {
     redirect("/portal/login");
+  }
+  const activePatient = await prisma.patient.count({ where: { id: session.patientId, organizationId: session.organizationId, deletedAt: null } });
+  if (activePatient !== 1) {
+    redirect("/portal/logout?reason=inactive");
   }
   return session;
 }

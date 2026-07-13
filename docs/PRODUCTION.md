@@ -43,6 +43,7 @@ Süresi dolan dosyalar şifreli alandan, hastalar ise ilişkili kayıtlarıyla P
 - `ops/postgres/clinicnova-backup.cron` günlük yedek ve haftalık restore testi örneğidir.
 
 Uzak sağlayıcıda versioning/immutability ve en az 30 günlük retention ayrıca açılmalıdır. Aynı sunucudaki ikinci klasör “ayrı lokasyon” sayılmaz.
+Restore işi gerçek veritabanı adını `RESTORE_TEST_DATABASE` ile alır ve PostgreSQL'i başlatmadan önce `SHA256SUMS` manifestinin tamamını doğrular.
 
 `.env.production.example` dosyasını kopyalayın; örnek değer bırakmayın. Dağıtımdan önce:
 
@@ -61,12 +62,12 @@ npm run start:production
 Uygulama ve migration imajlarını ayrı üretin:
 
 ```bash
-docker build --target migrator -t clinicnova-migrator:1.1.1 .
-docker build --target file-migrator -t clinicnova-file-migrator:1.1.1 .
-docker build --target runner -t clinicnova:1.1.1 .
-docker run --rm --env-file .env.production clinicnova-migrator:1.1.1
-docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.1.1
-docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.1.1
+docker build --target migrator -t clinicnova-migrator:1.1.2 .
+docker build --target file-migrator -t clinicnova-file-migrator:1.1.2 .
+docker build --target runner -t clinicnova:1.1.2 .
+docker run --rm --env-file .env.production clinicnova-migrator:1.1.2
+docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.1.2
+docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.1.2
 ```
 
 Migration işi başarıyla tamamlanmadan yeni uygulama imajına trafik vermeyin.

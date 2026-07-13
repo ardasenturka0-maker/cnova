@@ -10,9 +10,10 @@ import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { isDemoMode } from "@/lib/demo-mode";
 import {
   createPatientSessionToken,
-  findPatientByPhone,
+  findPatientForPortal,
   patientCookieName
 } from "@/lib/patient-auth";
+import { allowServerAction } from "@/lib/server-action-rate-limit";
 import { portalLoginSchema } from "@/lib/validations/portal";
 
 async function patientLoginAction(formData: FormData) {
@@ -21,8 +22,9 @@ async function patientLoginAction(formData: FormData) {
   if (!parsed.success) {
     redirect("/portal/login?error=1");
   }
+  if (!await allowServerAction("portal-login", 5, 15 * 60 * 1000)) redirect("/portal/login?error=rate");
 
-  const patient = await findPatientByPhone(parsed.data.phone);
+  const patient = await findPatientForPortal(parsed.data.organizationSlug, parsed.data.phone, parsed.data.birthDate);
   if (!patient) {
     redirect("/portal/login?error=1");
   }
@@ -69,11 +71,19 @@ export default async function PortalLoginPage(props: { searchParams: Promise<{ e
           <CardContent>
             <form action={patientLoginAction} className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="organizationSlug">Klinik kodu</Label>
+                <Input id="organizationSlug" name="organizationSlug" placeholder="ornek-klinik" defaultValue={isDemoMode() ? "nova-dental-demo" : ""} autoComplete="organization" required />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="phone">Telefon numaranız</Label>
                 <Input id="phone" name="phone" type="tel" inputMode="tel" placeholder="+90 5xx xxx xx xx" autoComplete="tel" required />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="birthDate">Doğum tarihiniz</Label>
+                <Input id="birthDate" name="birthDate" type="date" required />
+              </div>
               {searchParams.error ? (
-                <p className="text-sm text-destructive">Bu telefon numarasıyla kayıtlı hasta bulunamadı.</p>
+                <p className="text-sm text-destructive">{searchParams.error === "rate" ? "Çok fazla deneme yapıldı. 15 dakika sonra tekrar deneyin." : searchParams.error === "inactive" ? "Hasta hesabı aktif değil." : "Klinik kodu, telefon veya doğum tarihi eşleşmedi."}</p>
               ) : null}
               <Button className="w-full" type="submit">Giriş Yap</Button>
             </form>
@@ -85,7 +95,7 @@ export default async function PortalLoginPage(props: { searchParams: Promise<{ e
             </p>
             {isDemoMode() ? (
               <p className="mt-4 rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                Demo giriş: <span className="font-medium">+90 532 555 1000</span> (Ayşe Yılmaz)
+                Demo giriş: <span className="font-medium">nova-dental-demo · +90 532 555 1000 · 10.01.1985</span> (Ayşe Yılmaz)
               </p>
             ) : null}
           </CardContent>
