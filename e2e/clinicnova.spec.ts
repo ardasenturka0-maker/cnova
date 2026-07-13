@@ -31,7 +31,16 @@ test("outdated signed Android clients receive the secure update notice", async (
   await page.goto("/login");
   const update = page.getByRole("link", { name: "İmzalı APK’yı güncelle" });
   await expect(update).toBeVisible();
-  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.2.0.apk");
+  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.2.1.apk");
+  const manifest = await page.request.get("/api/mobile/version");
+  expect(manifest.status()).toBe(200);
+  expect(await manifest.json()).toMatchObject({ currentVersion: "1.2.1", minimumVersion: "1.2.1", sha256: "a".repeat(64) });
+});
+
+test("staff login never exposes validation or internal error details", async ({ page }) => {
+  const invalid = await page.request.post("/api/auth/login", { data: { email: "not-an-email", password: "short" } });
+  expect(invalid.status()).toBe(400);
+  expect(await invalid.json()).toEqual({ error: "Giriş bilgileri geçersiz." });
 });
 
 test("a public package can be accepted only once", async ({ page }, testInfo) => {
@@ -135,7 +144,7 @@ test("staff can sign in, use the dashboard and sign out", async ({ page }, testI
 
   const health = await page.request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.2.0" });
+  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.2.1" });
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

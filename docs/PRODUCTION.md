@@ -79,7 +79,7 @@ MFA sırları da anahtar kimlikli `MFA2` biçimindedir. `MFA_ENCRYPTION_KEYS` ha
 
 Audit kayıtları PostgreSQL trigger'ı ile tenant bazında SHA-256 zincirine eklenir ve update/delete işlemleri veritabanı düzeyinde reddedilir. `ops/audit/export-anchor.sh` zincir başlarını HMAC ile imzalayıp hasta verisi içermeden uzak immutable hedefe gönderir. `ops/clinicnova-operations.cron` günlük sabitleme örneğini içerir.
 
-`npm run ops:check`; health/readiness, son yedek yaşı ve dosya diski doluluğunu denetler. Sorunda yalnız teknik kontrol sonuçlarını `OPS_ALERT_WEBHOOK_URL` adresine imzalı olarak yollar; hasta verisi göndermez.
+`npm run ops:check`; health/readiness, son yedek yaşı ve dosya diski doluluğunu denetler. Sorunda yalnız teknik kontrol sonuçlarını `OPS_ALERT_WEBHOOK_URL` adresine imzalı olarak yollar; hasta verisi göndermez. Aynı arıza `OPS_ALERT_COOLDOWN_MINUTES` süresince tekrar tekrar bildirilmez; durum düzelince tek bir recovery bildirimi gönderilir. `OPS_ALERT_STATE_FILE` kalıcı ve yalnız servis kullanıcısına açık bir dizinde olmalıdır.
 
 ## Staging ve yük/felaket provası
 
@@ -97,12 +97,12 @@ Felaket provası health/readiness kontrolünü, gerçek PostgreSQL geri yükleme
 Uygulama ve migration imajlarını ayrı üretin:
 
 ```bash
-docker build --target migrator -t clinicnova-migrator:1.2.0 .
-docker build --target file-migrator -t clinicnova-file-migrator:1.2.0 .
-docker build --target runner -t clinicnova:1.2.0 .
-docker run --rm --env-file .env.production clinicnova-migrator:1.2.0
-docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.2.0
-docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.2.0
+docker build --target migrator -t clinicnova-migrator:1.2.1 .
+docker build --target file-migrator -t clinicnova-file-migrator:1.2.1 .
+docker build --target runner -t clinicnova:1.2.1 .
+docker run --rm --env-file .env.production clinicnova-migrator:1.2.1
+docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.2.1
+docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.2.1
 ```
 
 Migration işi başarıyla tamamlanmadan yeni uygulama imajına trafik vermeyin.

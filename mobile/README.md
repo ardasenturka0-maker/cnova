@@ -22,4 +22,4 @@ npm run android:verify
 
 Sunucu adresi verilmezse üretim APK'sı ilk açılışta kullanıcıdan HTTPS adresini ister. Demo paketi için `MOBILE_MODE=demo npm run android:build` kullanılır.
 
-Çıktı: `releases/ClinicNova-1.2.0.apk`
+Çıktı: `releases/ClinicNova-1.2.1.apk`

@@ -32,7 +32,7 @@ export function MfaSettings({ initialEnabled, demo }: { initialEnabled: boolean;
   }
 
   async function begin() {
-    const data = await request("POST");
+    const data = await request("POST", { password });
     if (data) setSetup(data);
   }
 
@@ -43,6 +43,7 @@ export function MfaSettings({ initialEnabled, demo }: { initialEnabled: boolean;
     setEnabled(true);
     setSetup(null);
     setCode("");
+    setPassword("");
     setMessage("İki aşamalı doğrulama etkinleştirildi.");
   }
 
@@ -58,7 +59,11 @@ export function MfaSettings({ initialEnabled, demo }: { initialEnabled: boolean;
   if (demo) return <p className="text-sm text-muted-foreground">2FA kurulumu gerçek veritabanı bağlantısında kullanılabilir.</p>;
   return <div className="space-y-4">
     <p className="text-sm text-muted-foreground">Durum: <strong className={enabled ? "text-emerald-700" : "text-amber-700"}>{enabled ? "Etkin" : "Kapalı"}</strong></p>
-    {!enabled && !setup ? <Button type="button" onClick={begin} disabled={busy}>Authenticator kurulumunu başlat</Button> : null}
+    {!enabled && !setup ? <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Yeni 2FA anahtarı oluşturmadan önce mevcut şifrenizi yeniden doğrulayın.</p>
+      <Input type="password" autoComplete="current-password" placeholder="Mevcut şifre" value={password} onChange={(event) => setPassword(event.target.value)} />
+      <Button type="button" onClick={begin} disabled={busy || password.length < 8}>Authenticator kurulumunu başlat</Button>
+    </div> : null}
     {setup ? <div className="space-y-3 rounded-md border p-3">
       <Image src={setup.qrCode} width={240} height={240} alt="Authenticator QR kodu" unoptimized />
       <p className="break-all font-mono text-xs">Manuel anahtar: {setup.secret}</p>

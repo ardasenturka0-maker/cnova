@@ -1,6 +1,6 @@
 {
   "name": "clinicnova",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "ClinicNova - production-gated dental clinic management platform",
   "scripts": {
@@ -27,6 +27,7 @@
     "files:migrate": "tsx scripts/migrate-patient-files-to-storage.ts",
     "files:rotate-key": "tsx scripts/rotate-file-encryption-key.ts",
     "mfa:rotate-key": "tsx scripts/rotate-mfa-encryption-key.ts",
+    "audit:verify": "tsx scripts/verify-audit-chain.ts",
     "ops:check": "tsx scripts/ops-health-check.ts",
     "test:load": "tsx scripts/load-smoke.ts"
   },

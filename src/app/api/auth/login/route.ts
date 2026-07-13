@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { authCookieName, createSessionToken } from "@/lib/auth";
 import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { loginSchema } from "@/lib/validations/auth";
 import { authenticate } from "@/lib/services/authService";
 import { writeAuditLog } from "@/lib/services/auditLogService";
 import { requestClientId, takeRateLimit } from "@/lib/rate-limit";
-import { decryptMfaSecret, hashRecoveryCode, verifyTotp } from "@/lib/mfa";
 import { isDemoMode } from "@/lib/demo-mode";
-import { prisma } from "@/lib/prisma";
+import { verifyMfaForLogin } from "@/lib/services/mfaService";
 
 export async function POST(request: Request) {
   const rateLimit = takeRateLimit({
@@ -31,38 +31,9 @@ export async function POST(request: Request) {
     }
 
     if (!isDemoMode()) {
-      const user = await prisma.user.findUnique({
-        where: { id: session.userId },
-        select: { mfaEnabledAt: true, mfaSecretEncrypted: true, mfaRecoveryCodeHashes: true, mfaLastUsedCounter: true }
-      });
-      if (user?.mfaEnabledAt && user.mfaSecretEncrypted) {
-        if (!payload.mfaCode) return NextResponse.json({ mfaRequired: true }, { status: 202 });
-        const hashes = Array.isArray(user.mfaRecoveryCodeHashes) ? user.mfaRecoveryCodeHashes.filter((item): item is string => typeof item === "string") : [];
-        const recoveryHash = hashRecoveryCode(payload.mfaCode);
-        const recoveryIndex = hashes.indexOf(recoveryHash);
-        if (recoveryIndex >= 0) {
-          const consumed = await prisma.$executeRaw`
-            UPDATE "User"
-               SET "mfaRecoveryCodeHashes" = COALESCE(
-                 (SELECT jsonb_agg(value) FROM jsonb_array_elements_text("mfaRecoveryCodeHashes") AS value WHERE value <> ${recoveryHash}),
-                 '[]'::jsonb
-               )
-             WHERE "id" = ${session.userId}
-               AND "mfaRecoveryCodeHashes" @> ${JSON.stringify([recoveryHash])}::jsonb
-          `;
-          if (consumed !== 1) return NextResponse.json({ error: "Kurtarma kodu daha önce kullanılmış." }, { status: 401 });
-        } else {
-          const counter = verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted), payload.mfaCode);
-          if (counter === null || counter <= user.mfaLastUsedCounter) {
-            return NextResponse.json({ error: "Doğrulama kodu geçersiz veya daha önce kullanılmış." }, { status: 401 });
-          }
-          const consumed = await prisma.user.updateMany({
-            where: { id: session.userId, mfaLastUsedCounter: { lt: counter } },
-            data: { mfaLastUsedCounter: counter }
-          });
-          if (consumed.count !== 1) return NextResponse.json({ error: "Doğrulama kodu daha önce kullanılmış." }, { status: 401 });
-        }
-      }
+      const result = await verifyMfaForLogin(session.userId, payload.mfaCode);
+      if (result === "required") return NextResponse.json({ mfaRequired: true }, { status: 202 });
+      if (result === "invalid") return NextResponse.json({ error: "Doğrulama kodu geçersiz veya daha önce kullanılmış." }, { status: 401 });
     }
 
     const token = await createSessionToken(session);
@@ -86,6 +57,8 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Giris yapilamadi." }, { status: 400 });
+    if (error instanceof ZodError || error instanceof SyntaxError) return NextResponse.json({ error: "Giriş bilgileri geçersiz." }, { status: 400 });
+    console.error("Staff login failed", error instanceof Error ? error.name : "UnknownError");
+    return NextResponse.json({ error: "Giriş şu anda tamamlanamadı." }, { status: 500 });
   }
 }

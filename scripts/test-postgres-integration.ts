@@ -6,6 +6,9 @@ import { prisma } from "../src/lib/prisma";
 import { storePatientFile } from "../src/lib/secure-file-storage";
 import { deletePatient, getPatients, restorePatient, updatePatient } from "../src/lib/services/patientService";
 import { purgeExpiredTrash } from "../src/lib/services/trashService";
+import { verifyAuditIntegrity } from "../src/lib/services/auditIntegrityService";
+import { createRecoveryCodes, encryptMfaSecret, hashRecoveryCode, totpCode } from "../src/lib/mfa";
+import { verifyMfaForLogin } from "../src/lib/services/mfaService";
 
 const suffix = randomUUID().slice(0, 8);
 const organizationSlug = `deep-test-${suffix}`;
@@ -46,6 +49,29 @@ async function main() {
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: organization.id, action: "PURGE_PATIENT_FILE" } });
     assert.match(audit.entryHash ?? "", /^[a-f0-9]{64}$/);
     await assert.rejects(() => prisma.auditLog.update({ where: { id: audit.id }, data: { action: "TAMPERED" } }));
+    const integrity = await verifyAuditIntegrity(organization.id);
+    assert.equal(integrity.valid, true, integrity.errors.join("; "));
+    await prisma.$executeRawUnsafe('ALTER TABLE "AuditLog" DISABLE TRIGGER "AuditLog_immutable_update"');
+    try {
+      await prisma.auditLog.update({ where: { id: audit.id }, data: { previousHash: "f".repeat(64) } });
+      assert.equal((await verifyAuditIntegrity(organization.id)).valid, false, "audit zinciri manipülasyonu algılanmalı");
+      await prisma.auditLog.update({ where: { id: audit.id }, data: { previousHash: audit.previousHash } });
+    } finally {
+      await prisma.$executeRawUnsafe('ALTER TABLE "AuditLog" ENABLE TRIGGER "AuditLog_immutable_update"');
+    }
+
+    const mfaSecret = "JBSWY3DPEHPK3PXP";
+    const recoveryCode = createRecoveryCodes(1)[0];
+    await prisma.user.update({ where: { id: user.id }, data: {
+      mfaSecretEncrypted: encryptMfaSecret(mfaSecret), mfaEnabledAt: new Date(),
+      mfaRecoveryCodeHashes: [hashRecoveryCode(recoveryCode)], mfaLastUsedCounter: -1
+    } });
+    assert.equal(await verifyMfaForLogin(user.id), "required");
+    const currentCode = totpCode(mfaSecret);
+    const totpRace = await Promise.all([verifyMfaForLogin(user.id, currentCode), verifyMfaForLogin(user.id, currentCode)]);
+    assert.deepEqual(totpRace.sort(), ["invalid", "verified"], "eşzamanlı aynı TOTP yalnız bir kez kullanılabilmeli");
+    const recoveryRace = await Promise.all([verifyMfaForLogin(user.id, recoveryCode), verifyMfaForLogin(user.id, recoveryCode)]);
+    assert.deepEqual(recoveryRace.sort(), ["invalid", "verified"], "eşzamanlı kurtarma kodu atomik olarak tüketilmeli");
   } finally {
     await prisma.$executeRawUnsafe('ALTER TABLE "AuditLog" DISABLE TRIGGER "AuditLog_immutable_update"');
     try { await prisma.organization.deleteMany({ where: { slug: organizationSlug } }); }

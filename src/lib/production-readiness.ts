@@ -1,3 +1,5 @@
+import { isMobileReleaseReady } from "@/lib/mobile-release";
+
 export type ReadinessState = "pass" | "warning" | "error";
 
 export type ReadinessCheck = {
@@ -101,6 +103,12 @@ export function getProductionReadiness() {
       label: "Operasyon alarmı",
       state: isHttpsUrl(process.env.OPS_ALERT_WEBHOOK_URL) && isStrongSecret(process.env.OPS_ALERT_WEBHOOK_SECRET) ? "pass" : production ? "error" : "warning",
       detail: isHttpsUrl(process.env.OPS_ALERT_WEBHOOK_URL) && isStrongSecret(process.env.OPS_ALERT_WEBHOOK_SECRET) ? "İmzalı sağlık/yedek/disk alarmı yapılandırılmış" : "OPS_ALERT_WEBHOOK_URL ve güçlü OPS_ALERT_WEBHOOK_SECRET gerekli"
+    },
+    {
+      key: "mobile_update",
+      label: "İmzalı mobil güncelleme",
+      state: isMobileReleaseReady() ? "pass" : production ? "error" : "warning",
+      detail: isMobileReleaseReady() ? "HTTPS APK adresi ve SHA-256 sürüm manifestinde doğrulandı" : "MOBILE_MIN_VERSION, HTTPS MOBILE_APK_URL ve 64 haneli MOBILE_APK_SHA256 gerekli"
     },
     {
       key: "antivirus",
