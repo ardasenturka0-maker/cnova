@@ -12,7 +12,7 @@ export function GlobalSearch({ locale = "tr" }: { locale?: Locale }) {
 
   return (
     <form
-      className="relative w-full max-w-xl"
+      className="relative min-w-0 flex-1 md:max-w-xl"
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = query.trim();

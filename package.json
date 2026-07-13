@@ -1,6 +1,6 @@
 {
   "name": "clinicnova",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "ClinicNova - production-gated dental clinic management platform",
   "scripts": {

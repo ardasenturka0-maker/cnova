@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { shouldUseSecureCookies } from "@/lib/auth-config";
 import { isDemoMode } from "@/lib/demo-mode";
+import { normalizePhone } from "@/lib/phone";
 import {
   createPatientSessionToken,
   findPatientForPortal,
@@ -22,7 +23,11 @@ async function patientLoginAction(formData: FormData) {
   if (!parsed.success) {
     redirect("/portal/login?error=1");
   }
-  if (!await allowServerAction("portal-login", 5, 15 * 60 * 1000)) redirect("/portal/login?error=rate");
+  // Do not let one patient lock every other patient behind the same clinic/NAT IP.
+  // The limiter still includes the request IP internally, while this discriminator
+  // gives each clinic-scoped identity an independent attempt budget.
+  const loginIdentity = `${parsed.data.organizationSlug}:${normalizePhone(parsed.data.phone)}`;
+  if (!await allowServerAction(`portal-login:${loginIdentity}`, 5, 15 * 60 * 1000)) redirect("/portal/login?error=rate");
 
   const patient = await findPatientForPortal(parsed.data.organizationSlug, parsed.data.phone, parsed.data.birthDate);
   if (!patient) {

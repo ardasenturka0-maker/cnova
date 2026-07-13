@@ -123,8 +123,8 @@ export default async function GalleryPage(props: { searchParams: Promise<{ succe
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
-                <div className="aspect-[4/3] rounded-md border bg-muted p-3 text-sm text-muted-foreground">Before<br />{item.beforeImageUrl}</div>
-                <div className="aspect-[4/3] rounded-md border bg-muted p-3 text-sm text-muted-foreground">After<br />{item.afterImageUrl}</div>
+                <div className="aspect-[4/3] min-w-0 break-all overflow-hidden rounded-md border bg-muted p-3 text-sm text-muted-foreground">Before<br />{item.beforeImageUrl}</div>
+                <div className="aspect-[4/3] min-w-0 break-all overflow-hidden rounded-md border bg-muted p-3 text-sm text-muted-foreground">After<br />{item.afterImageUrl}</div>
               </div>
               <p className="text-sm text-muted-foreground">{item.description}</p>
               <div className="flex flex-wrap gap-2">

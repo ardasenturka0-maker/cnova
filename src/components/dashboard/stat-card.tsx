@@ -30,7 +30,7 @@ export function StatCard({
         </div>
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="mt-1 text-2xl font-semibold">{value}</p>
+          <p className="mt-1 break-words text-2xl font-semibold">{value}</p>
           {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
         </div>
       </CardContent>

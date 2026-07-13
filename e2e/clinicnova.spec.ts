@@ -31,10 +31,10 @@ test("outdated signed Android clients receive the secure update notice", async (
   await page.goto("/login");
   const update = page.getByRole("link", { name: "İmzalı APK’yı güncelle" });
   await expect(update).toBeVisible();
-  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.2.1.apk");
+  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.2.2.apk");
   const manifest = await page.request.get("/api/mobile/version");
   expect(manifest.status()).toBe(200);
-  expect(await manifest.json()).toMatchObject({ currentVersion: "1.2.1", minimumVersion: "1.2.1", sha256: "a".repeat(64) });
+  expect(await manifest.json()).toMatchObject({ currentVersion: "1.2.2", minimumVersion: "1.2.2", sha256: "a".repeat(64) });
 });
 
 test("staff login never exposes validation or internal error details", async ({ page }) => {
@@ -61,24 +61,29 @@ test("demo can open without a live database", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Gelir fırsatları hazır" })).toBeVisible();
 });
 
-test("patient portal scopes identity and revokes a deleted patient's session", async ({ page }) => {
+test("patient portal scopes identity and revokes a deleted patient's session", async ({ page }, testInfo) => {
+  const isAndroid = testInfo.project.name === "android-chrome";
+  const patient = isAndroid
+    ? { id: "patient_02", phone: "+90 532 555 1001", birthDate: "1986-02-10", wrongBirthDate: "1986-02-11", name: "Mehmet Demir" }
+    : { id: "patient_01", phone: "+90 532 555 1000", birthDate: "1985-01-10", wrongBirthDate: "1985-01-11", name: "Ayşe Yılmaz" };
+
   await page.goto("/portal/login");
-  await page.getByLabel("Telefon numaranız").fill("+90 532 555 1000");
-  await page.getByLabel("Doğum tarihiniz").fill("1985-01-11");
+  await page.getByLabel("Telefon numaranız").fill(patient.phone);
+  await page.getByLabel("Doğum tarihiniz").fill(patient.wrongBirthDate);
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   await expect(page).toHaveURL(/\/portal\/login\?error=1$/);
 
-  await page.getByLabel("Telefon numaranız").fill("+90 532 555 1000");
-  await page.getByLabel("Doğum tarihiniz").fill("1985-01-10");
+  await page.getByLabel("Telefon numaranız").fill(patient.phone);
+  await page.getByLabel("Doğum tarihiniz").fill(patient.birthDate);
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   await expect(page).toHaveURL(/\/portal$/);
-  await expect(page.getByRole("heading", { name: "Merhaba, Ayşe Yılmaz" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Merhaba, ${patient.name}` })).toBeVisible();
 
   await page.goto("/login");
   await page.getByLabel("E-posta").fill("owner@clinicnova.test");
   await page.getByLabel("Şifre").fill("password123");
   await page.getByRole("button", { name: "Giriş Yap" }).click();
-  await page.goto("/dashboard/patients/patient_01");
+  await page.goto(`/dashboard/patients/${patient.id}`);
   await page.getByRole("button", { name: "Hastayı Sil" }).click();
   await expect(page).toHaveURL(/\/dashboard\/patients$/);
 
@@ -86,9 +91,111 @@ test("patient portal scopes identity and revokes a deleted patient's session", a
   await expect(page).toHaveURL(/\/portal\/login\?error=inactive$/);
 
   await page.goto("/dashboard/patients/trash");
-  await expect(page.getByText("Ayşe Yılmaz")).toBeVisible();
+  await expect(page.getByText(patient.name)).toBeVisible();
   await page.getByRole("button", { name: "Geri yükle" }).first().click();
   await expect(page.getByText("Silinen hasta yok.")).toBeVisible();
+});
+
+const primaryDashboardRoutes = [
+  "/dashboard",
+  "/dashboard/patients",
+  "/dashboard/patients/new",
+  "/dashboard/appointments",
+  "/dashboard/treatments",
+  "/dashboard/treatment-plans",
+  "/dashboard/payments",
+  "/dashboard/invoices",
+  "/dashboard/finance",
+  "/dashboard/stocks",
+  "/dashboard/staff",
+  "/dashboard/doctors",
+  "/dashboard/consents",
+  "/dashboard/surveys",
+  "/dashboard/communication",
+  "/dashboard/recalls",
+  "/dashboard/reports",
+  "/dashboard/settings",
+  "/dashboard/tourism",
+  "/dashboard/tourism/leads",
+  "/dashboard/tourism/package-builder",
+  "/dashboard/tourism/hotel-transfer",
+  "/dashboard/tourism/followups",
+  "/dashboard/tourism/post-treatment",
+  "/dashboard/tourism/reviews",
+  "/dashboard/tourism/gallery",
+  "/dashboard/tourism/consents",
+  "/dashboard/tourism/surveys",
+  "/dashboard/tourism/chatbot",
+  "/dashboard/tourism/analytics",
+  "/dashboard/tourism/integrations"
+];
+
+test("all primary application modules render without runtime errors or horizontal overflow", async ({ page }, testInfo) => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(`${page.url()}: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => pageErrors.push(`${page.url()}: ${error.message}`));
+
+  await page.goto("/login");
+  await page.getByLabel("E-posta").fill("owner@clinicnova.test");
+  await page.getByLabel("Şifre").fill("password123");
+  await page.getByRole("button", { name: "Giriş Yap" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  for (const route of primaryDashboardRoutes) {
+    const response = await page.goto(route, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), `${route} HTTP durum kodu`).toBeLessThan(400);
+    await expect(page.locator("main h1").first(), `${route} ana başlığı`).toBeVisible();
+    const overflow = await page.evaluate(() => ({
+      pageWidth: document.documentElement.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+      layout: Array.from(document.querySelectorAll("body, body > div, header, main, main > div, nav[aria-label='Sağlık turizmi modülleri']"))
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            tag: element.tagName.toLowerCase(),
+            className: typeof element.className === "string" ? element.className : "",
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            overflowX: getComputedStyle(element).overflowX
+          };
+        }),
+      elements: Array.from(document.querySelectorAll("body *"))
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          let ancestor = element.parentElement;
+          let clippedByAncestor = false;
+          while (ancestor && ancestor !== document.body) {
+            const overflowX = getComputedStyle(ancestor).overflowX;
+            if (["auto", "scroll", "hidden", "clip"].includes(overflowX)) {
+              clippedByAncestor = true;
+              break;
+            }
+            ancestor = ancestor.parentElement;
+          }
+          return {
+            tag: element.tagName.toLowerCase(),
+            className: typeof element.className === "string" ? element.className : "",
+            text: element.textContent?.trim().replace(/\s+/g, " ").slice(0, 80) ?? "",
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            clippedByAncestor
+          };
+        })
+        .filter((element) => !element.clippedByAncestor && (element.right > document.documentElement.clientWidth + 1 || element.left < -1))
+        .slice(0, 20)
+    }));
+    expect(overflow.pageWidth, `${testInfo.project.name} ${route} düzen: ${JSON.stringify(overflow.layout)} taşan öğeler: ${JSON.stringify(overflow.elements)}`).toBe(overflow.viewportWidth);
+  }
+
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });
 
 test("reception staff cannot delete patient records", async ({ page }) => {
@@ -144,7 +251,7 @@ test("staff can sign in, use the dashboard and sign out", async ({ page }, testI
 
   const health = await page.request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.2.1" });
+  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.2.2" });
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

@@ -97,12 +97,12 @@ Felaket provası health/readiness kontrolünü, gerçek PostgreSQL geri yükleme
 Uygulama ve migration imajlarını ayrı üretin:
 
 ```bash
-docker build --target migrator -t clinicnova-migrator:1.2.1 .
-docker build --target file-migrator -t clinicnova-file-migrator:1.2.1 .
-docker build --target runner -t clinicnova:1.2.1 .
-docker run --rm --env-file .env.production clinicnova-migrator:1.2.1
-docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.2.1
-docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.2.1
+docker build --target migrator -t clinicnova-migrator:1.2.2 .
+docker build --target file-migrator -t clinicnova-file-migrator:1.2.2 .
+docker build --target runner -t clinicnova:1.2.2 .
+docker run --rm --env-file .env.production clinicnova-migrator:1.2.2
+docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.2.2
+docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.2.2
 ```
 
 Migration işi başarıyla tamamlanmadan yeni uygulama imajına trafik vermeyin.
