@@ -30,7 +30,7 @@ async function updatePatientAction(id: string, formData: FormData) {
 async function deletePatientAction(id: string) {
   "use server";
   const session = await requireSession();
-  await deletePatient(session.organizationId, id);
+  await deletePatient(session.organizationId, id, session.userId, session.branchId);
   revalidatePath("/dashboard/patients");
   redirect("/dashboard/patients");
 }
@@ -46,7 +46,7 @@ export default async function PatientDetailPage(props: { params: Promise<{ id: s
   }
 
   const patientFiles = await prisma.patientFile.findMany({
-    where: { patientId: patient.id, organizationId: session.organizationId },
+    where: { patientId: patient.id, organizationId: session.organizationId, deletedAt: null },
     orderBy: { createdAt: "desc" }
   });
   const initialFiles: PatientFileMeta[] = patientFiles.map((file) => ({

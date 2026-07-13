@@ -77,8 +77,8 @@ export async function getDashboardMetrics(organizationId: string) {
     prisma.payment.count({
       where: { organizationId, type: PaymentType.INCOME, status: PaymentStatus.PENDING, dueDate: { lt: todayStart } }
     }),
-    prisma.patient.count({ where: { organizationId, tag: { in: [PatientTag.ACTIVE, PatientTag.VIP, PatientTag.RISKY] } } }),
-    prisma.patient.count({ where: { organizationId, createdAt: { gte: monthStart } } }),
+    prisma.patient.count({ where: { organizationId, deletedAt: null, tag: { in: [PatientTag.ACTIVE, PatientTag.VIP, PatientTag.RISKY] } } }),
+    prisma.patient.count({ where: { organizationId, deletedAt: null, createdAt: { gte: monthStart } } }),
     prisma.stockItem.findMany({
       where: { organizationId },
       include: { branch: { select: { name: true } } },

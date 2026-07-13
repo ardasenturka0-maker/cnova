@@ -16,7 +16,7 @@ export default async function TourismSurveysPage() {
   const locale = await getLocale();
   const [responses, patients, packages, leads, templates] = await Promise.all([
     prisma.surveyResponse.findMany({ where: { organizationId: session.organizationId, surveyTemplateId: { not: null } }, orderBy: { createdAt: "desc" }, take: 100 }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, take: 200 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, take: 100 }),
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, take: 200 }),
     prisma.surveyTemplate.findMany({ where: { organizationId: session.organizationId }, take: 20 })

@@ -70,7 +70,7 @@ function statusVariant(status: CommunicationStatus) {
 
 async function ensurePatientAccess(patientId: string | undefined, organizationId: string) {
   if (!patientId) return true;
-  const count = await prisma.patient.count({ where: { id: patientId, organizationId } });
+  const count = await prisma.patient.count({ where: { id: patientId, organizationId, deletedAt: null } });
   return count > 0;
 }
 
@@ -190,7 +190,7 @@ export default async function CommunicationPage(props: { searchParams: Promise<{
   const session = await requireSession();
   const locale = await getLocale();
   const [patients, logs] = await Promise.all([
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.communicationLog.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 150 })
   ]);
 

@@ -884,6 +884,10 @@ function matchesValue(itemValue: any, condition: any) {
   if ("equals" in condition && normalizeValue(itemValue) !== normalizeValue(condition.equals)) return false;
   if ("in" in condition && !condition.in.includes(itemValue)) return false;
   if ("notIn" in condition && condition.notIn.includes(itemValue)) return false;
+  if ("not" in condition) {
+    const rejected = condition.not === null ? itemValue === null || itemValue === undefined : matchesValue(itemValue, condition.not);
+    if (rejected) return false;
+  }
   if ("lte" in condition && normalizeValue(itemValue) > normalizeValue(condition.lte)) return false;
   if ("lt" in condition && normalizeValue(itemValue) >= normalizeValue(condition.lt)) return false;
   if ("gte" in condition && normalizeValue(itemValue) < normalizeValue(condition.gte)) return false;

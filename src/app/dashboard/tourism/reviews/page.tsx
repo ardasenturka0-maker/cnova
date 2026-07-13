@@ -25,7 +25,7 @@ async function sendReviewAction(id: string) {
   const session = await requireSession();
   const review = await prisma.reviewRequest.findFirst({ where: { id, organizationId: session.organizationId } });
   if (!review) redirect(resultUrl("error", "Yorum isteği bulunamadı."));
-  const patient = await prisma.patient.findFirst({ where: { id: review.patientId, organizationId: session.organizationId } });
+  const patient = await prisma.patient.findFirst({ where: { id: review.patientId, organizationId: session.organizationId, deletedAt: null } });
   if (!patient) redirect(resultUrl("error", "Yorum isteğinin hastası bulunamadı."));
 
   const message = review.messageTemplate
@@ -79,7 +79,7 @@ export default async function ReviewsPage(props: { searchParams: Promise<{ succe
   const locale = await getLocale();
   const [requests, patients] = await Promise.all([
     prisma.reviewRequest.findMany({ where: { organizationId: session.organizationId }, orderBy: { scheduledAt: "asc" }, take: 100 }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 })
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, take: 200 })
   ]);
   const successCount = requests.filter((item) => ["CLICKED", "COMPLETED"].includes(item.status)).length;
   const successRate = requests.length ? Math.round((successCount / requests.length) * 100) : 0;

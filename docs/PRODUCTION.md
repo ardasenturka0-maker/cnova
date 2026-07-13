@@ -1,12 +1,48 @@
 # ClinicNova production runbook
 
-## Zorunlu altyapı
+## Seçilen düşük maliyetli altyapı
 
-- Yönetilen PostgreSQL 16+; günlük şifreli yedek ve geri yükleme testi
+- Tek Radore sanal sunucuda uygulama + PostgreSQL 16 (ilk aşama)
+- Ayrı disk/volume üzerinde şifreli hasta dosyaları ve PostgreSQL WAL arşivi
+- Sunucudan bağımsız, immutable/retention kilitli uzak yedek hedefi
 - TLS sonlandıran gerçek alan adı
 - En az iki uygulama örneği kullanılıyorsa paylaşımlı rate-limit deposu/WAF
 - n8n veya eşdeğer otomasyon katmanı; WhatsApp, SMS, e-posta, e-Fatura ve ödeme sağlayıcı hesapları
 - Merkezi log, hata izleme, uptime alarmı ve gizli anahtar kasası
+
+Bu seçim “yönetilen PostgreSQL zorunlu” ifadesinin yerini alır. Aynı sunucudaki PostgreSQL daha ucuzdur fakat tek hata alanı oluşturur; bu nedenle uzak kopya ve haftalık geri yükleme testi canlıya geçiş kapısıdır. Yönetilen PostgreSQL daha sonra kesintisizlik ihtiyacı arttığında tercih edilebilir.
+
+## Hasta dosyaları
+
+Yeni yüklemeler MIME başlığıyla doğrulanır, zorunlu ClamAV taramasından geçirilir, görseller en fazla 2560 px olacak şekilde küçültülür ve metadata temizlenir. Gövdeler `FILE_STORAGE_ROOT` altında AES-256-GCM ile şifrelenir; PostgreSQL yalnız `storageKey`, tür, boyut ve SHA-256 bütünlük değerini tutar.
+
+Geçiş sırası:
+
+```bash
+npm run prisma:deploy
+npm run files:migrate
+```
+
+İkinci komut eski `BYTEA` gövdelerini şifreli dosya alanına taşır ve başarılı her kayıt için veritabanındaki gövdeyi temizler. Taşıma bitmeden eski volume kaldırılmamalıdır.
+
+## 30 günlük çöp kutusu
+
+Hasta ve hasta dosyası silme işlemleri fiziksel silme yapmaz; `deletedAt`, `purgeAt` ve silen kullanıcı yazılır. Geri yükleme de kullanıcı/zaman ve `AuditLog` kaydı üretir. Her gece şu korumalı endpoint çalıştırılmalıdır:
+
+```bash
+curl --fail -H "Authorization: Bearer $CRON_SECRET" https://app.example.com/api/cron/purge-trash
+```
+
+Süresi dolan dosyalar şifreli alandan, hastalar ise ilişkili kayıtlarıyla PostgreSQL'den kalıcı olarak kaldırılır.
+
+## WAL/PITR, günlük yedek ve geri yükleme testi
+
+- `ops/postgres/postgresql-pitr.conf` WAL arşivini etkinleştirir.
+- `ops/postgres/backup.sh` günlük fiziksel tam yedek + mantıksal dump alır, SHA-256 manifesti üretir ve `rclone` ile ayrı lokasyona kopyalar.
+- `ops/postgres/restore-test.sh` izole socket/port üzerinde gerçek PostgreSQL başlatıp migration tablosunu sorgular.
+- `ops/postgres/clinicnova-backup.cron` günlük yedek ve haftalık restore testi örneğidir.
+
+Uzak sağlayıcıda versioning/immutability ve en az 30 günlük retention ayrıca açılmalıdır. Aynı sunucudaki ikinci klasör “ayrı lokasyon” sayılmaz.
 
 `.env.production.example` dosyasını kopyalayın; örnek değer bırakmayın. Dağıtımdan önce:
 
@@ -25,13 +61,16 @@ npm run start:production
 Uygulama ve migration imajlarını ayrı üretin:
 
 ```bash
-docker build --target migrator -t clinicnova-migrator:1.1.0 .
-docker build --target runner -t clinicnova:1.1.0 .
-docker run --rm --env-file .env.production clinicnova-migrator:1.1.0
-docker run --env-file .env.production -p 3000:3000 clinicnova:1.1.0
+docker build --target migrator -t clinicnova-migrator:1.1.1 .
+docker build --target file-migrator -t clinicnova-file-migrator:1.1.1 .
+docker build --target runner -t clinicnova:1.1.1 .
+docker run --rm --env-file .env.production clinicnova-migrator:1.1.1
+docker run --rm --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files clinicnova-file-migrator:1.1.1
+docker run --env-file .env.production -v clinicnova-files:/var/lib/clinicnova/patient-files -p 3000:3000 clinicnova:1.1.1
 ```
 
 Migration işi başarıyla tamamlanmadan yeni uygulama imajına trafik vermeyin.
+ClamAV imzaları host veya ayrı bakım container'ı tarafından `freshclam` ile düzenli güncellenmelidir; eski imza veritabanıyla canlı trafik açılmamalıdır.
 
 ## Entegrasyon sözleşmesi
 
@@ -69,3 +108,7 @@ MOBILE_MODE=demo npm run android:build
 ## Ticari canlıya geçişte dış bağımlılıklar
 
 Kod tarafı sağlayıcı hatalarında başarısızlığı saklamaz. Ancak gerçek mesaj, ödeme ve e-Fatura işlemleri için klinik adına açılmış sağlayıcı sözleşmeleri ve üretim kimlik bilgileri gereklidir; bunlar kaynak kod deposuna yazılmaz.
+
+## Radore satın alma kapısı
+
+Sipariş vermeden teklif/panel üzerinde şu maddeler yazılı doğrulanmalıdır: 2 vCPU, 4 GB RAM, en az 100 GB SSD/NVMe, Türkiye veri merkezi, ek disk/volume imkânı, trafik ve statik IP, DDoS kapsamı, snapshot ücret ve saklama süresi, KVKK kapsamında sağlık verisi için sözleşme/DPA, veri silme ve olay bildirimi şartları. Sağlayıcı snapshot'ı uygulamanın uzak PostgreSQL/dosya yedeğinin yerine geçmez. Bu değerler doğrulanmadan fiyat veya paket için kesin satın alma onayı verilmemelidir.

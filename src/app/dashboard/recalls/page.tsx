@@ -21,7 +21,7 @@ async function createRecallAction(formData: FormData) {
   "use server";
   const session = await requireSession();
   const payload = recallSchema.parse(Object.fromEntries(formData));
-  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId }, select: { branchId: true } });
+  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId, deletedAt: null }, select: { branchId: true } });
   if (!patient) throw new Error("Hasta bulunamadi.");
   await prisma.recall.create({
     data: {
@@ -41,7 +41,7 @@ export default async function RecallsPage() {
   const session = await requireSession();
   const locale = await getLocale();
   const [patients, recalls] = await Promise.all([
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.recall.findMany({ where: { organizationId: session.organizationId }, include: { patient: true, branch: true }, orderBy: { dueDate: "asc" }, take: 100 })
   ]);
 

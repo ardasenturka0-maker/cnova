@@ -1,6 +1,7 @@
 import { Gender, PatientTag } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PatientInput } from "@/lib/validations/patient";
+import { writeAuditLog } from "@/lib/services/auditLogService";
 
 function optional(value?: string | null) {
   return value && value.length > 0 ? value : null;
@@ -10,6 +11,7 @@ export async function getPatients(organizationId: string, query?: string) {
   return prisma.patient.findMany({
     where: {
       organizationId,
+      deletedAt: null,
       OR: query
         ? [
             { firstName: { contains: query, mode: "insensitive" } },
@@ -31,7 +33,7 @@ export async function getPatients(organizationId: string, query?: string) {
 
 export async function getPatientById(organizationId: string, id: string) {
   return prisma.patient.findFirst({
-    where: { id, organizationId },
+    where: { id, organizationId, deletedAt: null },
     include: {
       branch: true,
       appointments: { include: { doctor: { select: { name: true } } }, orderBy: { startsAt: "desc" } },
@@ -87,6 +89,32 @@ export async function updatePatient(organizationId: string, id: string, input: P
   });
 }
 
-export async function deletePatient(organizationId: string, id: string) {
-  return prisma.patient.deleteMany({ where: { id, organizationId } });
+export async function deletePatient(organizationId: string, id: string, userId: string, branchId?: string | null) {
+  const now = new Date();
+  const purgeAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const result = await prisma.patient.updateMany({
+    where: { id, organizationId, deletedAt: null },
+    data: { deletedAt: now, purgeAt, deletedById: userId, restoredAt: null, restoredById: null }
+  });
+  if (result.count > 0) await writeAuditLog({ userId, action: "SOFT_DELETE_PATIENT", module: "patients", entityId: id, metadata: { purgeAt: purgeAt.toISOString() }, organizationId, branchId });
+  return result;
+}
+
+export async function getDeletedPatients(organizationId: string) {
+  return prisma.patient.findMany({
+    where: { organizationId, deletedAt: { not: null } },
+    include: { branch: { select: { name: true } } },
+    orderBy: { deletedAt: "desc" },
+    take: 200
+  });
+}
+
+export async function restorePatient(organizationId: string, id: string, userId: string, branchId?: string | null) {
+  const now = new Date();
+  const result = await prisma.patient.updateMany({
+    where: { id, organizationId, deletedAt: { not: null }, purgeAt: { gt: now } },
+    data: { deletedAt: null, purgeAt: null, deletedById: null, restoredAt: now, restoredById: userId }
+  });
+  if (result.count > 0) await writeAuditLog({ userId, action: "RESTORE_PATIENT", module: "patients", entityId: id, organizationId, branchId });
+  return result;
 }

@@ -64,7 +64,7 @@ export async function updatePatientHealthInfo(session: PatientSession, input: Po
 export async function getPortalOverview(session: PatientSession) {
   const now = new Date();
   const [patient, nextAppointment, treatments, payments] = await Promise.all([
-    prisma.patient.findFirst({ where: { id: session.patientId, organizationId: session.organizationId } }),
+    prisma.patient.findFirst({ where: { id: session.patientId, organizationId: session.organizationId, deletedAt: null } }),
     prisma.appointment.findFirst({
       where: {
         patientId: session.patientId,

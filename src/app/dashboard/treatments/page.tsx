@@ -32,7 +32,7 @@ async function createTreatmentAction(formData: FormData) {
   }
 
   const payload = parsed.data;
-  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId }, select: { branchId: true } });
+  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId, deletedAt: null }, select: { branchId: true } });
 
   if (!patient) {
     redirect(resultUrl("error", "Seçilen hasta bulunamadı veya bu kliniğe ait değil."));
@@ -87,7 +87,7 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
       orderBy: { performedAt: "desc" },
       take: 100
     }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.user.findMany({ where: { organizationId: session.organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { name: "asc" } })
   ]);
 

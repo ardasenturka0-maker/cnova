@@ -28,6 +28,11 @@ function isProductionDatabase(value: string | undefined) {
   return !normalized.includes("postgres:postgres@localhost") && !normalized.includes("example");
 }
 
+function isEncryptionKey(value: string | undefined) {
+  if (!value) return false;
+  try { return Buffer.from(value, "base64").length === 32; } catch { return false; }
+}
+
 export function getProductionReadiness() {
   const production = process.env.NODE_ENV === "production";
   const demo = process.env.DEMO_MODE === "true";
@@ -72,6 +77,24 @@ export function getProductionReadiness() {
       label: "Zamanlanmış işler",
       state: isStrongSecret(process.env.CRON_SECRET) ? "pass" : production ? "error" : "warning",
       detail: isStrongSecret(process.env.CRON_SECRET) ? "Cron çağrıları korunuyor" : "CRON_SECRET en az 32 karakter olmalı"
+    },
+    {
+      key: "file_storage",
+      label: "Şifreli hasta dosyaları",
+      state: Boolean(process.env.FILE_STORAGE_ROOT?.startsWith("/") && isEncryptionKey(process.env.FILE_ENCRYPTION_KEY)) ? "pass" : production ? "error" : "warning",
+      detail: Boolean(process.env.FILE_STORAGE_ROOT?.startsWith("/") && isEncryptionKey(process.env.FILE_ENCRYPTION_KEY)) ? "Harici dosya alanı ve AES-256 anahtarı yapılandırılmış" : "Mutlak FILE_STORAGE_ROOT ve 32 baytlık base64 FILE_ENCRYPTION_KEY gerekli"
+    },
+    {
+      key: "antivirus",
+      label: "Dosya antivirüsü",
+      state: process.env.FILE_AV_REQUIRED === "true" && Boolean(process.env.FILE_AV_COMMAND) ? "pass" : production ? "error" : "warning",
+      detail: process.env.FILE_AV_REQUIRED === "true" && Boolean(process.env.FILE_AV_COMMAND) ? "Yüklemelerde zorunlu antivirüs taraması etkin" : "FILE_AV_REQUIRED=true ve FILE_AV_COMMAND gerekli"
+    },
+    {
+      key: "backup",
+      label: "PITR ve uzak yedek",
+      state: process.env.PITR_ENABLED === "true" && Boolean(process.env.BACKUP_REMOTE) && process.env.RESTORE_TEST_SCHEDULED === "true" ? "pass" : production ? "error" : "warning",
+      detail: process.env.PITR_ENABLED === "true" && Boolean(process.env.BACKUP_REMOTE) && process.env.RESTORE_TEST_SCHEDULED === "true" ? "WAL arşivi, uzak kopya ve geri yükleme testi beyan edildi" : "PITR_ENABLED, BACKUP_REMOTE ve RESTORE_TEST_SCHEDULED zorunlu"
     },
     {
       key: "inbound_webhook",

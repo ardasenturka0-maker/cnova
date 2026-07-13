@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { PatientFileCategory } from "@prisma/client";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
+import { deleteStoredPatientFile, preparePatientUpload, storePatientFile } from "@/lib/secure-file-storage";
+import { writeAuditLog } from "@/lib/services/auditLogService";
 
 function parseCategory(value: unknown): PatientFileCategory {
   const category = String(value ?? "");
@@ -17,7 +16,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   const params = await props.params;
   const session = await requireSession();
   const files = await prisma.patientFile.findMany({
-    where: { patientId: params.id, organizationId: session.organizationId },
+    where: { patientId: params.id, organizationId: session.organizationId, deletedAt: null },
     orderBy: { createdAt: "desc" }
   });
   return NextResponse.json({
@@ -37,7 +36,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
   const params = await props.params;
   try {
     const session = await requireSession();
-    const patient = await prisma.patient.findFirst({ where: { id: params.id, organizationId: session.organizationId } });
+    const patient = await prisma.patient.findFirst({ where: { id: params.id, organizationId: session.organizationId, deletedAt: null } });
     if (!patient) {
       return NextResponse.json({ error: "Hasta bulunamadı." }, { status: 404 });
     }
@@ -47,27 +46,31 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Dosya seçilmedi." }, { status: 400 });
     }
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: "Dosya 15 MB sınırını aşıyor." }, { status: 400 });
-    }
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return NextResponse.json({ error: "Sadece fotoğraf (JPG, PNG, WebP, HEIC) ve PDF yüklenebilir." }, { status: 400 });
-    }
-
-    const data = Buffer.from(await file.arrayBuffer());
+    const prepared = await preparePatientUpload(Buffer.from(await file.arrayBuffer()));
     const note = String(formData.get("note") ?? "").trim();
-    const created = await prisma.patientFile.create({
-      data: {
-        patientId: patient.id,
-        organizationId: session.organizationId,
-        category: parseCategory(formData.get("category")),
-        fileName: file.name || "kamera-fotografi.jpg",
-        mimeType: file.type,
-        size: file.size,
-        data,
-        note: note.length > 0 ? note : null
-      }
-    });
+    const storageKey = await storePatientFile(session.organizationId, patient.id, prepared);
+    let created;
+    try {
+      created = await prisma.patientFile.create({
+        data: {
+          patientId: patient.id,
+          organizationId: session.organizationId,
+          category: parseCategory(formData.get("category")),
+          fileName: file.name || `kamera-fotografi.${prepared.extension}`,
+          mimeType: prepared.mimeType,
+          storedMimeType: prepared.mimeType,
+          size: prepared.bytes.length,
+          data: null,
+          storageKey,
+          checksumSha256: prepared.checksumSha256,
+          note: note.length > 0 ? note : null
+        }
+      });
+    } catch (error) {
+      await deleteStoredPatientFile(storageKey);
+      throw error;
+    }
+    await writeAuditLog({ userId: session.userId, action: "UPLOAD_PATIENT_FILE", module: "patients", entityId: created.id, metadata: { patientId: patient.id, mimeType: prepared.mimeType, size: prepared.bytes.length }, organizationId: session.organizationId, branchId: session.branchId });
 
     return NextResponse.json({
       file: {

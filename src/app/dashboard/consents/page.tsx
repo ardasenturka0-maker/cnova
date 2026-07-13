@@ -35,7 +35,7 @@ async function createConsentAction(formData: FormData) {
   }
 
   const payload = parsed.data;
-  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId }, select: { branchId: true } });
+  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId, deletedAt: null }, select: { branchId: true } });
 
   if (!patient) {
     redirect(resultUrl("error", "Seçilen hasta bulunamadı veya bu kliniğe ait değil."));
@@ -67,7 +67,7 @@ async function sendConsentAction(id: string) {
   const session = await requireSession();
   const consent = await prisma.consent.findFirst({ where: { id, organizationId: session.organizationId } });
   if (!consent) redirect(resultUrl("error", "Gönderilecek onam bulunamadı."));
-  const patient = await prisma.patient.findFirst({ where: { id: consent.patientId, organizationId: session.organizationId } });
+  const patient = await prisma.patient.findFirst({ where: { id: consent.patientId, organizationId: session.organizationId, deletedAt: null } });
   if (!patient) redirect(resultUrl("error", "Onam kaydının hastası bulunamadı."));
 
   let digitalConsent = await prisma.digitalConsent.findFirst({ where: { sourceConsentId: consent.id, organizationId: session.organizationId } });
@@ -117,7 +117,7 @@ export default async function ConsentsPage(props: { searchParams: Promise<{ succ
   const session = await requireSession();
   const locale = await getLocale();
   const [patients, consents] = await Promise.all([
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.consent.findMany({ where: { organizationId: session.organizationId }, include: { patient: true }, orderBy: { createdAt: "desc" }, take: 100 })
   ]);
 

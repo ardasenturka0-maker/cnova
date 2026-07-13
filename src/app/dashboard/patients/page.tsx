@@ -1,4 +1,4 @@
-import { UserPlus, Users } from "lucide-react";
+import { Trash2, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,10 @@ export default async function PatientsPage(props: { searchParams: Promise<{ q?: 
       <Link className={cn(buttonVariants({ variant: "outline" }), "w-fit")} href="/dashboard/patients/new">
         <UserPlus className="h-4 w-4" />
         Yeni hasta ekle
+      </Link>
+      <Link className={cn(buttonVariants({ variant: "ghost" }), "w-fit")} href="/dashboard/patients/trash">
+        <Trash2 className="h-4 w-4" />
+        Çöp kutusu
       </Link>
     </div>
   );

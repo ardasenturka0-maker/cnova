@@ -1,6 +1,6 @@
 {
   "name": "clinicnova",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "ClinicNova - production-gated dental clinic management platform",
   "scripts": {
@@ -13,7 +13,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "test:e2e": "playwright test",
     "android:build": "bash scripts/build-android-apk.sh",
-    "android:verify": "apksigner verify --verbose --print-certs releases/ClinicNova-1.1.0.apk",
+    "android:verify": "apksigner verify --verbose --print-certs releases/ClinicNova-$(node -p \"require('./package.json').version\").apk",
     "ios:demo": "node scripts/build-ios-demo.mjs",
     "build:web-demo": "node scripts/build-web-demo.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
@@ -22,7 +22,8 @@
     "start:production": "npm run production:check && npm run prisma:deploy && next start",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "files:migrate": "tsx scripts/migrate-patient-files-to-storage.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -39,6 +40,7 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.1",
     "recharts": "^2.12.7",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^2.4.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.8",

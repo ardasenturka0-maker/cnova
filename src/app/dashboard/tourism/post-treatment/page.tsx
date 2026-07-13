@@ -26,7 +26,7 @@ async function sendCareMessageAction(id: string) {
   const session = await requireSession();
   const followUp = await prisma.postTreatmentFollowUp.findFirst({ where: { id, organizationId: session.organizationId } });
   if (!followUp) redirect(resultUrl("error", "Takip kaydı bulunamadı."));
-  const patient = await prisma.patient.findFirst({ where: { id: followUp.patientId, organizationId: session.organizationId } });
+  const patient = await prisma.patient.findFirst({ where: { id: followUp.patientId, organizationId: session.organizationId, deletedAt: null } });
   if (!patient) redirect(resultUrl("error", "Takip kaydının hastası bulunamadı."));
   const link = new URL(`/care-check/${followUp.publicToken}`, process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").toString();
   try {
@@ -73,7 +73,7 @@ export default async function PostTreatmentPage(props: { searchParams: Promise<{
   const locale = await getLocale();
   const [followUps, patients, packages] = await Promise.all([
     prisma.postTreatmentFollowUp.findMany({ where: { organizationId: session.organizationId }, orderBy: { nextMessageAt: "asc" }, take: 100 }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, take: 200 }),
     prisma.tourismPackage.findMany({ where: { organizationId: session.organizationId }, take: 100 })
   ]);
   const issues = followUps.filter((item) => item.issueReported);

@@ -84,7 +84,7 @@ test("staff can sign in, use the dashboard and sign out", async ({ page }, testI
 
   const health = await page.request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.1.0" });
+  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.1.1" });
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

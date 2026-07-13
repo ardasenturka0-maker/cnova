@@ -24,7 +24,7 @@ export async function findPatientByPhone(phone: string) {
   const digits = normalizePhone(phone);
   if (digits.length < 7) return null;
 
-  const patients = await prisma.patient.findMany({ take: 500 });
+  const patients = await prisma.patient.findMany({ where: { deletedAt: null }, take: 500 });
   return patients.find((patient) => normalizePhone(patient.phone) === digits) ?? null;
 }
 

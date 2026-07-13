@@ -17,7 +17,7 @@ export async function getAppointments(organizationId: string) {
 
 export async function getAppointmentFormOptions(organizationId: string) {
   const [patients, doctors] = await Promise.all([
-    prisma.patient.findMany({ where: { organizationId }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.patient.findMany({ where: { organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
     prisma.user.findMany({ where: { organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true }, orderBy: { name: "asc" } })
   ]);
   return { patients, doctors };
@@ -51,7 +51,7 @@ async function assertDoctorAvailability(organizationId: string, doctorId: string
 
 export async function createAppointment(organizationId: string, input: AppointmentInput) {
   const patient = await prisma.patient.findFirst({
-    where: { id: input.patientId, organizationId },
+    where: { id: input.patientId, organizationId, deletedAt: null },
     select: { branchId: true }
   });
 

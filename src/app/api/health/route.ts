@@ -10,7 +10,7 @@ export async function GET() {
       {
         status: "ok",
         service: "clinicnova",
-        version: "1.1.0",
+        version: "1.1.1",
         timestamp: new Date().toISOString()
       },
       { headers: { "Cache-Control": "no-store" } }

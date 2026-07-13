@@ -421,6 +421,11 @@ model Patient {
   communication   CommunicationLog[]
   recalls         Recall[]
   files           PatientFile[]
+  deletedAt       DateTime?
+  purgeAt         DateTime?
+  deletedById     String?
+  restoredAt      DateTime?
+  restoredById    String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -428,6 +433,8 @@ model Patient {
   @@index([branchId])
   @@index([phone])
   @@index([tag])
+  @@index([organizationId, deletedAt])
+  @@index([purgeAt])
 }
 
 model PatientFile {
@@ -438,8 +445,16 @@ model PatientFile {
   fileName       String
   mimeType       String
   size           Int
-  data           Bytes
+  data           Bytes?
+  storageKey     String?             @unique
+  checksumSha256 String?
+  storedMimeType String?
   note           String?
+  deletedAt      DateTime?
+  purgeAt        DateTime?
+  deletedById    String?
+  restoredAt     DateTime?
+  restoredById   String?
   patient        Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
   organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdAt      DateTime            @default(now())
@@ -447,6 +462,8 @@ model PatientFile {
 
   @@index([patientId])
   @@index([organizationId])
+  @@index([organizationId, deletedAt])
+  @@index([purgeAt])
 }
 
 model Appointment {

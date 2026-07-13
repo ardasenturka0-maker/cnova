@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { readPatientFile } from "@/lib/secure-file-storage";
+import { writeAuditLog } from "@/lib/services/auditLogService";
 
 export async function GET(
   _request: Request,
@@ -9,13 +11,20 @@ export async function GET(
   const params = await props.params;
   const session = await requireSession();
   const file = await prisma.patientFile.findFirst({
-    where: { id: params.fileId, patientId: params.id, organizationId: session.organizationId }
+    where: { id: params.fileId, patientId: params.id, organizationId: session.organizationId, deletedAt: null }
   });
   if (!file) {
     return NextResponse.json({ error: "Dosya bulunamadı." }, { status: 404 });
   }
 
-  const bytes = file.data instanceof Uint8Array ? file.data : Buffer.from(file.data);
+  const bytes = file.storageKey
+    ? await readPatientFile(file.storageKey, file.checksumSha256)
+    : file.data instanceof Uint8Array
+      ? Buffer.from(file.data)
+      : file.data
+        ? Buffer.from(file.data)
+        : null;
+  if (!bytes) return NextResponse.json({ error: "Dosya gövdesi bulunamadı." }, { status: 410 });
   const body = new Blob([new Uint8Array(bytes)], { type: file.mimeType });
   return new NextResponse(body, {
     headers: {
@@ -32,8 +41,11 @@ export async function DELETE(
 ) {
   const params = await props.params;
   const session = await requireSession();
-  await prisma.patientFile.deleteMany({
-    where: { id: params.fileId, patientId: params.id, organizationId: session.organizationId }
+  const now = new Date();
+  const result = await prisma.patientFile.updateMany({
+    where: { id: params.fileId, patientId: params.id, organizationId: session.organizationId, deletedAt: null },
+    data: { deletedAt: now, purgeAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), deletedById: session.userId, restoredAt: null, restoredById: null }
   });
-  return NextResponse.json({ ok: true });
+  if (result.count > 0) await writeAuditLog({ userId: session.userId, action: "SOFT_DELETE_PATIENT_FILE", module: "patients", entityId: params.fileId, metadata: { patientId: params.id, purgeAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString() }, organizationId: session.organizationId, branchId: session.branchId });
+  return NextResponse.json({ ok: true, retainedDays: 30 });
 }

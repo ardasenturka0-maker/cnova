@@ -19,7 +19,7 @@ export default async function TourismConsentsPage() {
     prisma.consentTemplate.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.digitalConsent.findMany({ where: { organizationId: session.organizationId }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.lead.findMany({ where: { organizationId: session.organizationId }, take: 100 }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId }, take: 100 })
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, take: 100 })
   ]);
 
   return (

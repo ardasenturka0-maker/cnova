@@ -45,7 +45,7 @@ export default async function CareCheckPage(
   const params = await props.params;
   const followUp = await prisma.postTreatmentFollowUp.findFirst({ where: { publicToken: params.token } });
   if (!followUp) notFound();
-  const patient = await prisma.patient.findFirst({ where: { id: followUp.patientId, organizationId: followUp.organizationId } });
+  const patient = await prisma.patient.findFirst({ where: { id: followUp.patientId, organizationId: followUp.organizationId, deletedAt: null } });
 
   return (
     <main className="min-h-screen bg-background p-4 md:p-8">
