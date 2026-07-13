@@ -225,6 +225,33 @@ export async function getReports(organizationId: string) {
     ? Math.round((appointments.filter((appointment) => appointment.status === AppointmentStatus.CANCELLED).length / appointments.length) * 100)
     : 0;
   const averageSurvey = surveyResponses.length ? surveyResponses.reduce((sum, item) => sum + item.score, 0) / surveyResponses.length : 0;
+  const paidIncome = payments.filter((payment) => payment.type === PaymentType.INCOME && payment.status === PaymentStatus.PAID);
+  const paidExpenses = payments.filter((payment) => payment.type === PaymentType.EXPENSE && payment.status === PaymentStatus.PAID);
+  const expense = paidExpenses.reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+  const pendingRevenue = payments.filter((payment) => payment.type === PaymentType.INCOME && payment.status === PaymentStatus.PENDING).reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+  const stockValue = stockItems.reduce((sum, item) => sum + item.currentQuantity * toNumber(item.purchasePrice), 0);
+  const appointmentStatuses = Object.values(AppointmentStatus).map((status) => ({ status, count: appointments.filter((item) => item.status === status).length }));
+  const treatmentDistribution = Object.values(treatments.reduce<Record<string, { name: string; count: number; revenue: number }>>((acc, treatment) => {
+    acc[treatment.treatmentType] ??= { name: treatment.treatmentType, count: 0, revenue: 0 };
+    acc[treatment.treatmentType].count += 1;
+    acc[treatment.treatmentType].revenue += toNumber(treatment.fee);
+    return acc;
+  }, {})).sort((a, b) => b.revenue - a.revenue);
+  const doctorPerformance = Object.values(treatments.reduce<Record<string, { doctor: string; treatments: number; plannedRevenue: number }>>((acc, treatment) => {
+    acc[treatment.doctorId] ??= { doctor: treatment.doctor.name, treatments: 0, plannedRevenue: 0 };
+    acc[treatment.doctorId].treatments += 1;
+    acc[treatment.doctorId].plannedRevenue += toNumber(treatment.fee);
+    return acc;
+  }, {})).sort((a, b) => b.plannedRevenue - a.plannedRevenue);
+  const monthlyCashflow = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(new Date().getFullYear(), new Date().getMonth() - (11 - index), 1);
+    const sameMonth = (payment: { paidAt: Date }) => payment.paidAt.getFullYear() === date.getFullYear() && payment.paidAt.getMonth() === date.getMonth();
+    return {
+      month: new Intl.DateTimeFormat("tr-TR", { month: "short", year: "2-digit" }).format(date),
+      income: paidIncome.filter(sameMonth).reduce((sum, item) => sum + toNumber(item.amount), 0),
+      expense: paidExpenses.filter(sameMonth).reduce((sum, item) => sum + toNumber(item.amount), 0)
+    };
+  });
 
   const branchComparison = branches.map((branch) => ({
     branch: branch.name,
@@ -235,11 +262,19 @@ export async function getReports(organizationId: string) {
   return {
     snapshots,
     revenue,
+    expense,
+    netRevenue: revenue - expense,
+    pendingRevenue,
+    stockValue,
     noShowRate,
     cancellationRate,
     treatmentCount: treatments.length,
     lowStockCount: stockItems.filter((item) => item.currentQuantity <= item.minimumQuantity).length,
     averageSurvey,
-    branchComparison
+    branchComparison,
+    appointmentStatuses,
+    treatmentDistribution,
+    doctorPerformance,
+    monthlyCashflow
   };
 }

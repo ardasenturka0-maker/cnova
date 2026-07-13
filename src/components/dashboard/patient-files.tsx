@@ -105,6 +105,14 @@ export function PatientFiles({ patientId, initialFiles, canDelete = false }: { p
     }
   }
 
+  function startPhotoCapture() {
+    // Android/iOS browsers and the ClinicNova WebView should invoke the native
+    // camera intent. Desktop browsers keep the live in-page camera preview.
+    const nativeMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia("(pointer: coarse)").matches;
+    if (nativeMobile) captureInputRef.current?.click();
+    else void openCamera();
+  }
+
   function closeCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -187,13 +195,9 @@ export function PatientFiles({ patientId, initialFiles, canDelete = false }: { p
             <Upload className="h-4 w-4" />
             Dosya yükle
           </Button>
-          <Button type="button" disabled={uploading} onClick={openCamera}>
+          <Button type="button" disabled={uploading} onClick={startPhotoCapture}>
             <Camera className="h-4 w-4" />
             Fotoğraf çek
-          </Button>
-          <Button type="button" variant="outline" disabled={uploading} onClick={() => captureInputRef.current?.click()} className="sm:hidden">
-            <Camera className="h-4 w-4" />
-            Telefonla çek
           </Button>
           {uploading ? (
             <span className="flex items-center gap-2 text-sm text-muted-foreground">

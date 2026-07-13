@@ -90,6 +90,7 @@ export default async function PaymentsPage() {
                 <TableHead>Tip</TableHead>
                 <TableHead>Yöntem</TableHead>
                 <TableHead>İndirim</TableHead>
+                <TableHead>Aşama</TableHead>
                 <TableHead>Tutar</TableHead>
                 <TableHead>Durum</TableHead>
               </TableRow>
@@ -122,6 +123,7 @@ export default async function PaymentsPage() {
                       "—"
                     )}
                   </TableCell>
+                  <TableCell>{payment.isDeposit ? <Badge variant="warning">Peşinat</Badge> : "Normal ödeme"}</TableCell>
                   <TableCell className="font-medium">{formatCurrency(payment.amount, locale)}</TableCell>
                   <TableCell>
                     <Badge variant={payment.status === "PAID" ? "success" : "warning"}>{statusLabel(payment.status, locale)}</Badge>

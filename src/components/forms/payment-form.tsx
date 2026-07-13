@@ -145,6 +145,10 @@ export function PaymentForm({
           <option value="CANCELLED">İptal</option>
         </Select>
       </div>
+      <label className="flex min-h-10 items-center gap-3 rounded-md border px-3 text-sm">
+        <input name="isDeposit" type="checkbox" className="h-4 w-4" />
+        Bu tahsilat peşinattır
+      </label>
       <div className="space-y-2">
         <Label>Tarih</Label>
         <Input name="paidAt" type="date" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BarChart3, BellRing, Boxes, CalendarDays, ClipboardCheck, CreditCard, HeartPulse, LayoutDashboard, MessageSquare, Plane, Settings, Stethoscope, Users, UserRoundCog } from "lucide-react";
+import { Activity, BarChart3, BellRing, Boxes, CalendarDays, ClipboardCheck, ClipboardList, CreditCard, HeartPulse, LayoutDashboard, MessageSquare, Plane, Settings, Stethoscope, Users, UserRoundCog } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/dashboard/patients", key: "patients", icon: Users },
   { href: "/dashboard/appointments", key: "appointments", icon: CalendarDays },
   { href: "/dashboard/treatments", key: "treatments", icon: Stethoscope },
+  { href: "/dashboard/treatment-plans", key: "treatmentPlans", icon: ClipboardList },
   { href: "/dashboard/finance", key: "finance", icon: CreditCard },
   { href: "/dashboard/stocks", key: "stocks", icon: Boxes },
   { href: "/dashboard/staff", key: "staff", icon: UserRoundCog },

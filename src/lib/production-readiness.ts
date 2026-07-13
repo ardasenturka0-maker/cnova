@@ -42,6 +42,8 @@ export function getProductionReadiness() {
   const outboundUrl = process.env.N8N_OUTBOUND_WEBHOOK_URL;
   const outboundSecret = process.env.N8N_OUTBOUND_SECRET;
   const outboundConfigured = isHttpsUrl(outboundUrl) && isStrongSecret(outboundSecret);
+  const requireProductSearch = process.env.REQUIRE_PRODUCT_SEARCH === "true";
+  const productSearchConfigured = isHttpsUrl(process.env.PRODUCT_SEARCH_API_URL) && isStrongSecret(process.env.PRODUCT_SEARCH_API_KEY, 24);
 
   const checks: ReadinessCheck[] = [
     {
@@ -133,6 +135,12 @@ export function getProductionReadiness() {
       label: "Canlı entegrasyon çıkışı",
       state: outboundConfigured ? "pass" : requireIntegrations ? "error" : "warning",
       detail: outboundConfigured ? "İmzalı N8N çıkışı etkin" : "N8N_OUTBOUND_WEBHOOK_URL ve N8N_OUTBOUND_SECRET gerekli"
+    },
+    {
+      key: "product_search",
+      label: "Canlı ürün fiyatları",
+      state: productSearchConfigured ? "pass" : requireProductSearch ? "error" : "warning",
+      detail: productSearchConfigured ? "Ürün satın alma fiyat sağlayıcısı etkin" : "PRODUCT_SEARCH_API_URL ve güçlü PRODUCT_SEARCH_API_KEY gerekli"
     }
   ];
 

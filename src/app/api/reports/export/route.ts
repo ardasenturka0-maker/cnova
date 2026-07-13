@@ -8,6 +8,10 @@ export async function GET() {
   const rows = [
     ["metric", "value"],
     ["revenue", reports.revenue],
+    ["expense", reports.expense],
+    ["net_revenue", reports.netRevenue],
+    ["pending_revenue", reports.pendingRevenue],
+    ["stock_value", reports.stockValue],
     ["no_show_rate", reports.noShowRate],
     ["cancellation_rate", reports.cancellationRate],
     ["treatment_count", reports.treatmentCount],

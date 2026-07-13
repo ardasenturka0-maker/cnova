@@ -235,6 +235,7 @@ const stockMovements = stockItems.flatMap((item, index) => [
   { id: id("movement_in", index + 1), itemId: item.id, type: StockMovementType.IN, quantity: 20 + index, note: "Demo giriş", movedAt: days(-index - 4), organizationId: organization.id, branchId: item.branchId, createdAt: days(-index - 4), updatedAt: now },
   { id: id("movement_out", index + 1), itemId: item.id, type: StockMovementType.OUT, quantity: 3 + index, note: "Tedavi sarf çıkışı", movedAt: days(-index), organizationId: organization.id, branchId: item.branchId, createdAt: days(-index), updatedAt: now }
 ]);
+const stockOffers: any[] = [];
 
 const staff = [
   { id: "staff_01", fullName: "Dr. Emir Aydın", roleLabel: "Hekim", phone: "+90 532 555 2001", email: "emir@clinicnova.test", workingHours: "09:00-18:00", compensation: "%35 hakediş", active: true, organizationId: organization.id, branchId: branches[0].id, createdAt: days(-50), updatedAt: now },
@@ -762,7 +763,7 @@ function richInvoice(item: any) {
 }
 
 function richStockItem(item: any) {
-  return { ...item, branch: branchOf(item.branchId), movements: stockMovements.filter((movement) => movement.itemId === item.id) };
+  return { ...item, branch: branchOf(item.branchId), movements: stockMovements.filter((movement) => movement.itemId === item.id), offers: stockOffers.filter((offer) => offer.itemId === item.id) };
 }
 
 function richStaff(item: any) {
@@ -1022,6 +1023,7 @@ const mockPrismaStore = {
   invoice: model(invoices, richInvoice),
   stockItem: model(stockItems, richStockItem),
   stockMovement: model(stockMovements),
+  stockOffer: model(stockOffers),
   staff: model(staff, richStaff),
   doctorProfile: model(doctorProfiles, richDoctorProfile),
   consent: model(consents, richConsent),

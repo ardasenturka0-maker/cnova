@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PrintButton } from "@/components/ui/print-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireSession } from "@/lib/auth";
+import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { getReports } from "@/lib/services/reportService";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -18,6 +19,9 @@ export default async function ReportsPage() {
 
   const cards = [
     ["Aylık gelir", formatCurrency(reports.revenue, locale)],
+    ["Toplam gider", formatCurrency(reports.expense, locale)],
+    ["Net nakit", formatCurrency(reports.netRevenue, locale)],
+    ["Bekleyen tahsilat", formatCurrency(reports.pendingRevenue, locale)],
     ["Doktor/Tedavi", String(reports.treatmentCount)],
     ["Randevu gelmeme", `%${reports.noShowRate}`],
     ["İptal oranı", `%${reports.cancellationRate}`],
@@ -32,10 +36,16 @@ export default async function ReportsPage() {
         <Link className={cn(buttonVariants(), "gap-2")} href="/api/reports/export"><Download className="h-4 w-4" />CSV indir</Link>
         <PrintButton />
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
         {cards.map(([label, value]) => (
           <Card key={label}><CardContent className="p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-semibold">{value}</p></CardContent></Card>
         ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card><CardHeader><CardTitle>12 aylık nakit akışı</CardTitle></CardHeader><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Ay</TableHead><TableHead>Gelir</TableHead><TableHead>Gider</TableHead><TableHead>Net</TableHead></TableRow></TableHeader><TableBody>{reports.monthlyCashflow.map((row) => <TableRow key={row.month}><TableCell>{row.month}</TableCell><TableCell>{formatCurrency(row.income, locale)}</TableCell><TableCell>{formatCurrency(row.expense, locale)}</TableCell><TableCell>{formatCurrency(row.income - row.expense, locale)}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+        <Card><CardHeader><CardTitle>Doktor performansı</CardTitle></CardHeader><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Doktor</TableHead><TableHead>Tedavi</TableHead><TableHead>Planlanan ciro</TableHead></TableRow></TableHeader><TableBody>{reports.doctorPerformance.map((row) => <TableRow key={row.doctor}><TableCell>{row.doctor}</TableCell><TableCell>{row.treatments}</TableCell><TableCell>{formatCurrency(row.plannedRevenue, locale)}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+        <Card><CardHeader><CardTitle>Tedavi dağılımı</CardTitle></CardHeader><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Tedavi</TableHead><TableHead>Adet</TableHead><TableHead>Planlanan ciro</TableHead></TableRow></TableHeader><TableBody>{reports.treatmentDistribution.map((row) => <TableRow key={row.name}><TableCell>{row.name}</TableCell><TableCell>{row.count}</TableCell><TableCell>{formatCurrency(row.revenue, locale)}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+        <Card><CardHeader><CardTitle>Randevu durumları</CardTitle></CardHeader><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Durum</TableHead><TableHead>Adet</TableHead></TableRow></TableHeader><TableBody>{reports.appointmentStatuses.map((row) => <TableRow key={row.status}><TableCell>{statusLabel(row.status, locale)}</TableCell><TableCell>{row.count}</TableCell></TableRow>)}</TableBody></Table><div className="border-t p-4 text-sm">Stoktaki toplam malzeme değeri: <strong>{formatCurrency(reports.stockValue, locale)}</strong></div></CardContent></Card>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

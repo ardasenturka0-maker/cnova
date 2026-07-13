@@ -69,6 +69,7 @@ export async function createPayment(organizationId: string, fallbackBranchId: st
       amount: input.amount,
       listAmount,
       discountAmount,
+      isDeposit: input.isDeposit,
       referralSource: input.referralSource || null,
       method: input.method as PaymentMethod,
       description: input.description || null,

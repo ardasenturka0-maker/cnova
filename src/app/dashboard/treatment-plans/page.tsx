@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { ClipboardList } from "lucide-react";
+import Link from "next/link";
 import { Role, TreatmentStatus } from "@prisma/client";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { TreatmentStatusBadge } from "@/components/dashboard/treatment-status-badge";
@@ -77,7 +78,7 @@ export default async function TreatmentPlansPage() {
                   <TableCell>{formatDate(item.plannedAt, locale)}</TableCell>
                   <TableCell>{item.patient ? `${item.patient.firstName} ${item.patient.lastName}` : "Hasta bulunamadı"}</TableCell>
                   <TableCell>{item.doctor?.name ?? "Doktor bulunamadı"}</TableCell>
-                  <TableCell>{item.treatmentType} {item.toothNumber ? `#${item.toothNumber}` : ""}</TableCell>
+                  <TableCell><Link className="font-medium text-primary hover:underline" href={`/dashboard/treatment-plans/${item.id}`}>{item.treatmentType} {item.toothNumber ? `#${item.toothNumber}` : ""}</Link></TableCell>
                   <TableCell>{formatCurrency(item.estimatedFee, locale)}</TableCell>
                   <TableCell><TreatmentStatusBadge status={item.status} locale={locale} /></TableCell>
                 </TableRow>

@@ -3,6 +3,8 @@ import test from "node:test";
 import { loginSchema, registerSchema } from "../src/lib/validations/auth";
 import { paginationSchema } from "../src/lib/validations/common";
 import { portalLoginSchema } from "../src/lib/validations/portal";
+import { paymentSchema } from "../src/lib/validations/finance";
+import { stockOfferSchema } from "../src/lib/validations/stock";
 
 test("login validation normalizes e-mail addresses", () => {
   const result = loginSchema.parse({ email: "OWNER@CLINICNOVA.TEST", password: "password123" });
@@ -24,4 +26,15 @@ test("patient portal requires a scoped clinic code and birth date", () => {
   assert.equal(valid.organizationSlug, "nova-dental");
   assert.equal(portalLoginSchema.safeParse({ organizationSlug: "nova-dental", phone: "+90 532 555 10 00" }).success, false);
   assert.equal(portalLoginSchema.safeParse({ organizationSlug: "../other", phone: "+90 532 555 10 00", birthDate: "1980-01-01" }).success, false);
+});
+
+test("payment records preserve the deposit selection", () => {
+  const result = paymentSchema.parse({ type: "INCOME", amount: "1000", method: "CARD", status: "PAID", isDeposit: "on" });
+  assert.equal(result.isDeposit, true);
+});
+
+test("stock purchase offers require a secure product link", () => {
+  const base = { itemId: "stock_1", seller: "Dental Market", unitPrice: "250", shippingPrice: "20", inStock: "on" };
+  assert.equal(stockOfferSchema.safeParse({ ...base, productUrl: "http://shop.example/product" }).success, false);
+  assert.equal(stockOfferSchema.parse({ ...base, productUrl: "https://shop.example/product" }).inStock, true);
 });

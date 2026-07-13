@@ -31,10 +31,10 @@ test("outdated signed Android clients receive the secure update notice", async (
   await page.goto("/login");
   const update = page.getByRole("link", { name: "İmzalı APK’yı güncelle" });
   await expect(update).toBeVisible();
-  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.2.2.apk");
+  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.3.0.apk");
   const manifest = await page.request.get("/api/mobile/version");
   expect(manifest.status()).toBe(200);
-  expect(await manifest.json()).toMatchObject({ currentVersion: "1.2.2", minimumVersion: "1.2.2", sha256: "a".repeat(64) });
+  expect(await manifest.json()).toMatchObject({ currentVersion: "1.3.0", minimumVersion: "1.3.0", sha256: "a".repeat(64) });
 });
 
 test("staff login never exposes validation or internal error details", async ({ page }) => {
@@ -59,6 +59,28 @@ test("demo can open without a live database", async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("heading", { name: "Klinik dashboard" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Gelir fırsatları hazır" })).toBeVisible();
+});
+
+test("sales workflows expose full calendar, treatment details, stock purchasing and deposits", async ({ page }) => {
+  await page.goto("/demo-open");
+  await page.goto("/dashboard/treatment-plans");
+  await page.locator("tbody a").first().click();
+  await expect(page).toHaveURL(/\/dashboard\/treatment-plans\/.+/);
+  await expect(page.getByRole("link", { name: "Planlara dön" })).toBeVisible();
+  await expect(page.getByText("Tahmini ücret", { exact: true })).toBeVisible();
+
+  await page.goto("/dashboard/appointments");
+  await expect(page.locator("[data-calendar-day]")).toHaveCount(42);
+  await expect(page.getByRole("link", { name: "Önceki ay" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sonraki ay" })).toBeVisible();
+
+  await page.goto("/dashboard/stocks");
+  await expect(page.getByRole("heading", { name: "Ürün satın alma ve fiyat karşılaştırma" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ürün ekle" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stok hareketi" })).toBeVisible();
+
+  await page.goto("/dashboard/payments");
+  await expect(page.getByLabel("Bu tahsilat peşinattır")).toBeVisible();
 });
 
 test("patient portal scopes identity and revokes a deleted patient's session", async ({ page }, testInfo) => {

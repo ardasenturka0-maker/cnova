@@ -35,6 +35,9 @@ jobs:
       N8N_OUTBOUND_WEBHOOK_URL: https://automation.example.test/webhook/clinicnova
       N8N_OUTBOUND_SECRET: ci-outbound-webhook-secret-at-least-32-characters
       REQUIRE_LIVE_INTEGRATIONS: "true"
+      REQUIRE_PRODUCT_SEARCH: "true"
+      PRODUCT_SEARCH_API_URL: https://product-search.example.test/v1/offers
+      PRODUCT_SEARCH_API_KEY: ci-product-search-provider-key-at-least-24-characters
       FILE_STORAGE_ROOT: /tmp/clinicnova-patient-files
       FILE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       MFA_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=

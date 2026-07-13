@@ -2,16 +2,16 @@ import { AppointmentStatus, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AppointmentInput } from "@/lib/validations/appointment";
 
-export async function getAppointments(organizationId: string) {
+export async function getAppointments(organizationId: string, range?: { from: Date; to: Date }) {
   return prisma.appointment.findMany({
-    where: { organizationId, patient: { deletedAt: null } },
+    where: { organizationId, patient: { deletedAt: null }, ...(range ? { startsAt: { gte: range.from, lt: range.to } } : {}) },
     include: {
       patient: { select: { firstName: true, lastName: true, phone: true } },
       doctor: { select: { name: true } },
       branch: { select: { name: true } }
     },
     orderBy: { startsAt: "asc" },
-    take: 150
+    take: range ? 1000 : 150
   });
 }
 

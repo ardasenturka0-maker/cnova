@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { BellRing, CalendarDays, Check, Send, UserRound, X } from "lucide-react";
+import { BellRing, CalendarDays, Check, ChevronLeft, ChevronRight, Send, UserRound, X } from "lucide-react";
+import Link from "next/link";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -90,21 +91,32 @@ function startOfDay(date: Date) {
   return next;
 }
 
-export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
+export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string; month?: string }> }) {
   const searchParams = await props.searchParams;
   const session = await requireSession();
   const locale = await getLocale();
-  const [appointments, options, portalRequests] = await Promise.all([
-    getAppointments(session.organizationId),
-    getAppointmentFormOptions(session.organizationId),
-    getPortalAppointmentRequests(session.organizationId)
-  ]);
   const today = startOfDay(new Date());
-  const weekDays = Array.from({ length: 7 }).map((_, index) => {
-    const day = new Date(today);
+  const requestedMonth = /^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(searchParams.month ?? "") ? searchParams.month! : null;
+  const monthMatch = requestedMonth ?? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const [viewYear, viewMonth] = monthMatch.split("-").map(Number);
+  const monthStart = new Date(viewYear, viewMonth - 1, 1);
+  const calendarStart = new Date(monthStart);
+  calendarStart.setDate(calendarStart.getDate() - ((calendarStart.getDay() + 6) % 7));
+  const calendarDays = Array.from({ length: 42 }).map((_, index) => {
+    const day = new Date(calendarStart);
     day.setDate(day.getDate() + index);
     return day;
   });
+  const calendarEnd = new Date(calendarStart);
+  calendarEnd.setDate(calendarEnd.getDate() + 42);
+  const [appointments, options, portalRequests] = await Promise.all([
+    getAppointments(session.organizationId, { from: calendarStart, to: calendarEnd }),
+    getAppointmentFormOptions(session.organizationId),
+    getPortalAppointmentRequests(session.organizationId)
+  ]);
+  const previousMonth = new Date(viewYear, viewMonth - 2, 1);
+  const nextMonth = new Date(viewYear, viewMonth, 1);
+  const monthParam = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
   return (
     <div className="space-y-6">
@@ -225,27 +237,35 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-7">
-        {weekDays.map((day) => {
+      <Card>
+        <CardHeader className="flex-row items-center justify-between gap-3">
+          <Link aria-label="Önceki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${monthParam(previousMonth)}`}><ChevronLeft className="h-4 w-4" /></Link>
+          <CardTitle>{new Intl.DateTimeFormat(intlLocale(locale), { month: "long", year: "numeric" }).format(monthStart)}</CardTitle>
+          <Link aria-label="Sonraki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${monthParam(nextMonth)}`}><ChevronRight className="h-4 w-4" /></Link>
+        </CardHeader>
+        <CardContent className="p-0">
+      <div className="grid grid-cols-7 border-l border-t">
+        {calendarDays.map((day) => {
           const dayAppointments = appointments.filter((appointment) => startOfDay(appointment.startsAt).getTime() === day.getTime());
+          const inMonth = day.getMonth() === monthStart.getMonth();
+          const isToday = day.getTime() === today.getTime();
           return (
-            <Card key={day.toISOString()} className="xl:col-span-1">
-              <CardHeader className="p-4">
-                <CardTitle className="text-sm">{new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short", day: "numeric", month: "short" }).format(day)}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 p-4 pt-0">
-                {dayAppointments.slice(0, 4).map((appointment) => (
+            <div key={day.toISOString()} data-calendar-day className={`min-h-28 border-b border-r p-2 ${inMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
+                <div className={`mb-2 text-xs font-medium ${isToday ? "inline-grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</div>
+                <div className="space-y-1">{dayAppointments.map((appointment) => (
                   <div key={appointment.id} className="rounded-md border bg-background p-2 text-xs">
-                    <div className="font-medium">{appointment.patient.firstName} {appointment.patient.lastName}</div>
-                    <div className="text-muted-foreground">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }).format(appointment.startsAt)}</div>
+                    <div className="truncate font-medium">{appointment.patient.firstName} {appointment.patient.lastName}</div>
+                    <div className="text-muted-foreground">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }).format(appointment.startsAt)} · {appointment.doctor.name}</div>
                   </div>
                 ))}
                 {dayAppointments.length === 0 ? <p className="text-xs text-muted-foreground">Boş</p> : null}
-              </CardContent>
-            </Card>
+                </div>
+            </div>
           );
         })}
       </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
