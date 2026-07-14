@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { AppointmentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, Role, StockMovementType } from "@prisma/client";
+import { AppointmentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
 import { z } from "zod";
 import type { AuthSession } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
@@ -42,6 +42,14 @@ const stockItemPayload = z.object({
   name: z.string().trim().min(2).max(200), category: z.string().trim().min(2).max(120),
   currentQuantity: z.coerce.number().int().min(0), minimumQuantity: z.coerce.number().int().min(0),
   unit: z.string().trim().min(1).max(40), supplier: z.string().trim().max(200).optional(), purchasePrice: z.coerce.number().min(0).max(100_000_000)
+});
+
+const treatmentPlanPayload = z.object({
+  patientId: z.union([z.string(), z.number()]).transform(String), doctor: z.string().trim().min(2).max(160),
+  toothNumber: z.string().trim().max(40).optional(), treatmentType: z.string().trim().min(2).max(200),
+  description: z.string().trim().max(4000).optional(), estimatedFee: z.coerce.number().min(0).max(100_000_000),
+  status: z.enum(["PROPOSED", "ACCEPTED", "STARTED", "COMPLETED", "CANCELLED"]),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 });
 
 const stockMovementPayload = z.object({
@@ -128,6 +136,29 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     if (candidates.some((item) => item.startsAt < endsAt && new Date(item.startsAt.getTime() + item.durationMinutes * 60_000) > startsAt)) throw new Error("Doktorun bu saat aralığında başka randevusu var.");
     const appointment = await tx.appointment.create({ data: { patientId, doctorId: doctor.id, startsAt, durationMinutes: payload.duration, room: payload.room || null, treatmentType: payload.treatment, status: payload.status as AppointmentStatus, notes: "Android yerel kaydından eşitlendi.", organizationId, branchId } });
     return appointment.id;
+  }
+
+  if (operation.entityType === "TREATMENT_PLAN") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "TREATMENT_PLAN", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) await tx.treatmentPlan.deleteMany({ where: { id: existingId, organizationId } });
+      return existingId;
+    }
+    const payload = treatmentPlanPayload.parse(operation.payload);
+    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
+    if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, deletedAt: null }, select: { branchId: true } });
+    if (!patient) throw new Error("Hasta bulunamadı.");
+    const doctor = await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, name: payload.doctor }, select: { id: true } })
+      ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { createdAt: "asc" }, select: { id: true } });
+    if (!doctor) throw new Error("Sunucuda aktif doktor bulunamadı.");
+    const data = { patientId, doctorId: doctor.id, toothNumber: payload.toothNumber || null, treatmentType: payload.treatmentType, description: payload.description || null, estimatedFee: payload.estimatedFee, status: payload.status as TreatmentStatus, plannedAt: new Date(`${payload.date}T12:00:00`), organizationId, branchId: patient.branchId };
+    if (existingId) {
+      await tx.treatmentPlan.updateMany({ where: { id: existingId, organizationId }, data });
+      return existingId;
+    }
+    const plan = await tx.treatmentPlan.create({ data });
+    return plan.id;
   }
 
   if (operation.entityType === "STOCK_ITEM") {

@@ -218,11 +218,16 @@
     state.appointments.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("APPOINTMENT", item.id, appointmentPayload(item)));
     state.transactions.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("PAYMENT", item.id, paymentPayload(item)));
     stockItems.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)));
+    treatmentPlans.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("TREATMENT_PLAN", item.id, treatmentPlanPayload(item)));
     storage.set("clinicnova.syncBootstrapComplete", true);
   }
 
   function stockItemPayload(item) {
     return { name: item.name, category: item.category, currentQuantity: item.amount, minimumQuantity: item.minimum, unit: item.unit, supplier: item.supplier || "", purchasePrice: item.purchasePrice || 0 };
+  }
+
+  function treatmentPlanPayload(plan) {
+    return { patientId: String(plan.patientId), doctor: plan.doctor, toothNumber: plan.tooth || "", treatmentType: plan.treatment, description: plan.note || "", estimatedFee: plan.total || 0, status: plan.statusCode || "PROPOSED", date: plan.date || todayIso };
   }
 
   function moveToTrash(kind, label, payload) {
@@ -465,6 +470,21 @@
       <label class="field">Tedarikçi<input name="supplier" placeholder="Firma adı" /></label>
       <p class="modal-note">Ürün ve açılış miktarı cihazda kalıcı saklanır. Sunucu bağlantısında canlı stok panelinden merkezi yönetilebilir.</p>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Ürünü kaydet</button></div>
+    </form>`);
+  }
+
+  function openAddTreatmentPlan() {
+    if (!state.patients.length) return showToast("Önce bir hasta ekleyin.");
+    const patientOptions = state.patients.map((patient) => `<option value="${patient.id}">${escapeHtml(patient.name)}</option>`).join("");
+    openModal("TEDAVİ PLANLAMA", "Yeni tedavi planı", `<form id="treatmentPlanForm" class="modal-grid">
+      <label class="field">Hasta<select name="patientId" required>${patientOptions}</select></label>
+      <div class="modal-grid two"><label class="field">Tedavi türü<input name="treatment" required placeholder="İmplant, kanal tedavisi..." /></label><label class="field">Diş / bölge<input name="tooth" placeholder="Örn. 36 veya tüm ağız" /></label></div>
+      <div class="modal-grid two"><label class="field">Hekim<select name="doctor" required><option>Dr. Emir Aydın</option><option>Dr. Lara Er</option></select></label><label class="field">Şube<input name="branch" value="Nişantaşı Klinik" required /></label></div>
+      <div class="modal-grid two"><label class="field">Plan tarihi<input name="date" type="date" value="${todayIso}" required /></label><label class="field">Durum<select name="status"><option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal</option></select></label></div>
+      <div class="modal-grid two"><label class="field">Toplam ücret<input name="total" type="number" min="0" step="1" value="0" required /></label><label class="field">Alınan peşinat / ödeme<input name="paid" type="number" min="0" step="1" value="0" required /></label></div>
+      <label class="field">Klinik notu<textarea name="note" placeholder="Uygulama aşamaları, malzeme, kontrol ve hasta bilgilendirme notları"></textarea></label>
+      <p class="modal-note">Plan cihazda kalıcı kaydedilir. Girilen ödeme ayrıca peşinat olarak finans kaydına eklenir. Sunucu bağlandığında plan ve ödeme merkezi kliniğe eşitlenir.</p>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Tedavi planını kaydet</button></div>
     </form>`);
   }
 
@@ -941,6 +961,7 @@
     if (action === "add-appointment") { closeModal(); return openAddAppointment(target.dataset.patientPrefill); }
     if (action === "add-payment") { closeModal(); return openAddPayment(target.dataset.patientPrefill); }
     if (action === "add-stock-item") { closeModal(); return openAddStockItem(); }
+    if (action === "add-treatment-plan") { closeModal(); return openAddTreatmentPlan(); }
     if (action === "stock-movement") { closeModal(); return openStockMovement(target.dataset.stockPrefill); }
     if (action === "add-stock-offer") { closeModal(); return openAddStockOffer(target.dataset.stockPrefill); }
     if (action === "profile") return openProfile();
@@ -1047,6 +1068,25 @@
       if (stockItems.some((entry) => entry.name.toLocaleLowerCase("tr-TR") === item.name.toLocaleLowerCase("tr-TR"))) return showToast("Bu ürün stokta zaten kayıtlı.");
       if (item.amount > 0) item.movements.unshift({ id: Date.now() + 1, type: "IN", quantity: item.amount, note: "Açılış stoku", date: "Şimdi" });
       stockItems.unshift(item); queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)); saveData(); renderAll(); closeModal(); navigate("stocks"); showToast("Yeni stok ürünü kaydedildi.");
+    }
+    if (event.target.id === "treatmentPlanForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const patient = patientById(form.get("patientId"));
+      const total = Number(form.get("total"));
+      const paid = Number(form.get("paid"));
+      if (!patient || !Number.isFinite(total) || total < 0 || !Number.isFinite(paid) || paid < 0 || paid > total) return showToast("Hasta ve ücret bilgilerini kontrol edin; ödeme toplam ücreti aşamaz.");
+      const statusCode = String(form.get("status"));
+      const status = ({ PROPOSED: "Önerildi", ACCEPTED: "Kabul edildi", STARTED: "Başladı", COMPLETED: "Tamamlandı", CANCELLED: "İptal" })[statusCode] || "Önerildi";
+      const date = String(form.get("date"));
+      const plan = { id: Date.now(), patientId: patient.id, patient: patient.name, treatment: String(form.get("treatment") || "").trim(), tooth: String(form.get("tooth") || "").trim(), doctor: String(form.get("doctor") || "").trim(), branch: String(form.get("branch") || "").trim(), date, plannedAt: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), total, paid, status, statusCode, note: String(form.get("note") || "").trim() };
+      if (plan.treatment.length < 2 || !plan.doctor || !plan.branch) return showToast("Tedavi, hekim ve şube bilgilerini kontrol edin.");
+      treatmentPlans.unshift(plan); queueCreate("TREATMENT_PLAN", plan.id, treatmentPlanPayload(plan));
+      if (paid > 0) {
+        const payment = { id: Date.now() + 1, patientId: patient.id, name: patient.name, detail: `${plan.treatment} plan peşinatı · Nakit`, amount: paid, totalAmount: total, remainingAmount: Math.max(0, total - paid), installmentCount: 1, paidInstallments: 1, components: [{ name: plan.treatment, amount: total }], isDeposit: true, type: "income", status: total > paid ? "PENDING" : "PAID", date: "Şimdi" };
+        state.transactions.unshift(payment); queueCreate("PAYMENT", payment.id, paymentPayload(payment));
+      }
+      saveData(); renderAll(); closeModal(); navigate("treatment-plans"); showToast("Tedavi planı kaydedildi.");
     }
     if (event.target.id === "stockMovementForm") {
       event.preventDefault();

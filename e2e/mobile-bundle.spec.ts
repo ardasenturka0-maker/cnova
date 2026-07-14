@@ -116,7 +116,21 @@ test("bundled Android interface works offline", async ({ page }) => {
 
   await page.locator(".bottom-nav").getByRole("button", { name: "Tedaviler", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tedavi planları" })).toBeVisible();
-  await page.locator("#treatmentPlanList").getByRole("button", { name: /Ayşe Yılmaz/ }).click();
+  await page.getByRole("button", { name: "Tedavi planı ekle", exact: true }).click();
+  await page.locator('#treatmentPlanForm select[name="patientId"]').selectOption({ label: "Ayşe Yılmaz" });
+  await page.locator('#treatmentPlanForm input[name="treatment"]').fill("Zirkonyum kaplama");
+  await page.locator('#treatmentPlanForm input[name="tooth"]').fill("11-21");
+  await page.locator('#treatmentPlanForm input[name="total"]').fill("24000");
+  await page.locator('#treatmentPlanForm input[name="paid"]').fill("4000");
+  await page.locator('#treatmentPlanForm textarea[name="note"]').fill("Dijital ölçü sonrası renk provası yapılacak.");
+  await page.getByRole("button", { name: "Tedavi planını kaydet" }).click();
+  const newPlan = page.locator("#treatmentPlanList").getByRole("button", { name: /Zirkonyum kaplama/ });
+  await expect(newPlan).toBeVisible();
+  await newPlan.click();
+  await expect(page.getByText("11-21", { exact: true })).toBeVisible();
+  await expect(page.locator("#modalBody")).toContainText("Dijital ölçü sonrası renk provası yapılacak.");
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator("#treatmentPlanList").getByRole("button", { name: /Ayşe Yılmaz/ }).filter({ hasText: "İmplant" }).click();
   await expect(page.getByRole("heading", { name: "Ayşe Yılmaz" })).toBeVisible();
   await expect(page.getByText("Diş / bölge", { exact: true })).toBeVisible();
   await expect(page.getByText("Dr. Emir Aydın", { exact: true })).toBeVisible();

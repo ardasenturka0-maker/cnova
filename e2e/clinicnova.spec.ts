@@ -34,7 +34,7 @@ test("outdated signed Android clients receive the secure update notice", async (
   await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.4.0.apk");
   const manifest = await page.request.get("/api/mobile/version");
   expect(manifest.status()).toBe(200);
-  expect(await manifest.json()).toMatchObject({ currentVersion: "1.5.0", minimumVersion: "1.4.0", sha256: "a".repeat(64) });
+  expect(await manifest.json()).toMatchObject({ currentVersion: "1.5.1", minimumVersion: "1.4.0", sha256: "a".repeat(64) });
 });
 
 test("staff login never exposes validation or internal error details", async ({ page }) => {
@@ -328,7 +328,7 @@ test("staff can sign in, use the dashboard and sign out", async ({ page }, testI
 
   const health = await page.request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.5.0" });
+  expect(await health.json()).toMatchObject({ status: "ok", service: "clinicnova", version: "1.5.1" });
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
