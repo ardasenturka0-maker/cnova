@@ -1,5 +1,6 @@
 import { AppointmentStatus, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { consumeTreatmentRecipe } from "@/lib/services/treatmentStockService";
 import type { AppointmentInput } from "@/lib/validations/appointment";
 
 export async function getAppointments(organizationId: string, range?: { from: Date; to: Date }) {
@@ -63,8 +64,8 @@ export async function createAppointment(organizationId: string, input: Appointme
   const startsAt = new Date(input.startsAt);
   await assertDoctorAvailability(organizationId, input.doctorId, startsAt, input.durationMinutes);
 
-  return prisma.appointment.create({
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const appointment = await tx.appointment.create({ data: {
       patientId: input.patientId,
       doctorId: input.doctorId,
       startsAt,
@@ -75,6 +76,10 @@ export async function createAppointment(organizationId: string, input: Appointme
       notes: input.notes || null,
       organizationId,
       branchId: patient.branchId
+    } });
+    if (appointment.status === AppointmentStatus.COMPLETED) {
+      await consumeTreatmentRecipe(tx, organizationId, patient.branchId, appointment.treatmentType, { appointmentId: appointment.id });
     }
+    return appointment;
   });
 }

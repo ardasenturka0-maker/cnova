@@ -11,7 +11,8 @@ import { createRecoveryCodes, encryptMfaSecret, hashRecoveryCode, totpCode } fro
 import { verifyMfaForLogin } from "../src/lib/services/mfaService";
 import { createAppointment } from "../src/lib/services/appointmentService";
 import { createPayment } from "../src/lib/services/financeService";
-import { createStockItem, createStockMovement } from "../src/lib/services/stockService";
+import { createStockItem, createStockMovement, createStockRecipe } from "../src/lib/services/stockService";
+import { setTreatmentStatus } from "../src/lib/services/treatmentStockService";
 import { syncMobileOperations } from "../src/lib/services/mobileSyncService";
 import { mobileSyncBatchSchema } from "../src/lib/validations/mobile-sync";
 
@@ -38,6 +39,19 @@ async function main() {
     assert.equal(await prisma.stockMovement.count({ where: { itemId: stock.id, type: "IN", quantity: 7 } }), 1, "açılış stoku hareket kaydı üretmeli");
     await createStockMovement(organization.id, branch.id, { itemId: stock.id, type: "ADJUSTMENT", quantity: 0, note: "Sayım" });
     assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: stock.id } })).currentQuantity, 0);
+
+    const automaticStock = await createStockItem(organization.id, branch.id, { name: "Otomatik Sarf", category: "Sarf", currentQuantity: 5, minimumQuantity: 1, unit: "adet", supplier: "", purchasePrice: 20 });
+    await createStockRecipe(organization.id, branch.id, { treatmentType: "Dolgu", itemId: automaticStock.id, quantity: 2 });
+    await setTreatmentStatus(organization.id, treatment.id, TreatmentStatus.COMPLETED);
+    assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: automaticStock.id } })).currentQuantity, 3, "tamamlanan tedavi reçetedeki malzemeyi düşmeli");
+    await setTreatmentStatus(organization.id, treatment.id, TreatmentStatus.COMPLETED);
+    assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: automaticStock.id } })).currentQuantity, 3, "aynı durum tekrarı çift sarf üretmemeli");
+    await setTreatmentStatus(organization.id, treatment.id, TreatmentStatus.STARTED);
+    assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: automaticStock.id } })).currentQuantity, 5, "tamamlama geri alınınca sarf stoğa dönmeli");
+    await createStockRecipe(organization.id, branch.id, { treatmentType: "Dolgu", itemId: automaticStock.id, quantity: 6 });
+    await assert.rejects(() => setTreatmentStatus(organization.id, treatment.id, TreatmentStatus.COMPLETED), /Stok yetersiz/);
+    assert.equal((await prisma.treatment.findUniqueOrThrow({ where: { id: treatment.id } })).status, TreatmentStatus.STARTED, "yetersiz stok tedaviyi tamamlamamalı");
+    assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: automaticStock.id } })).currentQuantity, 5, "başarısız tamamlama stoğu değiştirmemeli");
 
     assert.equal((await getPatients(organization.id)).length, 2);
     assert.equal((await deletePatient(organization.id, patient.id, user.id, branch.id)).count, 1);

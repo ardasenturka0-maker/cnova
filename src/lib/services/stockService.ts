@@ -1,11 +1,13 @@
 import { StockMovementType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { stockItemSchema, stockMovementSchema, stockOfferSchema } from "@/lib/validations/stock";
+import { stockItemSchema, stockMovementSchema, stockOfferSchema, stockRecipeSchema } from "@/lib/validations/stock";
+import { normalizeTreatmentKey } from "@/lib/services/treatmentStockService";
 import type { z } from "zod";
 
 type StockItemInput = z.infer<typeof stockItemSchema>;
 type StockMovementInput = z.infer<typeof stockMovementSchema>;
 type StockOfferInput = z.infer<typeof stockOfferSchema>;
+type StockRecipeInput = z.infer<typeof stockRecipeSchema>;
 
 export async function getStocks(organizationId: string) {
   const items = await prisma.stockItem.findMany({
@@ -24,6 +26,28 @@ export async function getStocks(organizationId: string) {
       return Number(left.unitPrice) + Number(left.shippingPrice) - Number(right.unitPrice) - Number(right.shippingPrice);
     })
   }));
+}
+
+export async function getStockRecipes(organizationId: string) {
+  return prisma.stockRecipe.findMany({
+    where: { organizationId },
+    include: { item: { select: { name: true, unit: true } }, branch: { select: { name: true } } },
+    orderBy: { treatmentType: "asc" }
+  });
+}
+
+export async function createStockRecipe(organizationId: string, branchId: string, input: StockRecipeInput) {
+  const item = await prisma.stockItem.findFirst({ where: { id: input.itemId, organizationId, branchId }, select: { id: true } });
+  if (!item) throw new Error("Seçilen stok ürünü bu şubede bulunamadı.");
+  const treatmentKey = normalizeTreatmentKey(input.treatmentType);
+  const existing = await prisma.stockRecipe.findFirst({ where: { organizationId, branchId, treatmentKey, itemId: item.id }, select: { id: true } });
+  if (existing) return prisma.stockRecipe.update({ where: { id: existing.id }, data: { treatmentType: input.treatmentType.trim(), quantity: input.quantity } });
+  return prisma.stockRecipe.create({ data: { organizationId, branchId, treatmentKey, treatmentType: input.treatmentType.trim(), itemId: item.id, quantity: input.quantity } });
+}
+
+export async function deleteStockRecipe(organizationId: string, recipeId: string) {
+  const result = await prisma.stockRecipe.deleteMany({ where: { id: recipeId, organizationId } });
+  if (result.count !== 1) throw new Error("Malzeme reçetesi bulunamadı.");
 }
 
 export async function createStockOffer(organizationId: string, branchId: string, input: StockOfferInput) {

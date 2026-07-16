@@ -28,3 +28,9 @@ export const stockOfferSchema = z.object({
   productUrl: z.string().url("Geçerli bir HTTPS ürün adresi girin.").refine((url) => url.startsWith("https://"), "Yalnızca HTTPS adresi kullanılabilir."),
   inStock: z.preprocess((value) => value === "on" || value === "true", z.boolean()).default(false)
 });
+
+export const stockRecipeSchema = z.object({
+  treatmentType: z.string().trim().min(2, "Tedavi adı en az 2 karakter olmalı.").max(200),
+  itemId: z.string().trim().min(1, "Bir stok ürünü seçin."),
+  quantity: z.coerce.number().int("Miktar tam sayı olmalı.").min(1, "Miktar en az 1 olmalı.").max(100_000)
+});

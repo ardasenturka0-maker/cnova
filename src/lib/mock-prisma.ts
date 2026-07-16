@@ -231,11 +231,12 @@ const stockItems = ["Kompozit dolgu", "Anestezi kartuşu", "Eldiven", "Maske", "
   updatedAt: now
 }));
 
-const stockMovements = stockItems.flatMap((item, index) => [
+const stockMovements: any[] = stockItems.flatMap((item, index) => [
   { id: id("movement_in", index + 1), itemId: item.id, type: StockMovementType.IN, quantity: 20 + index, note: "Demo giriş", movedAt: days(-index - 4), organizationId: organization.id, branchId: item.branchId, createdAt: days(-index - 4), updatedAt: now },
   { id: id("movement_out", index + 1), itemId: item.id, type: StockMovementType.OUT, quantity: 3 + index, note: "Tedavi sarf çıkışı", movedAt: days(-index), organizationId: organization.id, branchId: item.branchId, createdAt: days(-index), updatedAt: now }
 ]);
 const stockOffers: any[] = [];
+const stockRecipes: any[] = [];
 
 const staff = [
   { id: "staff_01", fullName: "Dr. Emir Aydın", roleLabel: "Hekim", phone: "+90 532 555 2001", email: "emir@clinicnova.test", workingHours: "09:00-18:00", compensation: "%35 hakediş", active: true, organizationId: organization.id, branchId: branches[0].id, createdAt: days(-50), updatedAt: now },
@@ -738,11 +739,11 @@ function richPatient(patient: any) {
 }
 
 function richAppointment(item: any) {
-  return { ...item, patient: patientOf(item.patientId), doctor: userOf(item.doctorId), branch: branchOf(item.branchId) };
+  return { ...item, patient: patientOf(item.patientId), doctor: userOf(item.doctorId), branch: branchOf(item.branchId), stockMovements: stockMovements.filter((movement) => movement.appointmentId === item.id) };
 }
 
 function richTreatment(item: any) {
-  return { ...item, patient: patientOf(item.patientId), doctor: userOf(item.doctorId), branch: branchOf(item.branchId) };
+  return { ...item, patient: patientOf(item.patientId), doctor: userOf(item.doctorId), branch: branchOf(item.branchId), stockMovements: stockMovements.filter((movement) => movement.treatmentId === item.id) };
 }
 
 function richTreatmentPlan(item: any) {
@@ -764,6 +765,10 @@ function richInvoice(item: any) {
 
 function richStockItem(item: any) {
   return { ...item, branch: branchOf(item.branchId), movements: stockMovements.filter((movement) => movement.itemId === item.id), offers: stockOffers.filter((offer) => offer.itemId === item.id) };
+}
+
+function richStockRecipe(item: any) {
+  return { ...item, item: stockItems.find((stockItem) => stockItem.id === item.itemId) ?? null, branch: branchOf(item.branchId) };
 }
 
 function richStaff(item: any) {
@@ -983,6 +988,17 @@ function model(data: any[], rich = (item: any) => item) {
       });
       return { count };
     },
+    async upsert(args?: any) {
+      const existing = data.find((entry) => matchesWhere(entry, args?.where));
+      if (existing) {
+        Object.assign(existing, args?.update, { updatedAt: new Date() });
+        return rich(existing);
+      }
+      const createdAt = new Date();
+      const item = { id: id("demo", data.length + 1), ...args?.create, createdAt, updatedAt: createdAt };
+      data.unshift(item);
+      return rich(item);
+    },
     async deleteMany(args?: any) {
       let count = 0;
       for (let index = data.length - 1; index >= 0; index -= 1) {
@@ -1024,6 +1040,7 @@ const mockPrismaStore = {
   stockItem: model(stockItems, richStockItem),
   stockMovement: model(stockMovements),
   stockOffer: model(stockOffers),
+  stockRecipe: model(stockRecipes, richStockRecipe),
   staff: model(staff, richStaff),
   doctorProfile: model(doctorProfiles, richDoctorProfile),
   consent: model(consents, richConsent),

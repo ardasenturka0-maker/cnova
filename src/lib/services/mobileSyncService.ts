@@ -6,6 +6,7 @@ import { normalizePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { canAccess } from "@/lib/rbac";
+import { consumeTreatmentRecipe, normalizeTreatmentKey, releaseTreatmentRecipe } from "@/lib/services/treatmentStockService";
 import type { MobileSyncBatch, MobileSyncOperation } from "@/lib/validations/mobile-sync";
 
 const patientPayload = z.object({
@@ -64,6 +65,12 @@ const stockOfferPayload = z.object({
   productUrl: z.string().url().refine((url) => url.startsWith("https://"), "Yalnızca HTTPS ürün adresi kullanılabilir."), inStock: z.boolean().default(true)
 });
 
+const stockRecipePayload = z.object({
+  treatmentType: z.string().trim().min(2).max(200),
+  itemId: z.union([z.string(), z.number()]).transform(String),
+  quantity: z.coerce.number().int().min(1).max(100_000)
+});
+
 type SyncResult = { operationId: string; status: "synced" | "failed"; serverEntityId?: string; error?: string };
 
 function payloadHash(operation: MobileSyncOperation) {
@@ -113,12 +120,23 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "APPOINTMENT") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "APPOINTMENT", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.appointment.updateMany({ where: { id: existingId, organizationId }, data: { status: AppointmentStatus.CANCELLED } });
+      if (existingId) {
+        const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId } });
+        if (appointment?.status === AppointmentStatus.COMPLETED) await releaseTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
+        await tx.appointment.updateMany({ where: { id: existingId, organizationId }, data: { status: AppointmentStatus.CANCELLED } });
+      }
       return existingId;
     }
     const payload = appointmentPayload.parse(operation.payload);
     if (existingId && operation.action === "UPDATE") {
-      await tx.appointment.updateMany({ where: { id: existingId, organizationId }, data: { status: payload.status as AppointmentStatus } });
+      const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId } });
+      if (!appointment) throw new Error("Randevu bulunamadı.");
+      const nextStatus = payload.status as AppointmentStatus;
+      if (appointment.status !== nextStatus) {
+        if (nextStatus === AppointmentStatus.COMPLETED) await consumeTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
+        else if (appointment.status === AppointmentStatus.COMPLETED) await releaseTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
+        await tx.appointment.update({ where: { id: appointment.id }, data: { status: nextStatus } });
+      }
       return existingId;
     }
     const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
@@ -136,6 +154,7 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     });
     if (candidates.some((item) => item.startsAt < endsAt && new Date(item.startsAt.getTime() + item.durationMinutes * 60_000) > startsAt)) throw new Error("Doktorun bu saat aralığında başka randevusu var.");
     const appointment = await tx.appointment.create({ data: { patientId, doctorId: doctor.id, startsAt, durationMinutes: payload.duration, room: payload.room || null, treatmentType: payload.treatment, status: payload.status as AppointmentStatus, notes: "Android yerel kaydından eşitlendi.", organizationId, branchId } });
+    if (appointment.status === AppointmentStatus.COMPLETED) await consumeTreatmentRecipe(tx, organizationId, branchId, appointment.treatmentType, { appointmentId: appointment.id });
     return appointment.id;
   }
 
@@ -207,6 +226,26 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     return offer.id;
   }
 
+  if (operation.entityType === "STOCK_RECIPE") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_RECIPE", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) await tx.stockRecipe.deleteMany({ where: { id: existingId, organizationId } });
+      return existingId;
+    }
+    const payload = stockRecipePayload.parse(operation.payload);
+    const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
+    if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId }, select: { branchId: true } });
+    if (!item) throw new Error("Stok ürünü bulunamadı.");
+    const data = { treatmentKey: normalizeTreatmentKey(payload.treatmentType), treatmentType: payload.treatmentType, itemId, quantity: payload.quantity, organizationId, branchId: item.branchId };
+    if (existingId) {
+      await tx.stockRecipe.updateMany({ where: { id: existingId, organizationId }, data });
+      return existingId;
+    }
+    const recipe = await tx.stockRecipe.create({ data });
+    return recipe.id;
+  }
+
   const existingId = await mappedEntityId(tx, organizationId, deviceId, "PAYMENT", operation.clientId);
   if (operation.action === "DELETE") {
     if (existingId) await tx.payment.updateMany({ where: { id: existingId, organizationId }, data: { status: PaymentStatus.CANCELLED } });
@@ -275,14 +314,14 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
   const organizationId = session.organizationId;
   const branch = session.branchId ? { branchId: session.branchId } : {};
   const includePatients = canAccess(session.role, "patients");
-  const [patients, appointments, payments, plans, stocks] = await Promise.all([
+  const [patients, appointments, payments, plans, stocks, recipes] = await Promise.all([
     includePatients ? prisma.patient.findMany({
       where: { organizationId, deletedAt: null, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       select: { id: true, firstName: true, lastName: true, phone: true, email: true, tag: true, notes: true, updatedAt: true }
     }) : [],
     canAccess(session.role, "appointments") ? prisma.appointment.findMany({
       where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
-      include: { patient: { select: { id: true } }, doctor: { select: { name: true } } }
+      include: { patient: { select: { id: true } }, doctor: { select: { name: true } }, stockMovements: { select: { itemId: true, type: true, quantity: true } } }
     }) : [],
     canAccess(session.role, "finance") ? prisma.payment.findMany({
       where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
@@ -295,14 +334,16 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     canAccess(session.role, "stocks") ? prisma.stockItem.findMany({
       where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       include: { offers: { orderBy: { checkedAt: "desc" }, take: 10 } }
-    }) : []
+    }) : [],
+    canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : []
   ]);
   const snapshotMappings = [
     ...patients.map((item) => ["PATIENT", item.id]),
     ...appointments.map((item) => ["APPOINTMENT", item.id]),
     ...payments.map((item) => ["PAYMENT", item.id]),
     ...plans.map((item) => ["TREATMENT_PLAN", item.id]),
-    ...stocks.map((item) => ["STOCK_ITEM", item.id])
+    ...stocks.map((item) => ["STOCK_ITEM", item.id]),
+    ...recipes.map((item) => ["STOCK_RECIPE", item.id])
   ].map(([entityType, serverEntityId]) => {
     const operationId = `snapshot:${entityType}:${serverEntityId}`;
     return {
@@ -323,7 +364,14 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       const time = istanbulParts(appointment.startsAt);
       return { id: localSnapshotId("APPOINTMENT", appointment.id), serverId: appointment.id, patientId: localSnapshotId("PATIENT", appointment.patient.id),
         date: time.date, time: time.time, duration: appointment.durationMinutes, treatment: appointment.treatmentType, doctor: appointment.doctor.name,
-        room: appointment.room ?? "", status: appointment.status };
+        room: appointment.room ?? "", status: appointment.status,
+        stockUsage: Object.values(appointment.stockMovements.reduce<Record<string, { itemId: number; quantity: number }>>((usage, movement) => {
+          const localItemId = localSnapshotId("STOCK_ITEM", movement.itemId);
+          const current = usage[movement.itemId] ?? { itemId: localItemId, quantity: 0 };
+          current.quantity += movement.type === StockMovementType.OUT ? movement.quantity : movement.type === StockMovementType.IN ? -movement.quantity : 0;
+          usage[movement.itemId] = current;
+          return usage;
+        }, {})).filter((usage) => usage.quantity > 0) };
     }),
     transactions: payments.map((payment) => ({
       id: localSnapshotId("PAYMENT", payment.id), serverId: payment.id, patientId: payment.patientId ? localSnapshotId("PATIENT", payment.patientId) : null,
@@ -342,6 +390,10 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       id: localSnapshotId("STOCK_ITEM", item.id), serverId: item.id, name: item.name, category: item.category, amount: item.currentQuantity,
       minimum: item.minimumQuantity, unit: item.unit, supplier: item.supplier ?? "", purchasePrice: Number(item.purchasePrice), movements: [],
       offers: item.offers.map((offer) => ({ seller: offer.seller, unitPrice: Number(offer.unitPrice), shippingPrice: Number(offer.shippingPrice), productUrl: offer.productUrl, inStock: offer.inStock }))
+    })),
+    stockRecipes: recipes.map((recipe) => ({
+      id: localSnapshotId("STOCK_RECIPE", recipe.id), serverId: recipe.id, treatmentType: recipe.treatmentType,
+      itemId: localSnapshotId("STOCK_ITEM", recipe.itemId), quantity: recipe.quantity
     }))
   };
 }

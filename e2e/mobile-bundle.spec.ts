@@ -151,6 +151,12 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.locator('#stockMovementForm input[name="quantity"]').fill("3");
   await page.getByRole("button", { name: "Hareketi kaydet" }).click();
   await expect(page.locator("#stockList").getByRole("button", { name: /Maske/ })).toContainText("7");
+  await page.getByRole("button", { name: "Tedavi reçetesi tanımla" }).click();
+  await page.locator('#stockRecipeForm input[name="treatmentType"]').fill("Kontrol");
+  await page.locator('#stockRecipeForm select[name="itemId"]').selectOption({ label: "Maske · 7 adet" });
+  await page.locator('#stockRecipeForm input[name="quantity"]').fill("2");
+  await page.getByRole("button", { name: "Reçeteyi kaydet" }).click();
+  await expect(page.locator("#stockRecipeList")).toContainText("Kontrol");
   await page.locator("#stockList").getByRole("button", { name: /Maske/ }).click();
   await page.getByRole("button", { name: "Satın alma fiyatı ekle" }).click();
   await page.locator('#stockOfferForm input[name="seller"]').fill("Medikal Market");
@@ -163,6 +169,18 @@ test("bundled Android interface works offline", async ({ page }) => {
 
   await page.locator(".bottom-nav").getByRole("button", { name: "Randevu", exact: true }).click();
   await expect(page.locator("#dateStrip .date-button")).toHaveCount(42);
+  await page.locator("#appointmentList .appointment-card").filter({ hasText: "Zeynep Çelik" }).click();
+  await page.getByLabel("Durum").selectOption("COMPLETED");
+  await page.getByRole("button", { name: "Durumu güncelle" }).click();
+  await page.locator(".bottom-nav").getByRole("button", { name: "Stok", exact: true }).click();
+  await expect(page.locator("#stockList").getByRole("button", { name: /Maske/ })).toContainText("5");
+  await page.locator(".bottom-nav").getByRole("button", { name: "Randevu", exact: true }).click();
+  await page.locator("#appointmentList .appointment-card").filter({ hasText: "Zeynep Çelik" }).click();
+  await page.getByLabel("Durum").selectOption("PLANNED");
+  await page.getByRole("button", { name: "Durumu güncelle" }).click();
+  await page.locator(".bottom-nav").getByRole("button", { name: "Stok", exact: true }).click();
+  await expect(page.locator("#stockList").getByRole("button", { name: /Maske/ })).toContainText("7");
+  await page.locator(".bottom-nav").getByRole("button", { name: "Randevu", exact: true }).click();
   await page.getByRole("button", { name: "Sonraki ay" }).click();
   await expect(page.locator("#calendarMonthLabel")).not.toBeEmpty();
 

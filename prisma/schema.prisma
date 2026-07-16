@@ -312,6 +312,7 @@ model Organization {
   stockItems        StockItem[]
   stockMovements    StockMovement[]
   stockOffers       StockOffer[]
+  stockRecipes      StockRecipe[]
   staff             Staff[]
   consents          Consent[]
   surveys           Survey[]
@@ -345,6 +346,7 @@ model Branch {
   stockItems      StockItem[]
   stockMovements  StockMovement[]
   stockOffers     StockOffer[]
+  stockRecipes    StockRecipe[]
   staff           Staff[]
   consents        Consent[]
   surveys         Survey[]
@@ -493,6 +495,7 @@ model Appointment {
   doctor          User              @relation("DoctorAppointments", fields: [doctorId], references: [id], onDelete: Restrict)
   organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   branch          Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stockMovements  StockMovement[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -545,6 +548,7 @@ model Treatment {
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
   payments       Payment[]
+  stockMovements StockMovement[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -623,11 +627,31 @@ model StockItem {
   branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
   movements       StockMovement[]
   offers          StockOffer[]
+  recipes         StockRecipe[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
   @@index([organizationId])
   @@index([branchId])
+}
+
+model StockRecipe {
+  id             String       @id @default(cuid())
+  treatmentKey   String
+  treatmentType  String
+  itemId         String
+  quantity       Int
+  organizationId String
+  branchId       String
+  item           StockItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, branchId, treatmentKey, itemId])
+  @@index([organizationId, branchId, treatmentKey])
+  @@index([itemId])
 }
 
 model StockOffer {
@@ -660,7 +684,11 @@ model StockMovement {
   movedAt        DateTime          @default(now())
   organizationId String
   branchId       String
+  treatmentId    String?
+  appointmentId  String?
   item           StockItem         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  treatment      Treatment?        @relation(fields: [treatmentId], references: [id], onDelete: SetNull)
+  appointment    Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   branch         Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
   createdAt      DateTime          @default(now())
@@ -669,6 +697,8 @@ model StockMovement {
   @@index([organizationId])
   @@index([branchId])
   @@index([itemId])
+  @@index([treatmentId])
+  @@index([appointmentId])
 }
 
 model Staff {

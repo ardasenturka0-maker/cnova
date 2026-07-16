@@ -18,9 +18,10 @@ import { createAppointment, getAppointmentFormOptions, getAppointments } from "@
 import { getPortalAppointmentRequests, resolvePortalAppointmentRequest } from "@/lib/services/portalService";
 import { sendMessage } from "@/lib/services/notificationService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
+import { setAppointmentStatus } from "@/lib/services/treatmentStockService";
 import { appointmentSchema } from "@/lib/validations/appointment";
 import { formatDateTime } from "@/lib/utils";
-import { CommunicationChannel } from "@prisma/client";
+import { AppointmentStatus, CommunicationChannel } from "@prisma/client";
 
 function resultUrl(type: "success" | "error", message: string) {
   return `/dashboard/appointments?${type}=${encodeURIComponent(message)}`;
@@ -62,6 +63,23 @@ async function resolveRequestAction(appointmentId: string, decision: "approve" |
   revalidatePath("/portal/appointments");
   revalidatePath("/portal");
   redirect(resultUrl("success", decision === "approve" ? "Portal randevu talebi onaylandı." : "Portal randevu talebi reddedildi."));
+}
+
+async function updateAppointmentStatusAction(appointmentId: string, formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("appointments");
+  const status = formData.get("status");
+  if (typeof status !== "string" || !Object.values(AppointmentStatus).includes(status as AppointmentStatus)) {
+    redirect(resultUrl("error", "Randevu durumu geçersiz."));
+  }
+  try {
+    await setAppointmentStatus(session.organizationId, appointmentId, status as AppointmentStatus);
+  } catch (error) {
+    redirect(resultUrl("error", actionErrorMessage(error, "Randevu durumu güncellenemedi.")));
+  }
+  revalidatePath("/dashboard/appointments");
+  revalidatePath("/dashboard/stocks");
+  redirect(resultUrl("success", status === AppointmentStatus.COMPLETED ? "Randevu tamamlandı; reçetedeki malzemeler stoktan otomatik düşüldü." : "Randevu durumu güncellendi; gerekiyorsa stok iadesi işlendi."));
 }
 
 async function sendReminderAction(patientId: string, phone: string) {
@@ -296,7 +314,15 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
                   <TableCell>{appointment.doctor.name}</TableCell>
                   <TableCell>{appointment.treatmentType}</TableCell>
                   <TableCell>{appointment.room ?? "-"}</TableCell>
-                  <TableCell><Badge variant="muted">{statusLabel(appointment.status, locale)}</Badge></TableCell>
+                  <TableCell>
+                    <form action={updateAppointmentStatusAction.bind(null, appointment.id)} className="flex min-w-48 items-center gap-2">
+                      <Select name="status" defaultValue={appointment.status} aria-label={`${appointment.treatmentType} randevu durumu`}>
+                        <option value="PLANNED">Planlandı</option><option value="PENDING_CONFIRMATION">Onay bekliyor</option><option value="ARRIVED">Geldi</option><option value="NO_SHOW">Gelmedi</option><option value="CANCELLED">İptal</option><option value="COMPLETED">Tamamlandı</option>
+                      </Select>
+                      <Button type="submit" size="sm" variant="outline">Kaydet</Button>
+                    </form>
+                    <div className="mt-2"><Badge variant="muted">{statusLabel(appointment.status, locale)}</Badge></div>
+                  </TableCell>
                   <TableCell className="text-right">
                     <form action={sendReminderAction.bind(null, appointment.patientId, appointment.patient.phone)}>
                       <Button type="submit" variant="outline" size="sm">

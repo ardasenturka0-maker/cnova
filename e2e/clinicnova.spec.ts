@@ -94,6 +94,48 @@ test("sales workflows expose full calendar, treatment details, stock purchasing 
   await expect(page.getByLabel("Bu tahsilat peşinattır")).toBeVisible();
 });
 
+test("completed treatments consume their material recipe and reversal returns stock", async ({ page }, testInfo) => {
+  await page.goto("/demo-open");
+  const suffix = testInfo.project.name === "android-chrome" ? "mobil" : "masaustu";
+  const stockName = `Otomatik sarf ${suffix}`;
+  const treatmentName = `Reçeteli işlem ${suffix}`;
+
+  await page.goto("/dashboard/stocks");
+  const stockForm = page.locator('form').filter({ has: page.locator('input[name="currentQuantity"]') });
+  await stockForm.locator('input[name="name"]').fill(stockName);
+  await stockForm.locator('input[name="category"]').fill("Sarf");
+  await stockForm.locator('input[name="currentQuantity"]').fill("5");
+  await stockForm.locator('input[name="minimumQuantity"]').fill("1");
+  await stockForm.locator('input[name="unit"]').fill("adet");
+  await stockForm.getByRole("button", { name: "Ürün Kaydet" }).click();
+  await expect(page.getByRole("row").filter({ hasText: stockName })).toContainText("5 adet");
+
+  const recipeForm = page.locator('form').filter({ has: page.locator('input[name="treatmentType"]') });
+  await recipeForm.locator('input[name="treatmentType"]').fill(treatmentName);
+  await recipeForm.locator('select[name="itemId"]').selectOption({ label: `${stockName} · 5 adet` });
+  await recipeForm.locator('input[name="quantity"]').fill("2");
+  await recipeForm.getByRole("button", { name: "Reçeteye Ekle" }).click();
+  await expect(page.getByRole("row").filter({ hasText: treatmentName })).toContainText(`${stockName}`);
+
+  await page.goto("/dashboard/treatments");
+  const treatmentForm = page.locator('form').filter({ has: page.locator('select[name="doctorId"]') });
+  await treatmentForm.locator('select[name="patientId"]').selectOption({ index: 1 });
+  await treatmentForm.locator('select[name="doctorId"]').selectOption({ index: 1 });
+  await treatmentForm.locator('input[name="treatmentType"]').fill(treatmentName);
+  await treatmentForm.locator('select[name="status"]').selectOption("COMPLETED");
+  await treatmentForm.getByRole("button", { name: "Tedavi Kaydet" }).click();
+
+  await page.goto("/dashboard/stocks");
+  await expect(page.getByRole("row").filter({ hasText: stockName }).last()).toContainText("3 adet");
+
+  await page.goto("/dashboard/treatments");
+  const treatmentRow = page.getByRole("row").filter({ hasText: treatmentName });
+  await treatmentRow.getByLabel(`${treatmentName} durumu`).selectOption("STARTED");
+  await treatmentRow.getByRole("button", { name: "Kaydet" }).click();
+  await page.goto("/dashboard/stocks");
+  await expect(page.getByRole("row").filter({ hasText: stockName }).last()).toContainText("5 adet");
+});
+
 test("operational writes preserve tenant and accounting integrity", async ({ page }, testInfo) => {
   await page.goto("/demo-open");
 

@@ -15,6 +15,7 @@ import { requireModuleAccess } from "@/lib/auth";
 import { getLocale } from "@/lib/i18n-server";
 import { buildPaymentPlan, paymentPlanLines, summarizePaymentPlan } from "@/lib/payment-plan";
 import { prisma } from "@/lib/prisma";
+import { consumeTreatmentRecipe, setTreatmentStatus } from "@/lib/services/treatmentStockService";
 import { treatmentSchema } from "@/lib/validations/treatment";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -53,8 +54,8 @@ async function createTreatmentAction(formData: FormData) {
       note: payload.paymentPlanNote || null
     });
 
-    await prisma.treatment.create({
-      data: {
+    await prisma.$transaction(async (tx) => {
+      const treatment = await tx.treatment.create({ data: {
         patientId: payload.patientId,
         doctorId: payload.doctorId,
         toothNumber: payload.toothNumber || null,
@@ -66,14 +67,35 @@ async function createTreatmentAction(formData: FormData) {
         performedAt: payload.date ? new Date(payload.date) : new Date(),
         organizationId: session.organizationId,
         branchId: patient.branchId
+      } });
+      if (treatment.status === TreatmentStatus.COMPLETED) {
+        await consumeTreatmentRecipe(tx, session.organizationId, patient.branchId, treatment.treatmentType, { treatmentId: treatment.id });
       }
+      return treatment;
     });
-  } catch {
-    redirect(resultUrl("error", "Tedavi kaydedilemedi. Lütfen bilgileri kontrol edip tekrar deneyin."));
+  } catch (error) {
+    redirect(resultUrl("error", error instanceof Error ? error.message : "Tedavi kaydedilemedi. Lütfen bilgileri kontrol edip tekrar deneyin."));
   }
 
   revalidatePath("/dashboard/treatments");
   redirect(resultUrl("success", "Tedavi kaydı oluşturuldu."));
+}
+
+async function updateTreatmentStatusAction(treatmentId: string, formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("treatments");
+  const status = formData.get("status");
+  if (typeof status !== "string" || !Object.values(TreatmentStatus).includes(status as TreatmentStatus)) {
+    redirect(resultUrl("error", "Tedavi durumu geçersiz."));
+  }
+  try {
+    await setTreatmentStatus(session.organizationId, treatmentId, status as TreatmentStatus);
+  } catch (error) {
+    redirect(resultUrl("error", error instanceof Error ? error.message : "Tedavi durumu güncellenemedi."));
+  }
+  revalidatePath("/dashboard/treatments");
+  revalidatePath("/dashboard/stocks");
+  redirect(resultUrl("success", status === TreatmentStatus.COMPLETED ? "Tedavi tamamlandı; reçetedeki malzemeler stoktan otomatik düşüldü." : "Tedavi durumu güncellendi; gerekiyorsa stok iadesi işlendi."));
 }
 
 export default async function TreatmentsPage(props: { searchParams: Promise<{ success?: string; error?: string }> }) {
@@ -93,7 +115,7 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={Stethoscope} title="Tedavi Modülü" description="Gerçekleşen tedaviler, ücretler, diş numarası ve hekim kayıtları." actionHref="/dashboard/treatment-plans" actionLabel="Tedavi Planları" />
+      <ModuleHeader icon={Stethoscope} title="Tedavi Modülü" description="Gerçekleşen tedaviler, ücretler, hekim kayıtları ve tamamlanınca otomatik malzeme sarfı." actionHref="/dashboard/treatment-plans" actionLabel="Tedavi Planları" />
       {searchParams.success ? (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">{searchParams.success}</div>
       ) : null}
@@ -123,7 +145,7 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
       <Card>
         <CardContent className="p-0">
           <Table>
-            <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Hasta</TableHead><TableHead>Doktor</TableHead><TableHead>Tedavi</TableHead><TableHead>Ücret</TableHead><TableHead>Tahsilat planı</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Hasta</TableHead><TableHead>Doktor</TableHead><TableHead>Tedavi</TableHead><TableHead>Ücret</TableHead><TableHead>Tahsilat planı</TableHead><TableHead>Durum / stok</TableHead></TableRow></TableHeader>
             <TableBody>
               {treatments.map((item) => (
                 <TableRow key={item.id}>
@@ -140,7 +162,15 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
                       </div>
                     </details>
                   </TableCell>
-                  <TableCell><TreatmentStatusBadge status={item.status} locale={locale} /></TableCell>
+                  <TableCell>
+                    <form action={updateTreatmentStatusAction.bind(null, item.id)} className="flex min-w-44 items-center gap-2">
+                      <Select name="status" defaultValue={item.status} aria-label={`${item.treatmentType} durumu`}>
+                        <option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal</option>
+                      </Select>
+                      <Button type="submit" size="sm" variant="outline">Kaydet</Button>
+                    </form>
+                    <div className="mt-2"><TreatmentStatusBadge status={item.status} locale={locale} /></div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { Boxes, ExternalLink, PackagePlus, ShoppingCart } from "lucide-react";
+import { Boxes, ExternalLink, PackagePlus, ShoppingCart, Trash2, Workflow } from "lucide-react";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requireModuleAccess } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
-import { createStockItem, createStockMovement, createStockOffer, getStocks } from "@/lib/services/stockService";
+import { createStockItem, createStockMovement, createStockOffer, createStockRecipe, deleteStockRecipe, getStockRecipes, getStocks } from "@/lib/services/stockService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { refreshProductOffers } from "@/lib/services/productSearchService";
-import { stockItemSchema, stockMovementSchema, stockOfferSchema } from "@/lib/validations/stock";
+import { stockItemSchema, stockMovementSchema, stockOfferSchema, stockRecipeSchema } from "@/lib/validations/stock";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 function resultUrl(type: "success" | "error", message: string) {
@@ -66,15 +66,34 @@ async function refreshOffersAction(itemId: string) {
   redirect(resultUrl("success", `${count} canlı fiyat güncellendi.`));
 }
 
+async function createRecipeAction(formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("stocks");
+  const branchId = await getWritableBranchId(session);
+  try { await createStockRecipe(session.organizationId, branchId, stockRecipeSchema.parse(Object.fromEntries(formData))); }
+  catch (error) { redirect(resultUrl("error", errorMessage(error))); }
+  revalidatePath("/dashboard/stocks");
+  redirect(resultUrl("success", "Tedavi malzeme reçetesi kaydedildi."));
+}
+
+async function deleteRecipeAction(recipeId: string) {
+  "use server";
+  const session = await requireModuleAccess("stocks");
+  try { await deleteStockRecipe(session.organizationId, recipeId); }
+  catch (error) { redirect(resultUrl("error", errorMessage(error))); }
+  revalidatePath("/dashboard/stocks");
+  redirect(resultUrl("success", "Malzeme reçetesi kaldırıldı."));
+}
+
 export default async function StocksPage({ searchParams }: { searchParams: Promise<{ success?: string; error?: string }> }) {
   const query = await searchParams;
   const session = await requireModuleAccess("stocks");
   const locale = await getLocale();
-  const stocks = await getStocks(session.organizationId);
+  const [stocks, recipes] = await Promise.all([getStocks(session.organizationId), getStockRecipes(session.organizationId)]);
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={Boxes} title="Stok Modülü" description="Minimum stok uyarıları, tedarikçi bilgisi ve hareket geçmişi." />
+      <ModuleHeader icon={Boxes} title="Stok Modülü" description="Minimum stok uyarıları, tedavi reçeteleri, otomatik sarf, tedarikçi ve hareket geçmişi." />
       {query.success ? <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700">{query.success}</div> : null}
       {query.error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{query.error}</div> : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -106,6 +125,32 @@ export default async function StocksPage({ searchParams }: { searchParams: Promi
           </CardContent>
         </Card>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Workflow className="h-5 w-5" />Tedavi malzeme reçeteleri</CardTitle>
+          <p className="text-sm leading-6 text-muted-foreground">Bir tedavi tamamlandığında burada tanımlanan miktarlar ilgili şubenin stokundan otomatik düşer. Aynı tedavi adı randevu ve tedavi kaydında birebir kullanılmalıdır.</p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <form action={createRecipeAction} className="grid gap-4 md:grid-cols-[1fr_1fr_160px_auto] md:items-end">
+            <div className="space-y-2"><Label>Tedavi adı</Label><Input name="treatmentType" placeholder="Kompozit dolgu" required /></div>
+            <div className="space-y-2"><Label>Kullanılan malzeme</Label><Select name="itemId" required><option value="">Seçin</option>{stocks.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.currentQuantity} {item.unit}</option>)}</Select></div>
+            <div className="space-y-2"><Label>Tüketim miktarı</Label><Input name="quantity" type="number" min="1" defaultValue="1" required /></div>
+            <Button type="submit">Reçeteye Ekle</Button>
+          </form>
+          <div className="overflow-hidden rounded-md border">
+            <Table>
+              <TableHeader><TableRow><TableHead>Tedavi</TableHead><TableHead>Şube</TableHead><TableHead>Malzeme</TableHead><TableHead>Miktar</TableHead><TableHead className="w-20" /></TableRow></TableHeader>
+              <TableBody>
+                {recipes.map((recipe) => <TableRow key={recipe.id}>
+                  <TableCell className="font-medium">{recipe.treatmentType}</TableCell><TableCell>{recipe.branch.name}</TableCell><TableCell>{recipe.item.name}</TableCell><TableCell>{recipe.quantity} {recipe.item.unit}</TableCell>
+                  <TableCell><form action={deleteRecipeAction.bind(null, recipe.id)}><Button type="submit" size="icon" variant="ghost" aria-label={`${recipe.item.name} reçetesini kaldır`}><Trash2 className="h-4 w-4" /></Button></form></TableCell>
+                </TableRow>)}
+                {!recipes.length ? <TableRow><TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">Henüz tedavi reçetesi tanımlanmadı.</TableCell></TableRow> : null}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5" />Ürün satın alma ve fiyat karşılaştırma</CardTitle></CardHeader>
         <CardContent className="space-y-5">

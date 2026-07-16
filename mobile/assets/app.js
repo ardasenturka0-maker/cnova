@@ -70,6 +70,11 @@
     { id: 3, name: "Cerrahi eldiven", category: "Sarf", amount: 85, minimum: 50, unit: "kutu", supplier: "Medikal Depo", purchasePrice: 310, movements: [], offers: [] },
     { id: 4, name: "Kompozit dolgu", category: "Restoratif", amount: 11, minimum: 8, unit: "tüp", supplier: "DentalLine", purchasePrice: 780, movements: [], offers: [] }
   ];
+  const defaultStockRecipes = [
+    { id: 1, treatmentType: "Dolgu", itemId: 4, quantity: 1 },
+    { id: 2, treatmentType: "Dolgu", itemId: 1, quantity: 1 },
+    { id: 3, treatmentType: "İmplant", itemId: 2, quantity: 1 }
+  ];
   const defaultCommunicationLog = [
     { id: 1, patient: "Ayşe Yılmaz", channel: "WhatsApp", message: "Yarınki kontrol randevunuz 14:30'da.", status: "Teslim edildi" },
     { id: 2, patient: "Mehmet Demir", channel: "SMS", message: "Tedavi sonrası kontrolünüz için bizi arayabilirsiniz.", status: "Teslim edildi" },
@@ -101,6 +106,7 @@
   let hotLeads = localCollection("clinicnova.hotLeads", defaultHotLeads);
   let treatmentPlans = localCollection("clinicnova.treatmentPlans", defaultTreatmentPlans);
   let stockItems = localCollection("clinicnova.stockItems", defaultStockItems);
+  let stockRecipes = localCollection("clinicnova.stockRecipes", defaultStockRecipes);
   let communicationLog = localCollection("clinicnova.communicationLog", defaultCommunicationLog);
   let consentRecords = localCollection("clinicnova.consentRecords", defaultConsentRecords);
   let trashItems = demoMode || localDataWasMigrated ? storage.get("clinicnova.trashItems", []) : [];
@@ -200,6 +206,7 @@
     storage.set("clinicnova.hotLeads", hotLeads);
     storage.set("clinicnova.treatmentPlans", treatmentPlans);
     storage.set("clinicnova.stockItems", stockItems);
+    storage.set("clinicnova.stockRecipes", stockRecipes);
     storage.set("clinicnova.communicationLog", communicationLog);
     storage.set("clinicnova.consentRecords", consentRecords);
     storage.set("clinicnova.trashItems", trashItems);
@@ -262,12 +269,54 @@
     state.appointments.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("APPOINTMENT", item.id, appointmentPayload(item)));
     state.transactions.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("PAYMENT", item.id, paymentPayload(item)));
     stockItems.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)));
+    stockRecipes.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_RECIPE", item.id, stockRecipePayload(item)));
     treatmentPlans.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("TREATMENT_PLAN", item.id, treatmentPlanPayload(item)));
     storage.set("clinicnova.syncBootstrapComplete", true);
   }
 
   function stockItemPayload(item) {
     return { name: item.name, category: item.category, currentQuantity: item.amount, minimumQuantity: item.minimum, unit: item.unit, supplier: item.supplier || "", purchasePrice: item.purchasePrice || 0 };
+  }
+
+  function stockRecipePayload(recipe) {
+    return { treatmentType: recipe.treatmentType, itemId: String(recipe.itemId), quantity: recipe.quantity };
+  }
+
+  function treatmentKey(value) {
+    return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("tr-TR").replace(/\s+/g, " ");
+  }
+
+  function applyLocalStockForAppointment(appointment, nextStatus) {
+    if (appointment.status === nextStatus) return { ok: true, message: "Randevu durumu güncellendi." };
+    if (nextStatus === "COMPLETED") {
+      const recipes = stockRecipes.filter((recipe) => treatmentKey(recipe.treatmentType) === treatmentKey(appointment.treatment));
+      const insufficient = recipes.find((recipe) => {
+        const item = stockItems.find((entry) => Number(entry.id) === Number(recipe.itemId));
+        return !item || Number(item.amount) < Number(recipe.quantity);
+      });
+      if (insufficient) {
+        const item = stockItems.find((entry) => Number(entry.id) === Number(insufficient.itemId));
+        return { ok: false, message: item ? `Stok yetersiz: ${item.name}. Gerekli ${insufficient.quantity} ${item.unit}, mevcut ${item.amount} ${item.unit}.` : "Reçetedeki stok ürünü bulunamadı." };
+      }
+      appointment.stockUsage = recipes.map((recipe) => ({ itemId: Number(recipe.itemId), quantity: Number(recipe.quantity) }));
+      for (const usage of appointment.stockUsage) {
+        const item = stockItems.find((entry) => Number(entry.id) === usage.itemId);
+        item.amount = Number(item.amount) - usage.quantity;
+        (item.movements ||= []).unshift({ id: Date.now() + Math.random(), type: "OUT", quantity: usage.quantity, note: `${appointment.treatment} tamamlandı · otomatik sarf`, appointmentId: appointment.id, automatic: true, date: "Şimdi" });
+      }
+      return { ok: true, message: recipes.length ? "Randevu tamamlandı; reçetedeki malzemeler stoktan düşüldü." : "Randevu tamamlandı. Bu tedavi için malzeme reçetesi tanımlı değil." };
+    }
+    if (appointment.status === "COMPLETED" && Array.isArray(appointment.stockUsage)) {
+      for (const usage of appointment.stockUsage) {
+        const item = stockItems.find((entry) => Number(entry.id) === Number(usage.itemId));
+        if (!item) continue;
+        item.amount = Number(item.amount) + Number(usage.quantity);
+        (item.movements ||= []).unshift({ id: Date.now() + Math.random(), type: "IN", quantity: Number(usage.quantity), note: `${appointment.treatment} geri alındı · otomatik iade`, appointmentId: appointment.id, automatic: true, date: "Şimdi" });
+      }
+      appointment.stockUsage = [];
+      return { ok: true, message: "Tamamlama geri alındı; kullanılan malzemeler stoğa iade edildi." };
+    }
+    return { ok: true, message: "Randevu durumu güncellendi." };
   }
 
   function treatmentPlanPayload(plan) {
@@ -368,6 +417,10 @@
       const critical = Number(item.amount) <= Number(item.minimum);
       return `<button class="offline-record clickable-record" data-stock-item="${item.id}"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category || "Kategorisiz")} · Min. ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span></button>`;
     }).join("") : `<div class="empty-state"><strong>Stok ürünü yok</strong><br/>Yeni ürün ekleyerek başlayın.</div>`;
+    $("#stockRecipeList").innerHTML = stockRecipes.length ? stockRecipes.map((recipe) => {
+      const item = stockItems.find((entry) => Number(entry.id) === Number(recipe.itemId));
+      return `<article class="offline-record record-deletable"><span class="record-icon">⚙️</span><span class="patient-copy"><strong>${escapeHtml(recipe.treatmentType)}</strong><small>${escapeHtml(item?.name || "Silinmiş ürün")} · ${recipe.quantity} ${escapeHtml(item?.unit || "adet")}</small></span><button class="delete-button" data-delete-stock-recipe="${recipe.id}" aria-label="${escapeHtml(recipe.treatmentType)} reçetesini sil">Sil</button></article>`;
+    }).join("") : `<div class="empty-state"><strong>Tedavi reçetesi yok</strong><br/>Bir tedavi tamamlandığında düşecek malzemeleri tanımlayın.</div>`;
   }
 
   function renderAppointments() {
@@ -541,6 +594,18 @@
       <label class="field">Not<input name="note" placeholder="Fatura, kullanım veya sayım açıklaması" /></label>
       <p class="modal-note">Çıkışta mevcut miktardan fazla ürün düşülemez. Sayım düzeltmesinde yazdığınız sayı doğrudan yeni stok seviyesi olur.</p>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Hareketi kaydet</button></div>
+    </form>`);
+  }
+
+  function openAddStockRecipe() {
+    if (!stockItems.length) return showToast("Önce bir stok ürünü ekleyin.");
+    const options = stockItems.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${item.amount} ${escapeHtml(item.unit)}</option>`).join("");
+    openModal("OTOMATİK SARF", "Tedavi malzeme reçetesi", `<form id="stockRecipeForm" class="modal-grid">
+      <label class="field">Tedavi adı<input name="treatmentType" required placeholder="Örn. Kompozit dolgu" /></label>
+      <label class="field">Kullanılan malzeme<select name="itemId" required>${options}</select></label>
+      <label class="field">Her tedavide kullanılan miktar<input name="quantity" type="number" min="1" step="1" value="1" required /></label>
+      <p class="modal-note">Randevu “Tamamlandı” yapıldığında bu miktar stoktan otomatik düşer. İşlem geri alınırsa miktar stoğa iade edilir.</p>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Reçeteyi kaydet</button></div>
     </form>`);
   }
 
@@ -765,7 +830,8 @@
       APPOINTMENT: Array.isArray(snapshot.appointments) ? snapshot.appointments : [],
       PAYMENT: Array.isArray(snapshot.transactions) ? snapshot.transactions : [],
       TREATMENT_PLAN: Array.isArray(snapshot.treatmentPlans) ? snapshot.treatmentPlans : [],
-      STOCK_ITEM: Array.isArray(snapshot.stockItems) ? snapshot.stockItems : []
+      STOCK_ITEM: Array.isArray(snapshot.stockItems) ? snapshot.stockItems : [],
+      STOCK_RECIPE: Array.isArray(snapshot.stockRecipes) ? snapshot.stockRecipes : []
     };
     const serverIds = Object.fromEntries(Object.entries(collections).map(([type, items]) => [type, new Map(items.map((item) => [String(item.serverId), item.id]))]));
     for (const [type, items] of Object.entries(collections)) {
@@ -784,12 +850,14 @@
     const pendingPayments = retainPending(state.transactions, "PAYMENT").map(mapPatientReference);
     const pendingPlans = retainPending(treatmentPlans, "TREATMENT_PLAN").map(mapPatientReference);
     const pendingStocks = retainPending(stockItems, "STOCK_ITEM");
+    const pendingRecipes = retainPending(stockRecipes, "STOCK_RECIPE");
 
     state.patients = [...pendingPatients, ...collections.PATIENT];
     state.appointments = [...pendingAppointments, ...collections.APPOINTMENT];
     state.transactions = [...pendingPayments, ...collections.PAYMENT];
     treatmentPlans = [...pendingPlans, ...collections.TREATMENT_PLAN];
     stockItems = [...pendingStocks, ...collections.STOCK_ITEM];
+    stockRecipes = [...pendingRecipes, ...collections.STOCK_RECIPE];
     storage.set("clinicnova.lastPullAt", Date.now());
     saveData();
     renderAll();
@@ -1013,6 +1081,7 @@
       if (!patient || !window.confirm(`${patient.name} ve bağlı randevu, ödeme, tedavi ve fotoğraf kayıtları silinsin mi?`)) return;
       const linkedAppointments = state.appointments.filter((item) => item.patientId === patientId);
       const linkedTransactions = state.transactions.filter((item) => item.patientId === patientId);
+      linkedAppointments.filter((item) => item.status === "COMPLETED").forEach((item) => { applyLocalStockForAppointment(item, "CANCELLED"); item.status = "CANCELLED"; });
       moveToTrash("patientBundle", patient.name, { patient, appointments: linkedAppointments, transactions: linkedTransactions, treatmentHistory: state.treatmentHistory[patientId] || [], media: state.patientMedia[patientId] || [] });
       linkedAppointments.forEach((item) => queueDelete("APPOINTMENT", item.id));
       linkedTransactions.forEach((item) => queueDelete("PAYMENT", item.id));
@@ -1028,10 +1097,19 @@
       const appointmentId = Number(target.dataset.deleteAppointment);
       if (!window.confirm("Bu randevu silinsin mi?")) return;
       const deletedAppointment = state.appointments.find((item) => item.id === appointmentId);
+      if (deletedAppointment?.status === "COMPLETED") { applyLocalStockForAppointment(deletedAppointment, "CANCELLED"); deletedAppointment.status = "CANCELLED"; }
       if (deletedAppointment) moveToTrash("appointment", `${patientById(deletedAppointment.patientId)?.name || "Hasta"} randevusu`, deletedAppointment);
       if (deletedAppointment) queueDelete("APPOINTMENT", appointmentId);
       state.appointments = state.appointments.filter((item) => item.id !== appointmentId);
       saveData(); renderAll(); closeModal(); showToast("Randevu silindi."); return;
+    }
+    if (target.dataset.deleteStockRecipe) {
+      const recipeId = Number(target.dataset.deleteStockRecipe);
+      const recipe = stockRecipes.find((item) => Number(item.id) === recipeId);
+      if (!recipe || !window.confirm("Bu tedavi reçetesi silinsin mi?")) return;
+      queueDelete("STOCK_RECIPE", recipe.id);
+      stockRecipes = stockRecipes.filter((item) => Number(item.id) !== recipeId);
+      saveData(); renderStocks(); showToast("Tedavi reçetesi silindi."); return;
     }
     if (target.dataset.deleteTransaction) {
       const transactionId = Number(target.dataset.deleteTransaction);
@@ -1075,13 +1153,18 @@
     if (target.hasAttribute("data-close-modal")) return closeModal();
     if (target.dataset.saveAppointment) {
       const appointment = state.appointments.find((item) => item.id === Number(target.dataset.saveAppointment));
-      if (appointment) { appointment.status = $("#appointmentStatus").value; queueUpdate("APPOINTMENT", appointment.id, appointmentPayload(appointment)); }
-      saveData(); renderAll(); closeModal(); showToast("Randevu durumu güncellendi."); return;
+      if (!appointment) return;
+      const nextStatus = $("#appointmentStatus").value;
+      const stockResult = applyLocalStockForAppointment(appointment, nextStatus);
+      if (!stockResult.ok) return showToast(stockResult.message);
+      appointment.status = nextStatus;
+      queueUpdate("APPOINTMENT", appointment.id, appointmentPayload(appointment));
+      saveData(); renderAll(); closeModal(); showToast(stockResult.message); return;
     }
     if (target.hasAttribute("data-clear-local")) {
       if (!window.confirm("Bu cihazdaki tüm yerel klinik kayıtları ve bekleyen eşitleme işlemleri silinsin mi?")) return;
       state.patients = []; state.appointments = []; state.transactions = []; state.treatmentHistory = {}; state.patientMedia = {};
-      hotLeads = []; treatmentPlans = []; stockItems = []; communicationLog = []; consentRecords = []; trashItems = [];
+      hotLeads = []; treatmentPlans = []; stockItems = []; stockRecipes = []; communicationLog = []; consentRecords = []; trashItems = [];
       syncQueue = []; syncMap = {}; storage.set("clinicnova.syncBootstrapComplete", true);
       saveData(); persistSyncState(); renderAll(); closeModal(); showToast("Yerel kayıtlar temizlendi."); return;
     }
@@ -1110,6 +1193,7 @@
     if (action === "add-treatment-plan") { closeModal(); return openAddTreatmentPlan(); }
     if (action === "stock-movement") { closeModal(); return openStockMovement(target.dataset.stockPrefill); }
     if (action === "add-stock-offer") { closeModal(); return openAddStockOffer(target.dataset.stockPrefill); }
+    if (action === "add-stock-recipe") { closeModal(); return openAddStockRecipe(); }
     if (action === "profile") return openProfile();
     if (action === "opportunities") return openRevenueOpportunities();
     if (action === "finance-report") return openFinanceReport();
@@ -1271,6 +1355,20 @@
       (item.movements ||= []).unshift(movement);
       queueCreate("STOCK_MOVEMENT", movement.id, { itemId: String(item.id), type, quantity, note: movement.note });
       saveData(); renderAll(); closeModal(); navigate("stocks"); showToast("Stok miktarı güncellendi.");
+    }
+    if (event.target.id === "stockRecipeForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const recipe = { id: Date.now(), treatmentType: String(form.get("treatmentType") || "").trim(), itemId: Number(form.get("itemId")), quantity: Number(form.get("quantity")) };
+      if (recipe.treatmentType.length < 2 || !stockItems.some((item) => Number(item.id) === recipe.itemId) || !Number.isInteger(recipe.quantity) || recipe.quantity < 1) return showToast("Tedavi, malzeme ve miktarı kontrol edin.");
+      const existing = stockRecipes.find((item) => treatmentKey(item.treatmentType) === treatmentKey(recipe.treatmentType) && Number(item.itemId) === recipe.itemId);
+      if (existing) {
+        existing.treatmentType = recipe.treatmentType; existing.quantity = recipe.quantity;
+        queueUpdate("STOCK_RECIPE", existing.id, stockRecipePayload(existing));
+      } else {
+        stockRecipes.unshift(recipe); queueCreate("STOCK_RECIPE", recipe.id, stockRecipePayload(recipe));
+      }
+      saveData(); renderAll(); closeModal(); navigate("stocks"); showToast("Tedavi reçetesi kaydedildi.");
     }
     if (event.target.id === "stockOfferForm") {
       event.preventDefault();
