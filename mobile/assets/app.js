@@ -75,6 +75,11 @@
     { id: 2, treatmentType: "Dolgu", itemId: 1, quantity: 1 },
     { id: 3, treatmentType: "İmplant", itemId: 2, quantity: 1 }
   ];
+  const defaultClinicDoctors = [
+    { id: 1, name: "Dr. Emir Aydın", email: "emir@clinicnova.test", specialty: "Genel diş hekimliği" },
+    { id: 2, name: "Dr. Lara Er", email: "lara@clinicnova.test", specialty: "Ortodonti" }
+  ];
+  const defaultClinicChairs = ["Koltuk 1", "Koltuk 2", "Koltuk 3"];
   const defaultCommunicationLog = [
     { id: 1, patient: "Ayşe Yılmaz", channel: "WhatsApp", message: "Yarınki kontrol randevunuz 14:30'da.", status: "Teslim edildi" },
     { id: 2, patient: "Mehmet Demir", channel: "SMS", message: "Tedavi sonrası kontrolünüz için bizi arayabilirsiniz.", status: "Teslim edildi" },
@@ -107,6 +112,8 @@
   let treatmentPlans = localCollection("clinicnova.treatmentPlans", defaultTreatmentPlans);
   let stockItems = localCollection("clinicnova.stockItems", defaultStockItems);
   let stockRecipes = localCollection("clinicnova.stockRecipes", defaultStockRecipes);
+  let clinicDoctors = localCollection("clinicnova.clinicDoctors", defaultClinicDoctors);
+  let clinicChairs = storage.get("clinicnova.clinicChairs", demoMode ? defaultClinicChairs : []);
   let communicationLog = localCollection("clinicnova.communicationLog", defaultCommunicationLog);
   let consentRecords = localCollection("clinicnova.consentRecords", defaultConsentRecords);
   let trashItems = demoMode || localDataWasMigrated ? storage.get("clinicnova.trashItems", []) : [];
@@ -150,6 +157,20 @@
   function currency(value) {
     return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(value);
   }
+  function buildLocalPaymentPlan(total, downPayment, installmentCount, firstInstallmentDate, note) {
+    const count = Math.max(1, Math.min(24, Number(installmentCount) || 1));
+    const remaining = Math.max(0, Math.round((Number(total) - Number(downPayment)) * 100) / 100);
+    const base = Math.floor((remaining / count) * 100) / 100;
+    let allocated = 0;
+    const start = new Date(`${firstInstallmentDate || todayIso}T12:00:00`);
+    const installments = Array.from({ length: count }, (_, index) => {
+      const date = new Date(start); date.setMonth(date.getMonth() + index);
+      const amount = index === count - 1 ? Math.round((remaining - allocated) * 100) / 100 : base;
+      allocated += amount;
+      return { number: index + 1, dueDate: localDate(date), amount };
+    });
+    return { total: Number(total), downPayment: Number(downPayment), installmentCount: count, firstInstallmentDate: firstInstallmentDate || todayIso, installments, note: note || "" };
+  }
   function initials(name) {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toLocaleUpperCase("tr-TR")).join("");
   }
@@ -187,9 +208,10 @@
   }
   function applyLocalIdentity(account = localAccount()) {
     if (!account) return;
-    $("#branchLabel").textContent = account.clinicName;
-    $("#welcomeTitle").textContent = `Günaydın, ${account.adminName.split(/\s+/)[0]} 👋`;
-    $("#profileAvatar").textContent = initials(account.adminName) || "CN";
+    const adminName = account.adminName || account.name || "ClinicNova";
+    $("#branchLabel").textContent = account.clinicName || "ClinicNova";
+    $("#welcomeTitle").textContent = `Günaydın, ${adminName.split(/\s+/)[0]} 👋`;
+    $("#profileAvatar").textContent = initials(adminName) || "CN";
   }
   function patientById(id) {
     return state.patients.find((patient) => patient.id === Number(id));
@@ -207,6 +229,8 @@
     storage.set("clinicnova.treatmentPlans", treatmentPlans);
     storage.set("clinicnova.stockItems", stockItems);
     storage.set("clinicnova.stockRecipes", stockRecipes);
+    storage.set("clinicnova.clinicDoctors", clinicDoctors);
+    storage.set("clinicnova.clinicChairs", clinicChairs);
     storage.set("clinicnova.communicationLog", communicationLog);
     storage.set("clinicnova.consentRecords", consentRecords);
     storage.set("clinicnova.trashItems", trashItems);
@@ -271,6 +295,7 @@
     stockItems.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)));
     stockRecipes.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_RECIPE", item.id, stockRecipePayload(item)));
     treatmentPlans.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("TREATMENT_PLAN", item.id, treatmentPlanPayload(item)));
+    clinicDoctors.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("DOCTOR", item.id, doctorPayload(item)));
     storage.set("clinicnova.syncBootstrapComplete", true);
   }
 
@@ -320,7 +345,15 @@
   }
 
   function treatmentPlanPayload(plan) {
-    return { patientId: String(plan.patientId), doctor: plan.doctor, toothNumber: plan.tooth || "", treatmentType: plan.treatment, description: plan.note || "", estimatedFee: plan.total || 0, status: plan.statusCode || "PROPOSED", date: plan.date || todayIso };
+    return { patientId: String(plan.patientId), doctor: plan.doctor, toothNumber: plan.tooth || "", treatmentType: plan.treatment, description: plan.note || "", estimatedFee: plan.total || 0, paymentPlan: plan.paymentPlan || null, status: plan.statusCode || "PROPOSED", date: plan.date || todayIso };
+  }
+
+  function doctorPayload(doctor) {
+    return { name: doctor.name, email: doctor.email, specialty: doctor.specialty || "Diş hekimi" };
+  }
+
+  function clinicConfigPayload() {
+    return { clinicName: localAccount()?.clinicName || "ClinicNova", chairs: clinicChairs };
   }
 
   function moveToTrash(kind, label, payload) {
@@ -533,13 +566,15 @@
   }
 
   function openAddAppointment(preferredPatientId) {
+    if (!clinicDoctors.length) return showToast("Önce Klinik yönetimi bölümünden doktor ekleyin.");
+    if (!clinicChairs.length) return showToast("Önce Klinik yönetimi bölümünden koltuk ekleyin.");
     const selectedPatientId = Number(preferredPatientId);
     const patientOptions = state.patients.map((patient) => `<option value="${patient.id}" ${patient.id === selectedPatientId ? "selected" : ""}>${escapeHtml(patient.name)}</option>`).join("");
     openModal("PLANLAMA", "Randevu oluştur", `<form id="appointmentForm" class="modal-grid">
       <label class="field">Hasta<select name="patientId" required>${patientOptions}</select></label>
       <div class="modal-grid two"><label class="field">Tarih<input name="date" type="date" value="${state.selectedDate}" required /></label><label class="field">Saat<input name="time" type="time" value="10:00" required /></label></div>
       <div class="modal-grid two"><label class="field">Tedavi<input name="treatment" value="Muayene" required /></label><label class="field">Süre<select name="duration"><option value="30">30 dakika</option><option value="45">45 dakika</option><option value="60">60 dakika</option><option value="90">90 dakika</option></select></label></div>
-      <div class="modal-grid two"><label class="field">Hekim<select name="doctor"><option>Dr. Emir Aydın</option><option>Dr. Lara Er</option></select></label><label class="field">Koltuk<select name="room"><option>Koltuk 1</option><option>Koltuk 2</option><option>Koltuk 3</option></select></label></div>
+      <div class="modal-grid two"><label class="field">Hekim<select name="doctor">${clinicDoctors.map((doctor) => `<option>${escapeHtml(doctor.name)}</option>`).join("")}</select></label><label class="field">Koltuk<select name="room">${clinicChairs.map((chair) => `<option>${escapeHtml(chair)}</option>`).join("")}</select></label></div>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Randevuyu kaydet</button></div>
     </form>`);
   }
@@ -572,13 +607,16 @@
 
   function openAddTreatmentPlan() {
     if (!state.patients.length) return showToast("Önce bir hasta ekleyin.");
+    if (!clinicDoctors.length) return showToast("Önce Klinik yönetimi bölümünden doktor ekleyin.");
     const patientOptions = state.patients.map((patient) => `<option value="${patient.id}">${escapeHtml(patient.name)}</option>`).join("");
     openModal("TEDAVİ PLANLAMA", "Yeni tedavi planı", `<form id="treatmentPlanForm" class="modal-grid">
       <label class="field">Hasta<select name="patientId" required>${patientOptions}</select></label>
       <div class="modal-grid two"><label class="field">Tedavi türü<input name="treatment" required placeholder="İmplant, kanal tedavisi..." /></label><label class="field">Diş / bölge<input name="tooth" placeholder="Örn. 36 veya tüm ağız" /></label></div>
-      <div class="modal-grid two"><label class="field">Hekim<select name="doctor" required><option>Dr. Emir Aydın</option><option>Dr. Lara Er</option></select></label><label class="field">Şube<input name="branch" value="Nişantaşı Klinik" required /></label></div>
+      <div class="modal-grid two"><label class="field">Hekim<select name="doctor" required>${clinicDoctors.map((doctor) => `<option>${escapeHtml(doctor.name)}</option>`).join("")}</select></label><label class="field">Şube<input name="branch" value="${escapeHtml(localAccount()?.clinicName || "ClinicNova")}" required /></label></div>
       <div class="modal-grid two"><label class="field">Plan tarihi<input name="date" type="date" value="${todayIso}" required /></label><label class="field">Durum<select name="status"><option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal</option></select></label></div>
       <div class="modal-grid two"><label class="field">Toplam ücret<input name="total" type="number" min="0" step="1" value="0" required /></label><label class="field">Alınan peşinat / ödeme<input name="paid" type="number" min="0" step="1" value="0" required /></label></div>
+      <div class="modal-grid two"><label class="field">Taksit sayısı<select name="installmentCount"><option value="1">Tek çekim</option><option value="2">2 taksit</option><option value="3">3 taksit</option><option value="4">4 taksit</option><option value="6">6 taksit</option><option value="9">9 taksit</option><option value="12">12 taksit</option><option value="18">18 taksit</option><option value="24">24 taksit</option></select></label><label class="field">İlk taksit tarihi<input name="firstInstallmentDate" type="date" value="${todayIso}" /></label></div>
+      <label class="field">Taksit notu<input name="paymentPlanNote" placeholder="Örn. Her ayın 15'inde kartla" /></label>
       <label class="field">Klinik notu<textarea name="note" placeholder="Uygulama aşamaları, malzeme, kontrol ve hasta bilgilendirme notları"></textarea></label>
       <p class="modal-note">Plan cihazda kalıcı kaydedilir. Girilen ödeme ayrıca peşinat olarak finans kaydına eklenir. Sunucu bağlandığında plan ve ödeme merkezi kliniğe eşitlenir.</p>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Tedavi planını kaydet</button></div>
@@ -617,8 +655,33 @@
       <p class="modal-note"><strong>${escapeHtml(plan.treatment)}</strong><br/>Durum: ${escapeHtml(plan.status)} · Plan tarihi: ${escapeHtml(plan.plannedAt || "Belirtilmedi")}</p>
       <div class="finance-stats"><article class="finance-stat"><span>Plan tutarı</span><strong>${currency(plan.total || 0)}</strong><small>${currency(plan.paid || 0)} tahsil edildi</small></article><article class="finance-stat"><span>Kalan</span><strong>${currency(remaining)}</strong><small>${escapeHtml(plan.status)}</small></article></div>
       <div class="history-list"><article><i>🦷</i><span><strong>Diş / bölge</strong><small>${escapeHtml(plan.tooth || "Belirtilmedi")}</small></span></article><article><i>👨‍⚕️</i><span><strong>Hekim</strong><small>${escapeHtml(plan.doctor || "Belirtilmedi")}</small></span></article><article><i>⌂</i><span><strong>Şube</strong><small>${escapeHtml(plan.branch || "Belirtilmedi")}</small></span></article></div>
+      <p class="modal-note"><strong>Ödeme planı</strong><br/>${plan.paymentPlan ? `${currency(plan.paymentPlan.downPayment || 0)} peşinat · ${plan.paymentPlan.installmentCount} taksit<br/>${plan.paymentPlan.installments.map((item) => `${item.number}. taksit: ${currency(item.amount)} · ${new Intl.DateTimeFormat("tr-TR").format(new Date(`${item.dueDate}T12:00:00`))}`).join("<br/>")}${plan.paymentPlan.note ? `<br/>Not: ${escapeHtml(plan.paymentPlan.note)}` : ""}` : "Taksit planı tanımlanmadı."}</p>
       <p class="modal-note"><strong>Klinik notu</strong><br/>${escapeHtml(plan.note || "Not eklenmemiş.")}</p>
     </div>`);
+  }
+
+  function openClinicManagement() {
+    const account = localAccount() || {};
+    openModal("KLİNİK AYARLARI", "Klinik yönetimi", `<div class="modal-grid">
+      <p class="modal-note"><strong>${escapeHtml(account.clinicName || "ClinicNova")}</strong><br/>Randevu ve tedavi formlarındaki doktor ile koltuk seçeneklerini buradan yönetin.</p>
+      <button class="button button-secondary" data-action="rename-clinic">Klinik adını değiştir</button>
+      <div class="section-heading"><div><span class="eyebrow">HEKİMLER</span><h3>Doktorlar</h3></div><button class="text-button" data-action="add-doctor">Doktor ekle</button></div>
+      <div class="list-stack">${clinicDoctors.map((doctor) => `<article class="offline-record record-deletable"><span class="record-icon">👨‍⚕️</span><span class="patient-copy"><strong>${escapeHtml(doctor.name)}</strong><small>${escapeHtml(doctor.specialty || "Diş hekimi")} · ${escapeHtml(doctor.email || "")}</small></span><button class="delete-button" data-delete-doctor="${doctor.id}">Sil</button></article>`).join("") || `<div class="empty-state">Doktor eklenmedi.</div>`}</div>
+      <div class="section-heading"><div><span class="eyebrow">PLANLAMA</span><h3>Koltuklar</h3></div><button class="text-button" data-action="add-chair">Koltuk ekle</button></div>
+      <div class="list-stack">${clinicChairs.map((chair) => `<article class="offline-record record-deletable"><span class="record-icon">🪑</span><span class="patient-copy"><strong>${escapeHtml(chair)}</strong><small>Randevu planlamasında kullanılabilir</small></span><button class="delete-button" data-delete-chair="${escapeHtml(chair)}">Sil</button></article>`).join("") || `<div class="empty-state">Koltuk eklenmedi.</div>`}</div>
+    </div>`);
+  }
+
+  function openAddDoctor() {
+    openModal("KLİNİK AYARLARI", "Doktor ekle", `<form id="doctorForm" class="modal-grid"><label class="field">Ad soyad<input name="name" required placeholder="Dr. Ad Soyad" /></label><label class="field">E-posta<input name="email" type="email" required /></label><label class="field">Uzmanlık<input name="specialty" placeholder="Genel diş hekimliği" /></label><div class="modal-actions"><button type="button" class="button button-secondary" data-action="clinic-management">Vazgeç</button><button type="submit" class="button button-primary">Doktoru kaydet</button></div></form>`);
+  }
+
+  function openAddChair() {
+    openModal("KLİNİK AYARLARI", "Koltuk ekle", `<form id="chairForm" class="modal-grid"><label class="field">Koltuk adı<input name="name" required placeholder="Örn. Koltuk 4" /></label><div class="modal-actions"><button type="button" class="button button-secondary" data-action="clinic-management">Vazgeç</button><button type="submit" class="button button-primary">Koltuğu kaydet</button></div></form>`);
+  }
+
+  function openRenameClinic() {
+    openModal("KLİNİK AYARLARI", "Klinik adını değiştir", `<form id="clinicNameForm" class="modal-grid"><label class="field">Klinik adı<input name="name" value="${escapeHtml(localAccount()?.clinicName || "ClinicNova")}" required maxlength="120" /></label><div class="modal-actions"><button type="button" class="button button-secondary" data-action="clinic-management">Vazgeç</button><button type="submit" class="button button-primary">Adı güncelle</button></div></form>`);
   }
 
   function openStockDetail(id) {
@@ -831,7 +894,8 @@
       PAYMENT: Array.isArray(snapshot.transactions) ? snapshot.transactions : [],
       TREATMENT_PLAN: Array.isArray(snapshot.treatmentPlans) ? snapshot.treatmentPlans : [],
       STOCK_ITEM: Array.isArray(snapshot.stockItems) ? snapshot.stockItems : [],
-      STOCK_RECIPE: Array.isArray(snapshot.stockRecipes) ? snapshot.stockRecipes : []
+      STOCK_RECIPE: Array.isArray(snapshot.stockRecipes) ? snapshot.stockRecipes : [],
+      DOCTOR: Array.isArray(snapshot.doctors) ? snapshot.doctors : []
     };
     const serverIds = Object.fromEntries(Object.entries(collections).map(([type, items]) => [type, new Map(items.map((item) => [String(item.serverId), item.id]))]));
     for (const [type, items] of Object.entries(collections)) {
@@ -851,6 +915,7 @@
     const pendingPlans = retainPending(treatmentPlans, "TREATMENT_PLAN").map(mapPatientReference);
     const pendingStocks = retainPending(stockItems, "STOCK_ITEM");
     const pendingRecipes = retainPending(stockRecipes, "STOCK_RECIPE");
+    const pendingDoctors = retainPending(clinicDoctors, "DOCTOR");
 
     state.patients = [...pendingPatients, ...collections.PATIENT];
     state.appointments = [...pendingAppointments, ...collections.APPOINTMENT];
@@ -858,6 +923,13 @@
     treatmentPlans = [...pendingPlans, ...collections.TREATMENT_PLAN];
     stockItems = [...pendingStocks, ...collections.STOCK_ITEM];
     stockRecipes = [...pendingRecipes, ...collections.STOCK_RECIPE];
+    clinicDoctors = [...pendingDoctors, ...collections.DOCTOR];
+    if (snapshot.clinicConfig) {
+      clinicChairs = Array.isArray(snapshot.clinicConfig.chairs) ? snapshot.clinicConfig.chairs : clinicChairs;
+      const account = localAccount() || {};
+      if (snapshot.clinicConfig.clinicName) account.clinicName = snapshot.clinicConfig.clinicName;
+      storage.set("clinicnova.localAccount", account); applyLocalIdentity(account);
+    }
     storage.set("clinicnova.lastPullAt", Date.now());
     saveData();
     renderAll();
@@ -1141,6 +1213,21 @@
       state.patientMedia[patientId] = (state.patientMedia[patientId] || []).filter((item) => item.id !== mediaId);
       saveData(); openPatientDetail(patientId); showToast("Fotoğraf silindi."); return;
     }
+    if (target.dataset.deleteDoctor) {
+      const id = Number(target.dataset.deleteDoctor);
+      const doctor = clinicDoctors.find((item) => Number(item.id) === id);
+      if (!doctor || !window.confirm(`${doctor.name} doktor listesinden silinsin mi? Geçmiş kayıtlar korunur.`)) return;
+      clinicDoctors = clinicDoctors.filter((item) => Number(item.id) !== id);
+      queueDelete("DOCTOR", id);
+      saveData(); openClinicManagement(); showToast("Doktor silindi."); return;
+    }
+    if (target.dataset.deleteChair) {
+      const chair = target.dataset.deleteChair;
+      if (!window.confirm(`${chair} silinsin mi? Geçmiş randevular korunur.`)) return;
+      clinicChairs = clinicChairs.filter((item) => item !== chair);
+      queueUpdate("CLINIC_CONFIG", "clinic", clinicConfigPayload());
+      saveData(); openClinicManagement(); showToast("Koltuk silindi."); return;
+    }
     if (target.dataset.patient) return openPatientDetail(target.dataset.patient);
     if (target.dataset.appointment) return openAppointmentDetail(target.dataset.appointment);
     if (target.dataset.treatmentPlan) return openTreatmentPlanDetail(target.dataset.treatmentPlan);
@@ -1194,6 +1281,10 @@
     if (action === "stock-movement") { closeModal(); return openStockMovement(target.dataset.stockPrefill); }
     if (action === "add-stock-offer") { closeModal(); return openAddStockOffer(target.dataset.stockPrefill); }
     if (action === "add-stock-recipe") { closeModal(); return openAddStockRecipe(); }
+    if (action === "clinic-management") return openClinicManagement();
+    if (action === "add-doctor") return openAddDoctor();
+    if (action === "add-chair") return openAddChair();
+    if (action === "rename-clinic") return openRenameClinic();
     if (action === "profile") return openProfile();
     if (action === "opportunities") return openRevenueOpportunities();
     if (action === "finance-report") return openFinanceReport();
@@ -1245,6 +1336,28 @@
   });
 
   document.addEventListener("submit", async (event) => {
+    if (event.target.id === "doctorForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const doctor = { id: Date.now(), name: String(form.get("name") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), specialty: String(form.get("specialty") || "").trim() || "Diş hekimi" };
+      if (doctor.name.length < 2 || !doctor.email.includes("@")) return showToast("Doktor adı ve e-posta adresini kontrol edin.");
+      if (clinicDoctors.some((item) => item.email.toLocaleLowerCase("tr-TR") === doctor.email)) return showToast("Bu e-posta ile bir doktor zaten kayıtlı.");
+      clinicDoctors.push(doctor); queueCreate("DOCTOR", doctor.id, doctorPayload(doctor)); saveData(); openClinicManagement(); showToast("Doktor kaydedildi."); return;
+    }
+    if (event.target.id === "chairForm") {
+      event.preventDefault();
+      const name = String(new FormData(event.target).get("name") || "").trim();
+      if (name.length < 2) return showToast("Koltuk adını kontrol edin.");
+      if (clinicChairs.some((chair) => chair.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR"))) return showToast("Bu koltuk zaten kayıtlı.");
+      clinicChairs.push(name); queueUpdate("CLINIC_CONFIG", "clinic", clinicConfigPayload()); saveData(); openClinicManagement(); showToast("Koltuk kaydedildi."); return;
+    }
+    if (event.target.id === "clinicNameForm") {
+      event.preventDefault();
+      const name = String(new FormData(event.target).get("name") || "").trim();
+      if (name.length < 2 || name.length > 120) return showToast("Klinik adı 2-120 karakter olmalıdır.");
+      const account = localAccount() || {}; account.clinicName = name; storage.set("clinicnova.localAccount", account); applyLocalIdentity(account);
+      queueUpdate("CLINIC_CONFIG", "clinic", clinicConfigPayload()); saveData(); openClinicManagement(); showToast("Klinik adı güncellendi."); return;
+    }
     if (event.target.id === "recoveryForm") {
       event.preventDefault();
       const account = localAccount();
@@ -1333,11 +1446,12 @@
       const statusCode = String(form.get("status"));
       const status = ({ PROPOSED: "Önerildi", ACCEPTED: "Kabul edildi", STARTED: "Başladı", COMPLETED: "Tamamlandı", CANCELLED: "İptal" })[statusCode] || "Önerildi";
       const date = String(form.get("date"));
-      const plan = { id: Date.now(), patientId: patient.id, patient: patient.name, treatment: String(form.get("treatment") || "").trim(), tooth: String(form.get("tooth") || "").trim(), doctor: String(form.get("doctor") || "").trim(), branch: String(form.get("branch") || "").trim(), date, plannedAt: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), total, paid, status, statusCode, note: String(form.get("note") || "").trim() };
+      const paymentPlan = buildLocalPaymentPlan(total, paid, form.get("installmentCount"), String(form.get("firstInstallmentDate") || todayIso), String(form.get("paymentPlanNote") || "").trim());
+      const plan = { id: Date.now(), patientId: patient.id, patient: patient.name, treatment: String(form.get("treatment") || "").trim(), tooth: String(form.get("tooth") || "").trim(), doctor: String(form.get("doctor") || "").trim(), branch: String(form.get("branch") || "").trim(), date, plannedAt: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), total, paid, paymentPlan, status, statusCode, note: String(form.get("note") || "").trim() };
       if (plan.treatment.length < 2 || !plan.doctor || !plan.branch) return showToast("Tedavi, hekim ve şube bilgilerini kontrol edin.");
       treatmentPlans.unshift(plan); queueCreate("TREATMENT_PLAN", plan.id, treatmentPlanPayload(plan));
       if (paid > 0) {
-        const payment = { id: Date.now() + 1, patientId: patient.id, name: patient.name, detail: `${plan.treatment} plan peşinatı · Nakit`, amount: paid, totalAmount: total, remainingAmount: Math.max(0, total - paid), installmentCount: 1, paidInstallments: 1, components: [{ name: plan.treatment, amount: total }], isDeposit: true, type: "income", status: total > paid ? "PENDING" : "PAID", date: "Şimdi" };
+        const payment = { id: Date.now() + 1, patientId: patient.id, name: patient.name, detail: `${plan.treatment} plan peşinatı · Nakit`, amount: paid, totalAmount: total, remainingAmount: Math.max(0, total - paid), installmentCount: paymentPlan.installmentCount, paidInstallments: 0, components: [{ name: plan.treatment, amount: total }], isDeposit: true, type: "income", status: total > paid ? "PENDING" : "PAID", date: "Şimdi" };
         state.transactions.unshift(payment); queueCreate("PAYMENT", payment.id, paymentPayload(payment));
       }
       saveData(); renderAll(); closeModal(); navigate("treatment-plans"); showToast("Tedavi planı kaydedildi.");

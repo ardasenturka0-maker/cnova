@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { AppointmentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
 import { z } from "zod";
 import type { AuthSession } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
+import { buildPaymentPlan } from "@/lib/payment-plan";
 import { normalizePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { getWritableBranchId } from "@/lib/services/tenantService";
@@ -50,9 +52,13 @@ const treatmentPlanPayload = z.object({
   patientId: z.union([z.string(), z.number()]).transform(String), doctor: z.string().trim().min(2).max(160),
   toothNumber: z.string().trim().max(40).optional(), treatmentType: z.string().trim().min(2).max(200),
   description: z.string().trim().max(4000).optional(), estimatedFee: z.coerce.number().min(0).max(100_000_000),
+  paymentPlan: z.object({ downPayment: z.coerce.number().min(0), installmentCount: z.coerce.number().int().min(1).max(24), firstInstallmentDate: z.string().optional(), note: z.string().max(500).optional() }).nullable().optional(),
   status: z.enum(["PROPOSED", "ACCEPTED", "STARTED", "COMPLETED", "CANCELLED"]),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 });
+
+const doctorPayload = z.object({ name: z.string().trim().min(2).max(160), email: z.string().email().max(240), specialty: z.string().trim().max(160).optional() });
+const clinicConfigPayload = z.object({ clinicName: z.string().trim().min(2).max(120), chairs: z.array(z.string().trim().min(2).max(80)).max(100) });
 
 const stockMovementPayload = z.object({
   itemId: z.union([z.string(), z.number()]).transform(String), type: z.enum(["IN", "OUT", "ADJUSTMENT"]),
@@ -101,6 +107,32 @@ async function mappedEntityId(tx: Prisma.TransactionClient, organizationId: stri
 
 async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession, branchId: string, deviceId: string, operation: MobileSyncOperation) {
   const organizationId = session.organizationId;
+  if (operation.entityType === "CLINIC_CONFIG") {
+    if (operation.action === "DELETE") throw new Error("Klinik ayarları silinemez.");
+    const payload = clinicConfigPayload.parse(operation.payload);
+    await tx.organization.update({ where: { id: organizationId }, data: { name: payload.clinicName, clinicSettings: { chairs: payload.chairs } } });
+    return organizationId;
+  }
+  if (operation.entityType === "DOCTOR") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "DOCTOR", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) await tx.user.updateMany({ where: { id: existingId, organizationId, role: Role.DOCTOR }, data: { active: false } });
+      return existingId;
+    }
+    const payload = doctorPayload.parse(operation.payload);
+    if (existingId) {
+      await tx.user.updateMany({ where: { id: existingId, organizationId, role: Role.DOCTOR }, data: { name: payload.name, email: payload.email.toLowerCase(), active: true, branchId } });
+      return existingId;
+    }
+    const duplicate = await tx.user.findUnique({ where: { email: payload.email.toLowerCase() } });
+    if (duplicate && duplicate.organizationId !== organizationId) throw new Error("Doktor e-postası başka bir klinikte kayıtlı.");
+    if (duplicate) {
+      await tx.user.update({ where: { id: duplicate.id }, data: { name: payload.name, role: Role.DOCTOR, active: true, branchId } });
+      return duplicate.id;
+    }
+    const doctor = await tx.user.create({ data: { name: payload.name, email: payload.email.toLowerCase(), passwordHash: await hashPassword(crypto.randomUUID()), role: Role.DOCTOR, active: true, organizationId, branchId } });
+    return doctor.id;
+  }
   if (operation.entityType === "PATIENT") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", operation.clientId);
     if (operation.action === "DELETE") {
@@ -172,7 +204,8 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     const doctor = await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, name: payload.doctor }, select: { id: true } })
       ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { createdAt: "asc" }, select: { id: true } });
     if (!doctor) throw new Error("Sunucuda aktif doktor bulunamadı.");
-    const data = { patientId, doctorId: doctor.id, toothNumber: payload.toothNumber || null, treatmentType: payload.treatmentType, description: payload.description || null, estimatedFee: payload.estimatedFee, status: payload.status as TreatmentStatus, plannedAt: new Date(`${payload.date}T12:00:00`), organizationId, branchId: patient.branchId };
+    const paymentPlan: Prisma.InputJsonValue | typeof Prisma.JsonNull = payload.paymentPlan ? buildPaymentPlan({ total: payload.estimatedFee, downPayment: payload.paymentPlan.downPayment, installmentCount: payload.paymentPlan.installmentCount, firstInstallmentDate: payload.paymentPlan.firstInstallmentDate || null, note: payload.paymentPlan.note || null }) as unknown as Prisma.InputJsonValue : Prisma.JsonNull;
+    const data = { patientId, doctorId: doctor.id, toothNumber: payload.toothNumber || null, treatmentType: payload.treatmentType, description: payload.description || null, estimatedFee: payload.estimatedFee, paymentPlan, status: payload.status as TreatmentStatus, plannedAt: new Date(`${payload.date}T12:00:00`), organizationId, branchId: patient.branchId };
     if (existingId) {
       await tx.treatmentPlan.updateMany({ where: { id: existingId, organizationId }, data });
       return existingId;
@@ -314,7 +347,7 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
   const organizationId = session.organizationId;
   const branch = session.branchId ? { branchId: session.branchId } : {};
   const includePatients = canAccess(session.role, "patients");
-  const [patients, appointments, payments, plans, stocks, recipes] = await Promise.all([
+  const [patients, appointments, payments, plans, stocks, recipes, doctors, organization] = await Promise.all([
     includePatients ? prisma.patient.findMany({
       where: { organizationId, deletedAt: null, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       select: { id: true, firstName: true, lastName: true, phone: true, email: true, tag: true, notes: true, updatedAt: true }
@@ -335,7 +368,9 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       include: { offers: { orderBy: { checkedAt: "desc" }, take: 10 } }
     }) : [],
-    canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : []
+    canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "staff") ? prisma.user.findMany({ where: { organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true, ...(session.branchId ? { OR: [{ branchId: session.branchId }, { branchId: null }] } : {}) }, orderBy: { name: "asc" } }) : [],
+    prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, clinicSettings: true } })
   ]);
   const snapshotMappings = [
     ...patients.map((item) => ["PATIENT", item.id]),
@@ -343,7 +378,8 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     ...payments.map((item) => ["PAYMENT", item.id]),
     ...plans.map((item) => ["TREATMENT_PLAN", item.id]),
     ...stocks.map((item) => ["STOCK_ITEM", item.id]),
-    ...recipes.map((item) => ["STOCK_RECIPE", item.id])
+    ...recipes.map((item) => ["STOCK_RECIPE", item.id]),
+    ...doctors.map((item) => ["DOCTOR", item.id])
   ].map(([entityType, serverEntityId]) => {
     const operationId = `snapshot:${entityType}:${serverEntityId}`;
     return {
@@ -384,7 +420,8 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       id: localSnapshotId("TREATMENT_PLAN", plan.id), serverId: plan.id, patientId: localSnapshotId("PATIENT", plan.patientId),
       patient: `${plan.patient.firstName} ${plan.patient.lastName}`.trim(), treatment: plan.treatmentType, tooth: plan.toothNumber ?? "", doctor: plan.doctor.name,
       branch: plan.branch.name, plannedAt: istanbulParts(plan.plannedAt).date, date: istanbulParts(plan.plannedAt).date,
-      total: Number(plan.estimatedFee), paid: 0, status: plan.status, statusCode: plan.status, note: plan.description ?? ""
+      total: Number(plan.estimatedFee), paid: Number((plan.paymentPlan as { downPayment?: number } | null)?.downPayment ?? 0), paymentPlan: plan.paymentPlan,
+      status: plan.status, statusCode: plan.status, note: plan.description ?? ""
     })),
     stockItems: stocks.map((item) => ({
       id: localSnapshotId("STOCK_ITEM", item.id), serverId: item.id, name: item.name, category: item.category, amount: item.currentQuantity,
@@ -394,6 +431,8 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     stockRecipes: recipes.map((recipe) => ({
       id: localSnapshotId("STOCK_RECIPE", recipe.id), serverId: recipe.id, treatmentType: recipe.treatmentType,
       itemId: localSnapshotId("STOCK_ITEM", recipe.itemId), quantity: recipe.quantity
-    }))
+    })),
+    doctors: doctors.map((doctor) => ({ id: localSnapshotId("DOCTOR", doctor.id), serverId: doctor.id, name: doctor.name, email: doctor.email, specialty: "Diş hekimi" })),
+    clinicConfig: { clinicName: organization?.name ?? "ClinicNova", chairs: Array.isArray((organization?.clinicSettings as { chairs?: unknown[] } | null)?.chairs) ? (organization?.clinicSettings as { chairs: unknown[] }).chairs.filter((item): item is string => typeof item === "string") : [] }
   };
 }

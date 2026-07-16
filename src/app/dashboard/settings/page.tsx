@@ -1,11 +1,13 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Database, Download, KeyRound, Languages, ShieldCheck, Settings } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, Download, KeyRound, Languages, Plus, ShieldCheck, Settings, Trash2 } from "lucide-react";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { MfaSettings } from "@/components/dashboard/mfa-settings";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LanguageToggle } from "@/components/ui/language-toggle";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireModuleAccess } from "@/lib/auth";
@@ -15,6 +17,43 @@ import { getProductionReadiness } from "@/lib/production-readiness";
 import { roleLabel } from "@/lib/rbac";
 import { cn, formatDateTime } from "@/lib/utils";
 import { isDemoMode } from "@/lib/demo-mode";
+
+function clinicChairs(value: unknown): string[] {
+  if (!value || typeof value !== "object" || !("chairs" in value)) return [];
+  const chairs = (value as { chairs?: unknown }).chairs;
+  return Array.isArray(chairs) ? chairs.filter((item): item is string => typeof item === "string") : [];
+}
+
+async function renameClinicAction(formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("settings");
+  const name = String(formData.get("name") || "").trim();
+  if (name.length < 2 || name.length > 120) throw new Error("Klinik adı 2-120 karakter olmalıdır.");
+  await prisma.organization.updateMany({ where: { id: session.organizationId }, data: { name } });
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard");
+}
+
+async function addChairAction(formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("settings");
+  const name = String(formData.get("name") || "").trim();
+  if (name.length < 2 || name.length > 80) throw new Error("Koltuk adı 2-80 karakter olmalıdır.");
+  const organization = await prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } });
+  const chairs = clinicChairs(organization?.clinicSettings);
+  if (!chairs.some((chair) => chair.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR"))) chairs.push(name);
+  await prisma.organization.update({ where: { id: session.organizationId }, data: { clinicSettings: { chairs } } });
+  revalidatePath("/dashboard/settings");
+}
+
+async function deleteChairAction(name: string) {
+  "use server";
+  const session = await requireModuleAccess("settings");
+  const organization = await prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } });
+  const chairs = clinicChairs(organization?.clinicSettings).filter((chair) => chair !== name);
+  await prisma.organization.update({ where: { id: session.organizationId }, data: { clinicSettings: { chairs } } });
+  revalidatePath("/dashboard/settings");
+}
 
 async function requestDataDeletionAction() {
   "use server";
@@ -48,6 +87,7 @@ export default async function SettingsPage() {
     prisma.auditLog.findMany({ where: { organizationId: session.organizationId }, include: { user: true }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.user.findUnique({ where: { id: session.userId }, select: { mfaEnabledAt: true } })
   ]);
+  const chairs = clinicChairs(organization?.clinicSettings);
 
   return (
     <div className="space-y-6">
@@ -93,6 +133,10 @@ export default async function SettingsPage() {
             {branches.map((branch) => <div key={branch.id} className="rounded-md border bg-background p-2 text-sm">{branch.name} · {branch.city}</div>)}
           </CardContent>
         </Card>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card><CardHeader><CardTitle>Klinik adı</CardTitle></CardHeader><CardContent><form action={renameClinicAction} className="flex flex-col gap-3 sm:flex-row sm:items-end"><div className="flex-1 space-y-2"><Label>Görünen klinik adı</Label><Input name="name" defaultValue={organization?.name ?? ""} required /></div><Button type="submit">Adı güncelle</Button></form></CardContent></Card>
+        <Card><CardHeader><CardTitle>Koltuk yönetimi</CardTitle></CardHeader><CardContent className="space-y-3"><form action={addChairAction} className="flex gap-2"><Input name="name" placeholder="Örn. Koltuk 4" required /><Button type="submit"><Plus className="h-4 w-4" />Ekle</Button></form><div className="space-y-2">{chairs.map((chair) => <div key={chair} className="flex items-center justify-between rounded-md border p-2 text-sm"><span>{chair}</span><form action={deleteChairAction.bind(null, chair)}><Button size="sm" variant="outline" type="submit"><Trash2 className="h-4 w-4" />Sil</Button></form></div>)}{chairs.length === 0 ? <p className="text-sm text-muted-foreground">Henüz koltuk tanımlanmadı.</p> : null}</div></CardContent></Card>
       </div>
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" />İki aşamalı doğrulama</CardTitle></CardHeader>

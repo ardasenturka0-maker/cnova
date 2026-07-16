@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 import { ClipboardList } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Role, TreatmentStatus } from "@prisma/client";
+import { PaymentMethod, PaymentStatus, PaymentType, Role, TreatmentStatus } from "@prisma/client";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { TreatmentStatusBadge } from "@/components/dashboard/treatment-status-badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { requireModuleAccess } from "@/lib/auth";
 import { getLocale } from "@/lib/i18n-server";
+import { buildPaymentPlan, summarizePaymentPlan } from "@/lib/payment-plan";
 import { prisma } from "@/lib/prisma";
 import { treatmentPlanSchema } from "@/lib/validations/treatment";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -34,19 +35,33 @@ async function createPlanAction(formData: FormData) {
   ]);
   if (!patient) redirect(resultUrl("error", "Hasta bulunamadı veya bu kliniğe ait değil."));
   if (!doctor) redirect(resultUrl("error", "Doktor bulunamadı veya bu kliniğe ait değil."));
-  await prisma.treatmentPlan.create({
-    data: {
+  const paymentPlan = buildPaymentPlan({
+    total: payload.estimatedFee,
+    downPayment: payload.downPayment,
+    installmentCount: payload.installmentCount,
+    firstInstallmentDate: payload.firstInstallmentDate || null,
+    note: payload.paymentPlanNote || null
+  });
+  await prisma.$transaction(async (tx) => {
+    await tx.treatmentPlan.create({ data: {
       patientId: payload.patientId,
       doctorId: payload.doctorId,
       toothNumber: payload.toothNumber || null,
       treatmentType: payload.treatmentType,
       description: payload.description || null,
       estimatedFee: payload.estimatedFee,
+      paymentPlan,
       status: payload.status as TreatmentStatus,
       plannedAt: payload.date ? new Date(payload.date) : new Date(),
       organizationId: session.organizationId,
       branchId: patient.branchId
-    }
+    } });
+    if (payload.downPayment > 0) await tx.payment.create({ data: {
+      patientId: payload.patientId, type: PaymentType.INCOME, amount: payload.downPayment,
+      listAmount: payload.estimatedFee, isDeposit: true, method: PaymentMethod.CASH,
+      description: `${payload.treatmentType} tedavi planı peşinatı`, status: PaymentStatus.PAID,
+      organizationId: session.organizationId, branchId: patient.branchId
+    } });
   });
   revalidatePath("/dashboard/treatment-plans");
   redirect(resultUrl("success", "Tedavi planı kaydedildi."));
@@ -76,9 +91,13 @@ export default async function TreatmentPlansPage({ searchParams }: { searchParam
             <div className="space-y-2"><Label>Diş no</Label><Input name="toothNumber" /></div>
             <div className="space-y-2"><Label>Tedavi türü</Label><Input name="treatmentType" placeholder="İmplant" required /></div>
             <div className="space-y-2"><Label>Tahmini ücret</Label><Input name="estimatedFee" type="number" min="0" defaultValue="0" /></div>
+            <div className="space-y-2"><Label>Alınan peşinat</Label><Input name="downPayment" type="number" min="0" defaultValue="0" /></div>
+            <div className="space-y-2"><Label>Taksit sayısı</Label><Select name="installmentCount" defaultValue="1"><option value="1">Tek çekim</option><option value="2">2 taksit</option><option value="3">3 taksit</option><option value="4">4 taksit</option><option value="6">6 taksit</option><option value="9">9 taksit</option><option value="12">12 taksit</option><option value="18">18 taksit</option><option value="24">24 taksit</option></Select></div>
+            <div className="space-y-2"><Label>İlk taksit tarihi</Label><Input name="firstInstallmentDate" type="date" /></div>
             <div className="space-y-2"><Label>Durum</Label><Select name="status" defaultValue="PROPOSED"><option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal</option></Select></div>
             <div className="space-y-2"><Label>Tarih</Label><Input name="date" type="date" /></div>
-            <div className="space-y-2 lg:col-span-4"><Label>Açıklama</Label><Textarea name="description" /></div>
+            <div className="space-y-2 lg:col-span-2"><Label>Açıklama</Label><Textarea name="description" /></div>
+            <div className="space-y-2 lg:col-span-2"><Label>Tahsilat planı notu</Label><Textarea name="paymentPlanNote" placeholder="Örn. Kalan tutar her ayın 15'inde alınacak." /></div>
             <Button className="w-fit lg:col-span-4" type="submit">Plan Kaydet</Button>
           </form>
         </CardContent>
@@ -86,7 +105,7 @@ export default async function TreatmentPlansPage({ searchParams }: { searchParam
       <Card>
         <CardContent className="p-0">
           <Table>
-            <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Hasta</TableHead><TableHead>Doktor</TableHead><TableHead>Tedavi</TableHead><TableHead>Tahmini ücret</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Hasta</TableHead><TableHead>Doktor</TableHead><TableHead>Tedavi</TableHead><TableHead>Tahmini ücret</TableHead><TableHead>Ödeme planı</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
             <TableBody>
               {plans.map((item) => (
                 <TableRow key={item.id}>
@@ -95,6 +114,7 @@ export default async function TreatmentPlansPage({ searchParams }: { searchParam
                   <TableCell>{item.doctor?.name ?? "Doktor bulunamadı"}</TableCell>
                   <TableCell><Link className="font-medium text-primary hover:underline" href={`/dashboard/treatment-plans/${item.id}`}>{item.treatmentType} {item.toothNumber ? `#${item.toothNumber}` : ""}</Link></TableCell>
                   <TableCell>{formatCurrency(item.estimatedFee, locale)}</TableCell>
+                  <TableCell>{summarizePaymentPlan(item.paymentPlan)}</TableCell>
                   <TableCell><TreatmentStatusBadge status={item.status} locale={locale} /></TableCell>
                 </TableRow>
               ))}

@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireModuleAccess } from "@/lib/auth";
 import { getLocale } from "@/lib/i18n-server";
+import { paymentPlanLines, summarizePaymentPlan } from "@/lib/payment-plan";
 import { prisma } from "@/lib/prisma";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ export default async function TreatmentPlanDetailPage({ params }: { params: Prom
         <div className="rounded-md border p-4"><p className="text-xs text-muted-foreground">Tahmini ücret</p><p className="mt-1 text-xl font-semibold">{formatCurrency(plan.estimatedFee, locale)}</p></div>
         <div className="rounded-md border p-4 md:col-span-2"><p className="text-xs text-muted-foreground">Diş / bölge</p><p className="mt-1 font-medium">{plan.toothNumber || "Belirtilmedi"}</p></div>
         <div className="rounded-md border p-4 md:col-span-2"><p className="text-xs text-muted-foreground">Şube</p><p className="mt-1 font-medium">{plan.branch.name}</p></div>
+        <div className="rounded-md border p-4 md:col-span-2 xl:col-span-4"><p className="text-xs text-muted-foreground">Ödeme planı</p><p className="mt-1 font-medium">{summarizePaymentPlan(plan.paymentPlan)}</p><div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">{paymentPlanLines(plan.paymentPlan).map((line) => <span key={line}>{line}</span>)}</div></div>
         <div className="rounded-md border p-4 md:col-span-2 xl:col-span-4"><p className="text-xs text-muted-foreground">Plan açıklaması</p><p className="mt-2 whitespace-pre-wrap text-sm">{plan.description || "Açıklama girilmedi."}</p></div>
       </CardContent>
     </Card>

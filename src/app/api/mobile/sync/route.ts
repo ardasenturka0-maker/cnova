@@ -16,6 +16,8 @@ export async function POST(request: Request) {
     if (batch.operations.some((item) => item.entityType === "PAYMENT") && !canAccess(session.role, "finance")) return NextResponse.json({ error: "Finans eşitleme yetkiniz yok." }, { status: 403 });
     if (batch.operations.some((item) => item.entityType === "TREATMENT_PLAN") && !canAccess(session.role, "treatments")) return NextResponse.json({ error: "Tedavi planı eşitleme yetkiniz yok." }, { status: 403 });
     if (batch.operations.some((item) => item.entityType.startsWith("STOCK_")) && !canAccess(session.role, "stocks")) return NextResponse.json({ error: "Stok eşitleme yetkiniz yok." }, { status: 403 });
+    if (batch.operations.some((item) => item.entityType === "DOCTOR") && !canAccess(session.role, "staff")) return NextResponse.json({ error: "Doktor yönetimi yetkiniz yok." }, { status: 403 });
+    if (batch.operations.some((item) => item.entityType === "CLINIC_CONFIG") && !canAccess(session.role, "settings")) return NextResponse.json({ error: "Klinik ayarları yetkiniz yok." }, { status: 403 });
     const results = await syncMobileOperations(session, batch);
     const synced = results.filter((item) => item.status === "synced").length;
     const snapshot = await getMobileSnapshot(session, batch.deviceId);

@@ -122,6 +122,9 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.locator('#treatmentPlanForm input[name="tooth"]').fill("11-21");
   await page.locator('#treatmentPlanForm input[name="total"]').fill("24000");
   await page.locator('#treatmentPlanForm input[name="paid"]').fill("4000");
+  await page.locator('#treatmentPlanForm select[name="installmentCount"]').selectOption("4");
+  await page.locator('#treatmentPlanForm input[name="firstInstallmentDate"]').fill("2026-08-15");
+  await page.locator('#treatmentPlanForm input[name="paymentPlanNote"]').fill("Her ayın 15'inde");
   await page.locator('#treatmentPlanForm textarea[name="note"]').fill("Dijital ölçü sonrası renk provası yapılacak.");
   await page.getByRole("button", { name: "Tedavi planını kaydet" }).click();
   const newPlan = page.locator("#treatmentPlanList").getByRole("button", { name: /Zirkonyum kaplama/ });
@@ -129,6 +132,8 @@ test("bundled Android interface works offline", async ({ page }) => {
   await newPlan.click();
   await expect(page.getByText("11-21", { exact: true })).toBeVisible();
   await expect(page.locator("#modalBody")).toContainText("Dijital ölçü sonrası renk provası yapılacak.");
+  await expect(page.locator("#modalBody")).toContainText("4 taksit");
+  await expect(page.locator("#modalBody")).toContainText("Her ayın 15'inde");
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.locator("#treatmentPlanList").getByRole("button", { name: /Ayşe Yılmaz/ }).filter({ hasText: "İmplant" }).click();
   await expect(page.getByRole("heading", { name: "Ayşe Yılmaz" })).toBeVisible();
@@ -204,6 +209,24 @@ test("bundled Android interface works offline", async ({ page }) => {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: new RegExp(`^${module}`) })).toBeFocused();
   }
+
+  await page.getByRole("button", { name: /^Klinik yönetimi/ }).click();
+  await page.getByRole("button", { name: "Doktor ekle" }).click();
+  await page.locator('#doctorForm input[name="name"]').fill("Dr. Deniz Test");
+  await page.locator('#doctorForm input[name="email"]').fill("deniz@clinicnova.test");
+  await page.locator('#doctorForm input[name="specialty"]').fill("Pedodonti");
+  await page.getByRole("button", { name: "Doktoru kaydet" }).click();
+  await expect(page.getByText("Dr. Deniz Test", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Koltuk ekle" }).click();
+  await page.locator('#chairForm input[name="name"]').fill("Koltuk 4");
+  await page.getByRole("button", { name: "Koltuğu kaydet" }).click();
+  await expect(page.getByText("Koltuk 4", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Klinik adını değiştir" }).click();
+  await page.locator('#clinicNameForm input[name="name"]').fill("ClinicNova Test Kliniği");
+  await page.getByRole("button", { name: "Adı güncelle" }).click();
+  await expect(page.locator("#modalBody").getByText("ClinicNova Test Kliniği", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#branchLabel")).toHaveText("ClinicNova Test Kliniği");
 
   await page.getByRole("button", { name: /^Çöp Kutusu/ }).click();
   await expect(page.getByRole("heading", { name: "Çöp Kutusu" })).toBeVisible();

@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { requireModuleAccess } from "@/lib/auth";
 import { intlLocale, statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
+import { prisma } from "@/lib/prisma";
 import { createAppointment, getAppointmentFormOptions, getAppointments } from "@/lib/services/appointmentService";
 import { getPortalAppointmentRequests, resolvePortalAppointmentRequest } from "@/lib/services/portalService";
 import { sendMessage } from "@/lib/services/notificationService";
@@ -127,11 +128,14 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
   });
   const calendarEnd = new Date(calendarStart);
   calendarEnd.setDate(calendarEnd.getDate() + 42);
-  const [appointments, options, portalRequests] = await Promise.all([
+  const [appointments, options, portalRequests, organization] = await Promise.all([
     getAppointments(session.organizationId, { from: calendarStart, to: calendarEnd }),
     getAppointmentFormOptions(session.organizationId),
-    getPortalAppointmentRequests(session.organizationId)
+    getPortalAppointmentRequests(session.organizationId),
+    prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } })
   ]);
+  const settings = organization?.clinicSettings as { chairs?: unknown } | null;
+  const configuredChairs = Array.isArray(settings?.chairs) ? settings.chairs.filter((item): item is string => typeof item === "string") : [];
   const previousMonth = new Date(viewYear, viewMonth - 2, 1);
   const nextMonth = new Date(viewYear, viewMonth, 1);
   const monthParam = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -227,7 +231,7 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
             </div>
             <div className="space-y-2">
               <Label htmlFor="room">Oda / koltuk</Label>
-              <Input id="room" name="room" placeholder="Koltuk 1" />
+              {configuredChairs.length ? <Select id="room" name="room"><option value="">Seçin</option>{configuredChairs.map((chair) => <option key={chair} value={chair}>{chair}</option>)}</Select> : <Input id="room" name="room" placeholder="Koltuk 1" />}
             </div>
             <div className="space-y-2">
               <Label htmlFor="treatmentType">İşlem türü</Label>

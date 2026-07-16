@@ -22,4 +22,7 @@ export const treatmentSchema = treatmentBaseSchema.refine((value) => value.downP
 
 export const treatmentPlanSchema = treatmentBaseSchema.extend({
   estimatedFee: z.coerce.number({ invalid_type_error: "Tahmini ücret sayısal olmalı." }).min(0, "Tahmini ücret negatif olamaz.")
-}).omit({ fee: true });
+}).omit({ fee: true }).refine((value) => value.downPayment <= value.estimatedFee, {
+  message: "Peşinat tahmini ücretten büyük olamaz.",
+  path: ["downPayment"]
+});

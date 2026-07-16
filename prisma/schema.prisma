@@ -299,6 +299,7 @@ model Organization {
   name              String
   slug              String             @unique
   plan              String             @default("Klinik")
+  clinicSettings    Json?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   branches          Branch[]
@@ -513,6 +514,7 @@ model TreatmentPlan {
   treatmentType  String
   description    String?
   estimatedFee   Decimal         @db.Decimal(12, 2)
+  paymentPlan    Json?
   status         TreatmentStatus @default(PROPOSED)
   plannedAt      DateTime        @default(now())
   organizationId String
