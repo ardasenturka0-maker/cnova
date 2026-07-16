@@ -461,3 +461,45 @@ test("local Android records queue once and acknowledge server synchronization", 
   await expect(page.locator(".purchase-list .purchase-row").first()).toContainText("Dental Ucuz");
   await expect.poll(() => page.evaluate(() => (window as typeof window & { capturedProductUrl?: string }).capturedProductUrl)).toBe("https://shop.example/anestezi-kartusu");
 });
+
+test("Android exposes the new parity modules and their offline CRUD forms", async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.addInitScript(() => {
+    (window as typeof window & { CLINICNOVA_MOBILE_CONFIG?: { mode: string; serverUrl: string } }).CLINICNOVA_MOBILE_CONFIG = { mode: "demo", serverUrl: "" };
+  });
+  await page.goto(mobileUrl);
+  await page.getByRole("button", { name: "Demo girişi" }).click();
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+
+  await page.locator("#moduleGrid").getByRole("button", { name: /Gerçekleşen tedaviler/ }).click();
+  await page.getByRole("button", { name: "Tedavi kaydı ekle" }).click();
+  await page.locator('#treatmentForm input[name="treatment"]').fill("Parite dolgusu");
+  await page.locator('#treatmentForm input[name="fee"]').fill("2500");
+  await page.locator("#treatmentForm").getByRole("button", { name: "Kaydet" }).click();
+  await expect(page.locator("#modalBody")).toContainText("Parite dolgusu");
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Personel/ }).click();
+  await page.getByRole("button", { name: "Personel ekle" }).click();
+  await page.locator('#staffForm input[name="fullName"]').fill("Mobil Asistan");
+  await page.locator('#staffForm input[name="roleLabel"]').fill("Diş hekimi asistanı");
+  await page.locator("#staffForm").getByRole("button", { name: "Kaydet" }).click();
+  await expect(page.getByText("Mobil Asistan", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Anketler/ }).click();
+  await page.getByRole("button", { name: "Anket oluştur" }).click();
+  await page.locator('#surveyForm input[name="title"]').fill("Mobil memnuniyet");
+  await page.getByRole("button", { name: "Anketi kaydet" }).click();
+  await expect(page.getByText("Mobil memnuniyet", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
+  await page.getByRole("button", { name: "Takip ekle" }).click();
+  await page.locator('#recallForm input[name="reason"]').fill("Altı aylık kontrol");
+  await page.getByRole("button", { name: "Takibi kaydet" }).click();
+  await expect(page.locator("#modalBody")).toContainText("Altı aylık kontrol");
+
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /Tam web paneli/ })).toBeVisible();
+});

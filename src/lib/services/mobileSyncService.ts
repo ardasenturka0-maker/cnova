@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { AppointmentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
+import { AppointmentStatus, CommunicationChannel, CommunicationDirection, CommunicationStatus, ConsentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, RecallStatus, Role, StockMovementType, TourismLeadSourceChannel, TourismLeadStatus, TreatmentStatus } from "@prisma/client";
 import { z } from "zod";
 import type { AuthSession } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
@@ -17,7 +17,11 @@ const patientPayload = z.object({
   email: z.string().email().or(z.literal("")).optional(),
   tag: z.enum(["NEW", "ACTIVE", "PASSIVE", "RISKY", "VIP"]).default("NEW"),
   treatment: z.string().max(160).optional(),
-  note: z.string().max(4000).optional()
+  note: z.string().max(4000).optional(),
+  nationalId: z.string().trim().max(40).optional(), birthDate: z.string().optional(),
+  gender: z.enum(["FEMALE", "MALE", "OTHER", "UNSPECIFIED"]).default("UNSPECIFIED"),
+  address: z.string().max(1000).optional(), allergies: z.string().max(2000).optional(),
+  chronicDiseases: z.string().max(2000).optional(), medications: z.string().max(2000).optional()
 });
 
 const appointmentPayload = z.object({
@@ -28,18 +32,21 @@ const appointmentPayload = z.object({
   treatment: z.string().trim().min(2).max(200),
   doctor: z.string().trim().max(160).optional(),
   room: z.string().max(80).optional(),
-  status: z.enum(["PLANNED", "ARRIVED", "NO_SHOW", "CANCELLED", "COMPLETED"]).default("PLANNED")
+  status: z.enum(["PENDING_CONFIRMATION", "PLANNED", "ARRIVED", "NO_SHOW", "CANCELLED", "COMPLETED"]).default("PLANNED")
 });
 
 const paymentPayload = z.object({
-  patientId: z.union([z.string(), z.number()]).transform(String),
+  patientId: z.union([z.string(), z.number()]).transform(String).optional(),
+  type: z.enum(["INCOME", "EXPENSE"]).default("INCOME"),
   amount: z.coerce.number().positive().max(100_000_000),
   totalAmount: z.coerce.number().positive().max(100_000_000).optional(),
   remainingAmount: z.coerce.number().min(0).max(100_000_000).optional(),
   method: z.string().max(40).optional(),
   description: z.string().max(1000).optional(),
   detail: z.string().max(1000).optional(),
-  isDeposit: z.boolean().optional()
+  isDeposit: z.boolean().optional(), status: z.enum(["PAID", "PENDING", "CANCELLED"]).default("PAID"),
+  paidAt: z.string().optional(), dueDate: z.string().optional(), referralSource: z.string().max(200).optional(),
+  discountAmount: z.coerce.number().min(0).max(100_000_000).optional()
 });
 
 const stockItemPayload = z.object({
@@ -75,6 +82,49 @@ const stockRecipePayload = z.object({
   treatmentType: z.string().trim().min(2).max(200),
   itemId: z.union([z.string(), z.number()]).transform(String),
   quantity: z.coerce.number().int().min(1).max(100_000)
+});
+
+const treatmentPayload = z.object({
+  patientId: z.union([z.string(), z.number()]).transform(String), doctor: z.string().trim().min(2).max(160),
+  toothNumber: z.string().trim().max(40).optional(), treatmentType: z.string().trim().min(2).max(200),
+  description: z.string().trim().max(4000).optional(), fee: z.coerce.number().min(0).max(100_000_000),
+  paymentPlan: treatmentPlanPayload.shape.paymentPlan, status: z.enum(["PROPOSED", "ACCEPTED", "STARTED", "COMPLETED", "CANCELLED"]),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+
+const staffPayload = z.object({
+  fullName: z.string().trim().min(2).max(160), roleLabel: z.string().trim().min(2).max(120),
+  phone: z.string().trim().max(40).optional(), email: z.string().email().or(z.literal("")).optional(),
+  workingHours: z.string().trim().max(160).optional(), compensation: z.string().trim().max(160).optional(), active: z.boolean().default(true)
+});
+
+const consentPayload = z.object({
+  patientId: z.union([z.string(), z.number()]).transform(String), templateName: z.string().trim().min(2).max(200),
+  content: z.string().trim().min(3).max(20_000), status: z.enum(["DRAFT", "SENT", "SIGNED", "CANCELLED"])
+});
+
+const surveyPayload = z.object({ title: z.string().trim().min(2).max(200), description: z.string().trim().max(2000).optional(), active: z.boolean().default(true) });
+const surveyResponsePayload = z.object({
+  surveyId: z.union([z.string(), z.number()]).transform(String), patientId: z.union([z.string(), z.number()]).transform(String),
+  score: z.coerce.number().int().min(1).max(5), comment: z.string().trim().max(2000).optional()
+});
+const communicationPayload = z.object({
+  patientId: z.union([z.string(), z.number()]).transform(String).optional(), channel: z.enum(["WHATSAPP", "SMS", "EMAIL", "PHONE", "IN_APP"]),
+  direction: z.enum(["INBOUND", "OUTBOUND"]).default("OUTBOUND"), subject: z.string().trim().max(300).optional(),
+  source: z.string().trim().max(200).optional(), contactName: z.string().trim().max(160).optional(), contactValue: z.string().trim().max(240).optional(),
+  message: z.string().trim().min(1).max(10_000), status: z.enum(["QUEUED", "SENT", "DELIVERED", "FAILED"]).default("QUEUED")
+});
+const recallPayload = z.object({
+  patientId: z.union([z.string(), z.number()]).transform(String), reason: z.string().trim().min(2).max(500),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), status: z.enum(["OPEN", "CONTACTED", "SCHEDULED", "CLOSED"]), notes: z.string().trim().max(2000).optional()
+});
+const leadPayload = z.object({
+  fullName: z.string().trim().min(2).max(160), phone: z.string().trim().max(40).optional(), email: z.string().email().or(z.literal("")).optional(),
+  country: z.string().trim().min(2).max(120), city: z.string().trim().max(120).optional(), language: z.string().trim().max(20).default("EN"),
+  interestedTreatment: z.string().trim().min(2).max(200), estimatedBudget: z.string().trim().max(120).optional(),
+  message: z.string().trim().min(3).max(4000), sourceChannel: z.enum(["WEB_FORM", "WHATSAPP", "INSTAGRAM_DM", "MANUAL", "N8N_WEBHOOK", "AIRTABLE"]).default("MANUAL"),
+  leadStatus: z.enum(["NEW", "CONTACTED", "QUALIFIED", "PACKAGE_SENT", "BOOKED", "COMPLETED", "LOST"]).default("NEW"),
+  leadScore: z.coerce.number().int().min(0).max(100).default(50), gdprConsent: z.boolean().default(false), notes: z.string().trim().max(2000).optional()
 });
 
 type SyncResult = { operationId: string; status: "synced" | "failed"; serverEntityId?: string; error?: string };
@@ -116,12 +166,12 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "DOCTOR") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "DOCTOR", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.user.updateMany({ where: { id: existingId, organizationId, role: Role.DOCTOR }, data: { active: false } });
+      if (existingId) await tx.user.updateMany({ where: { id: existingId, organizationId, branchId, role: Role.DOCTOR }, data: { active: false } });
       return existingId;
     }
     const payload = doctorPayload.parse(operation.payload);
     if (existingId) {
-      await tx.user.updateMany({ where: { id: existingId, organizationId, role: Role.DOCTOR }, data: { name: payload.name, email: payload.email.toLowerCase(), active: true, branchId } });
+      await tx.user.updateMany({ where: { id: existingId, organizationId, branchId, role: Role.DOCTOR }, data: { name: payload.name, email: payload.email.toLowerCase(), active: true, branchId } });
       return existingId;
     }
     const duplicate = await tx.user.findUnique({ where: { email: payload.email.toLowerCase() } });
@@ -136,16 +186,20 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "PATIENT") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.patient.updateMany({ where: { id: existingId, organizationId, deletedAt: null }, data: { deletedAt: new Date(), purgeAt: new Date(Date.now() + 30 * 86_400_000), deletedById: session.userId } });
+      if (existingId) await tx.patient.updateMany({ where: { id: existingId, organizationId, branchId, deletedAt: null }, data: { deletedAt: new Date(), purgeAt: new Date(Date.now() + 30 * 86_400_000), deletedById: session.userId } });
       return existingId;
     }
     const payload = patientPayload.parse(operation.payload);
     const names = splitName(payload.name);
+    const patientData = { ...names, phone: payload.phone, phoneNormalized: normalizePhone(payload.phone), email: payload.email || null, tag: payload.tag,
+      notes: payload.note || null, nationalId: payload.nationalId || null, birthDate: payload.birthDate ? new Date(`${payload.birthDate}T12:00:00`) : null,
+      gender: payload.gender, address: payload.address || null, allergies: payload.allergies || null, chronicDiseases: payload.chronicDiseases || null, medications: payload.medications || null };
     if (existingId) {
-      await tx.patient.updateMany({ where: { id: existingId, organizationId }, data: { ...names, phone: payload.phone, phoneNormalized: normalizePhone(payload.phone), email: payload.email || null, tag: payload.tag, notes: payload.note || null, deletedAt: null, purgeAt: null } });
+      const updated = await tx.patient.updateMany({ where: { id: existingId, organizationId, branchId }, data: { ...patientData, deletedAt: null, purgeAt: null } });
+      if (!updated.count) throw new Error("Hasta kaydı bu şubede bulunamadı.");
       return existingId;
     }
-    const patient = await tx.patient.create({ data: { ...names, phone: payload.phone, phoneNormalized: normalizePhone(payload.phone), email: payload.email || null, tag: payload.tag, notes: payload.note || null, organizationId, branchId } });
+    const patient = await tx.patient.create({ data: { ...patientData, organizationId, branchId } });
     return patient.id;
   }
 
@@ -153,15 +207,15 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "APPOINTMENT", operation.clientId);
     if (operation.action === "DELETE") {
       if (existingId) {
-        const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId } });
+        const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId, branchId } });
         if (appointment?.status === AppointmentStatus.COMPLETED) await releaseTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
-        await tx.appointment.updateMany({ where: { id: existingId, organizationId }, data: { status: AppointmentStatus.CANCELLED } });
+        await tx.appointment.updateMany({ where: { id: existingId, organizationId, branchId }, data: { status: AppointmentStatus.CANCELLED } });
       }
       return existingId;
     }
     const payload = appointmentPayload.parse(operation.payload);
     if (existingId && operation.action === "UPDATE") {
-      const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId } });
+      const appointment = await tx.appointment.findFirst({ where: { id: existingId, organizationId, branchId } });
       if (!appointment) throw new Error("Randevu bulunamadı.");
       const nextStatus = payload.status as AppointmentStatus;
       if (appointment.status !== nextStatus) {
@@ -173,10 +227,11 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     }
     const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
     if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+    if (!await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { id: true } })) throw new Error("Hasta bu şubede bulunamadı.");
     const doctor = await tx.user.findFirst({
-      where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, ...(payload.doctor ? { name: payload.doctor } : {}) },
+      where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }], ...(payload.doctor ? { name: payload.doctor } : {}) },
       orderBy: { createdAt: "asc" }, select: { id: true }
-    }) ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { createdAt: "asc" }, select: { id: true } });
+    }) ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }] }, orderBy: { createdAt: "asc" }, select: { id: true } });
     if (!doctor) throw new Error("Sunucuda aktif doktor bulunamadı.");
     const startsAt = new Date(`${payload.date}T${payload.time}:00`);
     const endsAt = new Date(startsAt.getTime() + payload.duration * 60_000);
@@ -193,37 +248,164 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "TREATMENT_PLAN") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "TREATMENT_PLAN", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.treatmentPlan.deleteMany({ where: { id: existingId, organizationId } });
+      if (existingId) await tx.treatmentPlan.deleteMany({ where: { id: existingId, organizationId, branchId } });
       return existingId;
     }
     const payload = treatmentPlanPayload.parse(operation.payload);
     const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
     if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
-    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, deletedAt: null }, select: { branchId: true } });
+    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
     if (!patient) throw new Error("Hasta bulunamadı.");
-    const doctor = await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, name: payload.doctor }, select: { id: true } })
-      ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { createdAt: "asc" }, select: { id: true } });
+    const doctor = await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }], name: payload.doctor }, select: { id: true } })
+      ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }] }, orderBy: { createdAt: "asc" }, select: { id: true } });
     if (!doctor) throw new Error("Sunucuda aktif doktor bulunamadı.");
     const paymentPlan: Prisma.InputJsonValue | typeof Prisma.JsonNull = payload.paymentPlan ? buildPaymentPlan({ total: payload.estimatedFee, downPayment: payload.paymentPlan.downPayment, installmentCount: payload.paymentPlan.installmentCount, firstInstallmentDate: payload.paymentPlan.firstInstallmentDate || null, note: payload.paymentPlan.note || null }) as unknown as Prisma.InputJsonValue : Prisma.JsonNull;
     const data = { patientId, doctorId: doctor.id, toothNumber: payload.toothNumber || null, treatmentType: payload.treatmentType, description: payload.description || null, estimatedFee: payload.estimatedFee, paymentPlan, status: payload.status as TreatmentStatus, plannedAt: new Date(`${payload.date}T12:00:00`), organizationId, branchId: patient.branchId };
     if (existingId) {
-      await tx.treatmentPlan.updateMany({ where: { id: existingId, organizationId }, data });
-      return existingId;
+      const updated = await tx.treatmentPlan.updateMany({ where: { id: existingId, organizationId, branchId }, data });
+      if (updated.count) return existingId;
     }
     const plan = await tx.treatmentPlan.create({ data });
     return plan.id;
   }
 
+  if (operation.entityType === "TREATMENT") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "TREATMENT", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) {
+        const treatment = await tx.treatment.findFirst({ where: { id: existingId, organizationId, branchId } });
+        if (treatment?.status === TreatmentStatus.COMPLETED) await releaseTreatmentRecipe(tx, organizationId, treatment.branchId, treatment.treatmentType, { treatmentId: treatment.id });
+        await tx.treatment.deleteMany({ where: { id: existingId, organizationId, branchId } });
+      }
+      return existingId;
+    }
+    const payload = treatmentPayload.parse(operation.payload);
+    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
+    if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
+    if (!patient) throw new Error("Hasta bulunamadı.");
+    const doctor = await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }], name: payload.doctor }, select: { id: true } })
+      ?? await tx.user.findFirst({ where: { organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, OR: [{ branchId }, { branchId: null }] }, orderBy: { createdAt: "asc" }, select: { id: true } });
+    if (!doctor) throw new Error("Sunucuda aktif doktor bulunamadı.");
+    const paymentPlan: Prisma.InputJsonValue | typeof Prisma.JsonNull = payload.paymentPlan ? buildPaymentPlan({ total: payload.fee, downPayment: payload.paymentPlan.downPayment, installmentCount: payload.paymentPlan.installmentCount, firstInstallmentDate: payload.paymentPlan.firstInstallmentDate || null, note: payload.paymentPlan.note || null }) as unknown as Prisma.InputJsonValue : Prisma.JsonNull;
+    const data = { patientId, doctorId: doctor.id, toothNumber: payload.toothNumber || null, treatmentType: payload.treatmentType, description: payload.description || null,
+      fee: payload.fee, paymentPlan, status: payload.status as TreatmentStatus, performedAt: new Date(`${payload.date}T12:00:00`), organizationId, branchId: patient.branchId };
+    if (existingId) {
+      const previous = await tx.treatment.findFirst({ where: { id: existingId, organizationId, branchId } });
+      if (previous) {
+        if (previous.status !== payload.status) {
+          if (payload.status === TreatmentStatus.COMPLETED) await consumeTreatmentRecipe(tx, organizationId, patient.branchId, payload.treatmentType, { treatmentId: existingId });
+          else if (previous.status === TreatmentStatus.COMPLETED) await releaseTreatmentRecipe(tx, organizationId, previous.branchId, previous.treatmentType, { treatmentId: existingId });
+        }
+        await tx.treatment.updateMany({ where: { id: existingId, organizationId, branchId }, data });
+        return existingId;
+      }
+    }
+    const treatment = await tx.treatment.create({ data });
+    if (treatment.status === TreatmentStatus.COMPLETED) await consumeTreatmentRecipe(tx, organizationId, patient.branchId, treatment.treatmentType, { treatmentId: treatment.id });
+    return treatment.id;
+  }
+
+  if (operation.entityType === "STAFF") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "STAFF", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) await tx.staff.deleteMany({ where: { id: existingId, organizationId, branchId } });
+      return existingId;
+    }
+    const payload = staffPayload.parse(operation.payload);
+    const data = { fullName: payload.fullName, roleLabel: payload.roleLabel, phone: payload.phone || null, email: payload.email || null,
+      workingHours: payload.workingHours || null, compensation: payload.compensation || null, active: payload.active, organizationId, branchId };
+    if (existingId && (await tx.staff.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.staff.create({ data })).id;
+  }
+
+  if (operation.entityType === "CONSENT") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "CONSENT", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.consent.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = consentPayload.parse(operation.payload);
+    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
+    if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
+    if (!patient) throw new Error("Hasta bulunamadı.");
+    const data = { patientId, templateName: payload.templateName, content: payload.content, status: payload.status as ConsentStatus,
+      signedAt: payload.status === ConsentStatus.SIGNED ? new Date() : null, organizationId, branchId: patient.branchId };
+    if (existingId && (await tx.consent.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.consent.create({ data })).id;
+  }
+
+  if (operation.entityType === "SURVEY") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.survey.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = surveyPayload.parse(operation.payload);
+    const data = { title: payload.title, description: payload.description || null, active: payload.active, organizationId, branchId };
+    if (existingId && (await tx.survey.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.survey.create({ data })).id;
+  }
+
+  if (operation.entityType === "SURVEY_RESPONSE") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY_RESPONSE", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.surveyResponse.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = surveyResponsePayload.parse(operation.payload);
+    const surveyId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY", payload.surveyId);
+    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
+    if (!surveyId || !patientId) throw new Error("Önce bağlı anket ve hasta eşitlenmelidir.");
+    if (!await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { id: true } })) throw new Error("Hasta bu şubede bulunamadı.");
+    const survey = await tx.survey.findFirst({ where: { id: surveyId, organizationId, branchId }, select: { branchId: true } });
+    if (!survey) throw new Error("Anket bulunamadı.");
+    const data = { surveyId, patientId, score: payload.score, comment: payload.comment || null, submittedAt: new Date(), organizationId, branchId: survey.branchId };
+    if (existingId && (await tx.surveyResponse.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.surveyResponse.create({ data })).id;
+  }
+
+  if (operation.entityType === "COMMUNICATION") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "COMMUNICATION", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.communicationLog.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = communicationPayload.parse(operation.payload);
+    const patientId = payload.patientId ? await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId) : null;
+    if (patientId && !await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { id: true } })) throw new Error("Hasta bu şubede bulunamadı.");
+    const data = { patientId, channel: payload.channel as CommunicationChannel, direction: payload.direction as CommunicationDirection, subject: payload.subject || null,
+      source: payload.source || "Android", contactName: payload.contactName || null, contactValue: payload.contactValue || null,
+      message: payload.message, status: payload.status as CommunicationStatus, provider: "Android yerel", organizationId, branchId };
+    if (existingId && (await tx.communicationLog.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.communicationLog.create({ data })).id;
+  }
+
+  if (operation.entityType === "RECALL") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "RECALL", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.recall.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = recallPayload.parse(operation.payload);
+    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
+    if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
+    if (!patient) throw new Error("Hasta bulunamadı.");
+    const data = { patientId, reason: payload.reason, dueDate: new Date(`${payload.dueDate}T12:00:00`), status: payload.status as RecallStatus,
+      notes: payload.notes || null, organizationId, branchId: patient.branchId };
+    if (existingId && (await tx.recall.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.recall.create({ data })).id;
+  }
+
+  if (operation.entityType === "LEAD") {
+    const existingId = await mappedEntityId(tx, organizationId, deviceId, "LEAD", operation.clientId);
+    if (operation.action === "DELETE") { if (existingId) await tx.lead.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
+    const payload = leadPayload.parse(operation.payload);
+    const data = { fullName: payload.fullName, phone: payload.phone || null, email: payload.email || null, country: payload.country, city: payload.city || null,
+      language: payload.language, interestedTreatment: payload.interestedTreatment, estimatedBudget: payload.estimatedBudget || null, message: payload.message,
+      sourceChannel: payload.sourceChannel as TourismLeadSourceChannel, leadStatus: payload.leadStatus as TourismLeadStatus,
+      leadScore: payload.leadScore, gdprConsent: payload.gdprConsent, notes: payload.notes || null, organizationId, branchId };
+    if (existingId && (await tx.lead.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
+    return (await tx.lead.create({ data })).id;
+  }
+
   if (operation.entityType === "STOCK_ITEM") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.stockItem.deleteMany({ where: { id: existingId, organizationId } });
+      if (existingId) await tx.stockItem.deleteMany({ where: { id: existingId, organizationId, branchId } });
       return existingId;
     }
     const payload = stockItemPayload.parse(operation.payload);
     if (existingId) {
-      await tx.stockItem.updateMany({ where: { id: existingId, organizationId }, data: { name: payload.name, category: payload.category, minimumQuantity: payload.minimumQuantity, unit: payload.unit, supplier: payload.supplier || null, purchasePrice: payload.purchasePrice } });
-      return existingId;
+      const updated = await tx.stockItem.updateMany({ where: { id: existingId, organizationId, branchId }, data: { name: payload.name, category: payload.category, minimumQuantity: payload.minimumQuantity, unit: payload.unit, supplier: payload.supplier || null, purchasePrice: payload.purchasePrice } });
+      if (updated.count) return existingId;
     }
     const item = await tx.stockItem.create({ data: { name: payload.name, category: payload.category, currentQuantity: payload.currentQuantity, minimumQuantity: payload.minimumQuantity, unit: payload.unit, supplier: payload.supplier || null, purchasePrice: payload.purchasePrice, organizationId, branchId } });
     if (payload.currentQuantity > 0) await tx.stockMovement.create({ data: { itemId: item.id, type: StockMovementType.IN, quantity: payload.currentQuantity, note: "Android açılış stoku", organizationId, branchId } });
@@ -232,12 +414,12 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
 
   if (operation.entityType === "STOCK_MOVEMENT") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_MOVEMENT", operation.clientId);
-    if (existingId) return existingId;
+    if (existingId && await tx.stockOffer.findFirst({ where: { id: existingId, organizationId, branchId }, select: { id: true } })) return existingId;
     if (operation.action !== "CREATE") throw new Error("Stok hareketleri yalnızca eklenebilir.");
     const payload = stockMovementPayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
-    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId } });
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId } });
     if (!item) throw new Error("Stok ürünü bulunamadı.");
     if (payload.type === "OUT" && payload.quantity > item.currentQuantity) throw new Error(`Stok yetersiz. Mevcut miktar: ${item.currentQuantity}.`);
     const nextQuantity = payload.type === "IN" ? item.currentQuantity + payload.quantity : payload.type === "OUT" ? item.currentQuantity - payload.quantity : payload.quantity;
@@ -249,7 +431,7 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "STOCK_OFFER") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_OFFER", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.stockOffer.deleteMany({ where: { id: existingId, organizationId } });
+      if (existingId) await tx.stockOffer.deleteMany({ where: { id: existingId, organizationId, branchId } });
       return existingId;
     }
     if (existingId) return existingId;
@@ -257,8 +439,9 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     const payload = stockOfferPayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
-    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId }, select: { branchId: true } });
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId }, select: { branchId: true } });
     if (!item) throw new Error("Stok ürünü bulunamadı.");
+    await tx.stockOffer.deleteMany({ where: { itemId, organizationId, productUrl: payload.productUrl } });
     const offer = await tx.stockOffer.create({ data: { itemId, seller: payload.seller, unitPrice: payload.unitPrice, shippingPrice: payload.shippingPrice, productUrl: payload.productUrl, inStock: payload.inStock, checkedAt: new Date(), organizationId, branchId: item.branchId } });
     return offer.id;
   }
@@ -266,18 +449,18 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
   if (operation.entityType === "STOCK_RECIPE") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_RECIPE", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.stockRecipe.deleteMany({ where: { id: existingId, organizationId } });
+      if (existingId) await tx.stockRecipe.deleteMany({ where: { id: existingId, organizationId, branchId } });
       return existingId;
     }
     const payload = stockRecipePayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
-    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId }, select: { branchId: true } });
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId }, select: { branchId: true } });
     if (!item) throw new Error("Stok ürünü bulunamadı.");
     const data = { treatmentKey: normalizeTreatmentKey(payload.treatmentType), treatmentType: payload.treatmentType, itemId, quantity: payload.quantity, organizationId, branchId: item.branchId };
     if (existingId) {
-      await tx.stockRecipe.updateMany({ where: { id: existingId, organizationId }, data });
-      return existingId;
+      const updated = await tx.stockRecipe.updateMany({ where: { id: existingId, organizationId, branchId }, data });
+      if (updated.count) return existingId;
     }
     const recipe = await tx.stockRecipe.create({ data });
     return recipe.id;
@@ -285,20 +468,28 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
 
   const existingId = await mappedEntityId(tx, organizationId, deviceId, "PAYMENT", operation.clientId);
   if (operation.action === "DELETE") {
-    if (existingId) await tx.payment.updateMany({ where: { id: existingId, organizationId }, data: { status: PaymentStatus.CANCELLED } });
+    if (existingId) await tx.payment.updateMany({ where: { id: existingId, organizationId, branchId }, data: { status: PaymentStatus.CANCELLED } });
     return existingId;
   }
-  if (existingId) return existingId;
   const payload = paymentPayload.parse(operation.payload);
-  const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
-  if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
+  const patientId = payload.patientId ? await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId) : null;
+  if (payload.type === "INCOME" && !patientId) throw new Error("Gelir için önce bağlı hasta eşitlenmelidir.");
+  if (patientId && !await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { id: true } })) throw new Error("Hasta bu şubede bulunamadı.");
   const totalAmount = payload.totalAmount ?? payload.amount;
-  const payment = await tx.payment.create({ data: {
-    patientId, type: PaymentType.INCOME, amount: payload.amount, listAmount: totalAmount,
+  const paymentData = {
+    patientId, type: payload.type as PaymentType, amount: payload.amount, listAmount: totalAmount, discountAmount: payload.discountAmount ?? null,
     isDeposit: payload.isDeposit ?? (payload.remainingAmount ?? Math.max(0, totalAmount - payload.amount)) > 0,
     method: paymentMethod(payload.method), description: payload.description || payload.detail || "Android yerel tahsilatı",
-    status: PaymentStatus.PAID, organizationId, branchId
-  } });
+    referralSource: payload.referralSource || null, status: payload.status as PaymentStatus,
+    paidAt: payload.paidAt ? new Date(payload.paidAt) : new Date(), dueDate: payload.dueDate ? new Date(`${payload.dueDate}T12:00:00`) : null,
+    organizationId, branchId
+  };
+  if (existingId) {
+    const updated = await tx.payment.updateMany({ where: { id: existingId, organizationId, branchId }, data: paymentData });
+    if (!updated.count) throw new Error("Finans kaydı bu şubede bulunamadı.");
+    return existingId;
+  }
+  const payment = await tx.payment.create({ data: paymentData });
   return payment.id;
 }
 
@@ -351,10 +542,10 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
   const organizationId = session.organizationId;
   const branch = session.branchId ? { branchId: session.branchId } : {};
   const includePatients = canAccess(session.role, "patients");
-  const [patients, appointments, payments, plans, stocks, recipes, doctors, organization] = await Promise.all([
+  const [patients, appointments, payments, plans, stocks, recipes, doctors, organization, treatments, staff, consents, surveys, surveyResponses, communication, recalls, leads] = await Promise.all([
     includePatients ? prisma.patient.findMany({
       where: { organizationId, deletedAt: null, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
-      select: { id: true, firstName: true, lastName: true, phone: true, email: true, tag: true, notes: true, updatedAt: true }
+      select: { id: true, firstName: true, lastName: true, phone: true, email: true, tag: true, notes: true, nationalId: true, birthDate: true, gender: true, address: true, allergies: true, chronicDiseases: true, medications: true, updatedAt: true }
     }) : [],
     canAccess(session.role, "appointments") ? prisma.appointment.findMany({
       where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
@@ -374,7 +565,15 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     }) : [],
     canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
     canAccess(session.role, "staff") ? prisma.user.findMany({ where: { organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true, ...(session.branchId ? { OR: [{ branchId: session.branchId }, { branchId: null }] } : {}) }, orderBy: { name: "asc" } }) : [],
-    prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, clinicSettings: true } })
+    prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, clinicSettings: true } }),
+    canAccess(session.role, "treatments") ? prisma.treatment.findMany({ where: { organizationId, ...branch }, include: { patient: { select: { id: true, firstName: true, lastName: true } }, doctor: { select: { name: true } }, branch: { select: { name: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "staff") ? prisma.staff.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "consents") ? prisma.consent.findMany({ where: { organizationId, ...branch }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "surveys") ? prisma.survey.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "surveys") ? prisma.surveyResponse.findMany({ where: { organizationId, ...branch }, include: { patient: { select: { id: true, firstName: true, lastName: true } }, survey: { select: { id: true, title: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "communication") ? prisma.communicationLog.findMany({ where: { organizationId, ...branch }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "recalls") ? prisma.recall.findMany({ where: { organizationId, ...branch }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "tourism") ? prisma.lead.findMany({ where: { organizationId, ...(session.branchId ? { OR: [{ branchId: session.branchId }, { branchId: null }] } : {}) }, orderBy: { updatedAt: "desc" }, take: 2000 }) : []
   ]);
   const snapshotMappings = [
     ...patients.map((item) => ["PATIENT", item.id]),
@@ -384,7 +583,15 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     ...stocks.map((item) => ["STOCK_ITEM", item.id]),
     ...stocks.flatMap((item) => item.offers.map((offer) => ["STOCK_OFFER", offer.id])),
     ...recipes.map((item) => ["STOCK_RECIPE", item.id]),
-    ...doctors.map((item) => ["DOCTOR", item.id])
+    ...doctors.map((item) => ["DOCTOR", item.id]),
+    ...treatments.map((item) => ["TREATMENT", item.id]),
+    ...staff.map((item) => ["STAFF", item.id]),
+    ...consents.map((item) => ["CONSENT", item.id]),
+    ...surveys.map((item) => ["SURVEY", item.id]),
+    ...surveyResponses.map((item) => ["SURVEY_RESPONSE", item.id]),
+    ...communication.map((item) => ["COMMUNICATION", item.id]),
+    ...recalls.map((item) => ["RECALL", item.id]),
+    ...leads.map((item) => ["LEAD", item.id])
   ].map(([entityType, serverEntityId]) => {
     const operationId = `snapshot:${entityType}:${serverEntityId}`;
     return {
@@ -397,9 +604,12 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
 
   return {
     generatedAt: new Date().toISOString(),
+    permissions: Object.fromEntries((["patients", "appointments", "finance", "treatments", "stocks", "staff", "consents", "surveys", "communication", "tourism", "recalls", "reports", "settings"] as const).map((module) => [module, canAccess(session.role, module)])),
     patients: patients.map((patient, index) => ({
       id: localSnapshotId("PATIENT", patient.id), serverId: patient.id, name: `${patient.firstName} ${patient.lastName}`.trim(), phone: patient.phone,
-      email: patient.email ?? "", tag: patient.tag, lastVisit: "Sunucuyla eşitlendi", treatment: "", note: patient.notes ?? "", color: index % 5
+      email: patient.email ?? "", tag: patient.tag, lastVisit: "Sunucuyla eşitlendi", treatment: "", note: patient.notes ?? "", color: index % 5,
+      nationalId: patient.nationalId ?? "", birthDate: patient.birthDate ? istanbulParts(patient.birthDate).date : "", gender: patient.gender,
+      address: patient.address ?? "", allergies: patient.allergies ?? "", chronicDiseases: patient.chronicDiseases ?? "", medications: patient.medications ?? ""
     })),
     appointments: appointments.map((appointment) => {
       const time = istanbulParts(appointment.startsAt);
@@ -438,6 +648,14 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       itemId: localSnapshotId("STOCK_ITEM", recipe.itemId), quantity: recipe.quantity
     })),
     doctors: doctors.map((doctor) => ({ id: localSnapshotId("DOCTOR", doctor.id), serverId: doctor.id, name: doctor.name, email: doctor.email, specialty: "Diş hekimi" })),
+    treatments: treatments.map((item) => ({ id: localSnapshotId("TREATMENT", item.id), serverId: item.id, patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), doctor: item.doctor.name, tooth: item.toothNumber ?? "", treatment: item.treatmentType, description: item.description ?? "", fee: Number(item.fee), paymentPlan: item.paymentPlan, status: item.status, date: istanbulParts(item.performedAt).date, branch: item.branch.name })),
+    staff: staff.map((item) => ({ id: localSnapshotId("STAFF", item.id), serverId: item.id, fullName: item.fullName, roleLabel: item.roleLabel, phone: item.phone ?? "", email: item.email ?? "", workingHours: item.workingHours ?? "", compensation: item.compensation ?? "", active: item.active })),
+    consents: consents.map((item) => ({ id: localSnapshotId("CONSENT", item.id), serverId: item.id, patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), templateName: item.templateName, content: item.content, status: item.status, date: item.timestamp.toISOString(), signedAt: item.signedAt?.toISOString() ?? "" })),
+    surveys: surveys.map((item) => ({ id: localSnapshotId("SURVEY", item.id), serverId: item.id, title: item.title, description: item.description ?? "", active: item.active })),
+    surveyResponses: surveyResponses.map((item) => ({ id: localSnapshotId("SURVEY_RESPONSE", item.id), serverId: item.id, surveyId: localSnapshotId("SURVEY", item.surveyId), patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), survey: item.survey.title, score: item.score, comment: item.comment ?? "", date: item.submittedAt?.toISOString() ?? item.createdAt.toISOString() })),
+    communication: communication.map((item) => ({ id: localSnapshotId("COMMUNICATION", item.id), serverId: item.id, patientId: item.patientId ? localSnapshotId("PATIENT", item.patientId) : null, patient: item.patient ? `${item.patient.firstName} ${item.patient.lastName}`.trim() : item.contactName ?? "Genel", channel: item.channel, direction: item.direction, subject: item.subject ?? "", source: item.source ?? "", contactValue: item.contactValue ?? "", message: item.message, status: item.status, date: item.createdAt.toISOString() })),
+    recalls: recalls.map((item) => ({ id: localSnapshotId("RECALL", item.id), serverId: item.id, patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), reason: item.reason, dueDate: istanbulParts(item.dueDate).date, status: item.status, notes: item.notes ?? "" })),
+    leads: leads.map((item) => ({ id: localSnapshotId("LEAD", item.id), serverId: item.id, name: item.fullName, phone: item.phone ?? "", email: item.email ?? "", country: item.country, city: item.city ?? "", language: item.language, treatment: item.interestedTreatment, budget: item.estimatedBudget ?? "", message: item.message, sourceChannel: item.sourceChannel, status: item.leadStatus, score: item.leadScore, gdprConsent: item.gdprConsent, notes: item.notes ?? "" })),
     clinicConfig: { clinicName: organization?.name ?? "ClinicNova", chairs: Array.isArray((organization?.clinicSettings as { chairs?: unknown[] } | null)?.chairs) ? (organization?.clinicSettings as { chairs: unknown[] }).chairs.filter((item): item is string => typeof item === "string") : [] }
   };
 }

@@ -40,6 +40,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraPhotoUri;
     private boolean recoveringFromRemoteError = false;
+    private String trustedOrigin = null;
     private final SyncBridge syncBridge = new SyncBridge();
 
     @Override
@@ -153,7 +154,13 @@ public class MainActivity extends Activity {
                         }
                         return true;
                     }
-                    return false;
+                    if (trustedOrigin != null && trustedOrigin.equals(originOf(uri))) return false;
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    } catch (ActivityNotFoundException ignored) {
+                        Toast.makeText(MainActivity.this, "Bağlantı açılamadı.", Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
                 }
                 if ("file".equalsIgnoreCase(scheme) && uri.toString().startsWith("file:///android_asset/")) return false;
                 if ("http".equalsIgnoreCase(scheme)) {
@@ -203,6 +210,33 @@ public class MainActivity extends Activity {
 
     private final class SyncBridge {
         @JavascriptInterface
+        public void connect(String serverUrl) {
+            runOnUiThread(() -> {
+                try {
+                    URL base = validatedServerUrl(serverUrl);
+                    trustedOrigin = originOf(Uri.parse(base.toString()));
+                    webView.loadUrl(base.toString() + "/login?next=%2Fmobile-connect&mobile=android");
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Geçerli bir HTTPS ClinicNova adresi girin.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openPortal(String serverUrl, String path) {
+            runOnUiThread(() -> {
+                try {
+                    URL base = validatedServerUrl(serverUrl);
+                    String safePath = path != null && (path.equals("/dashboard") || path.startsWith("/dashboard/")) ? path : "/dashboard";
+                    trustedOrigin = originOf(Uri.parse(base.toString()));
+                    webView.loadUrl(base.toString() + safePath);
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Canlı panel açılamadı.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public String hashSecret(String secret, String saltBase64, int iterations) {
             if (secret == null || saltBase64 == null || iterations < 100_000 || iterations > 1_000_000) return "";
             PBEKeySpec spec = null;
@@ -229,19 +263,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    private URL validatedServerUrl(String serverUrl) throws Exception {
+        URL base = new URL(serverUrl == null ? "" : serverUrl.trim().replaceAll("/+$", ""));
+        int port = base.getPort();
+        if (!"https".equalsIgnoreCase(base.getProtocol()) || base.getHost() == null || base.getHost().isEmpty() || base.getUserInfo() != null || (port != -1 && port != 443) || (!base.getPath().isEmpty() && !"/".equals(base.getPath()))) {
+            throw new IllegalArgumentException("HTTPS sunucu adresi gerekli.");
+        }
+        return new URL("https", base.getHost(), -1, "");
+    }
+
+    private String originOf(Uri uri) {
+        if (uri == null || uri.getHost() == null || !"https".equalsIgnoreCase(uri.getScheme())) return "";
+        int port = uri.getPort();
+        return "https://" + uri.getHost().toLowerCase() + (port == -1 || port == 443 ? "" : ":" + port);
+    }
+
     private void performProductSearch(String serverUrl, String productUrl, String itemId) {
         HttpURLConnection connection = null;
         int status = 0;
         String responseBody = "";
         try {
-            URL base = new URL(serverUrl);
-            if (!"https".equalsIgnoreCase(base.getProtocol()) || base.getHost() == null || base.getHost().isEmpty()) {
-                throw new IllegalArgumentException("HTTPS sunucu adresi gerekli.");
-            }
+            URL base = validatedServerUrl(serverUrl);
             String normalizedProductUrl = productUrl == null ? "" : productUrl.trim();
             URL pageUrl = new URL(normalizedProductUrl);
             if (!"https".equalsIgnoreCase(pageUrl.getProtocol()) || pageUrl.getHost() == null || pageUrl.getHost().isEmpty()) throw new IllegalArgumentException("HTTPS satın alma sayfası gerekli.");
-            URL endpoint = new URL(base.getProtocol(), base.getHost(), base.getPort(), "/api/mobile/product-search");
+            URL endpoint = new URL(base.getProtocol(), base.getHost(), -1, "/api/mobile/product-search");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15_000);
@@ -284,14 +330,11 @@ public class MainActivity extends Activity {
         int status = 0;
         String responseBody = "";
         try {
-            URL base = new URL(serverUrl);
-            if (!"https".equalsIgnoreCase(base.getProtocol()) || base.getHost() == null || base.getHost().isEmpty()) {
-                throw new IllegalArgumentException("HTTPS sunucu adresi gerekli.");
-            }
+            URL base = validatedServerUrl(serverUrl);
             if (batchJson == null || batchJson.getBytes(StandardCharsets.UTF_8).length > 4 * 1024 * 1024) {
                 throw new IllegalArgumentException("Senkronizasyon paketi çok büyük.");
             }
-            URL endpoint = new URL(base.getProtocol(), base.getHost(), base.getPort(), "/api/mobile/sync");
+            URL endpoint = new URL(base.getProtocol(), base.getHost(), -1, "/api/mobile/sync");
             connection = (HttpURLConnection) endpoint.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15_000);

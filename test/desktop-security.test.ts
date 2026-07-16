@@ -30,7 +30,7 @@ test("local-first clients push pending changes and pull a server snapshot", asyn
     readFile("src/app/api/mobile/sync/route.ts", "utf8")
   ]);
   assert.match(mobile, /function applyServerSnapshot\(snapshot\)/);
-  assert.match(mobile, /operations = syncQueue\.slice\(0, 50\)/);
+  assert.match(mobile, /operations = syncQueue\.filter\(\(item\) => canSyncEntity\(item\.entityType\)\)\.slice\(0, 50\)/);
   assert.match(mobile, /applyServerSnapshot\(response\.snapshot\)/);
   assert.match(route, /getMobileSnapshot\(session, batch\.deviceId\)/);
 });
@@ -47,4 +47,18 @@ test("offline clinic login stores only a derived password and supports Android n
   assert.doesNotMatch(mobile, /localAccount[^\n]*password:/);
   assert.match(android, /PBKDF2WithHmacSHA256/);
   assert.match(android, /spec\.clearPassword\(\)/);
+});
+
+test("Android authenticates in its own cookie jar and removes native bridges from remote pages", async () => {
+  const [mobile, android] = await Promise.all([
+    readFile("mobile/assets/app.js", "utf8"),
+    readFile("mobile/src/app/clinicnova/mobile/MainActivity.java", "utf8")
+  ]);
+  assert.match(mobile, /ClinicNovaNative\?\.connect/);
+  assert.match(mobile, /ClinicNovaNative\?\.openPortal/);
+  assert.match(android, /validatedServerUrl/);
+  assert.match(android, /trustedOrigin\.equals\(originOf\(uri\)\)/);
+  assert.match(android, /removeJavascriptInterface\("ClinicNovaNative"\)/);
+  assert.match(android, /setAcceptThirdPartyCookies\(webView, false\)/);
+  assert.match(android, /MIXED_CONTENT_NEVER_ALLOW/);
 });

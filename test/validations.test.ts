@@ -60,3 +60,13 @@ test("mobile sync batches are bounded and require stable operation identities", 
   assert.equal(mobileSyncBatchSchema.safeParse({ deviceId: "short", operations: [operation] }).success, false);
   assert.equal(mobileSyncBatchSchema.safeParse({ deviceId: "android-device-1", operations: [] }).success, true);
 });
+
+test("mobile sync accepts every Android parity entity and rejects unknown modules", () => {
+  const entityTypes = ["TREATMENT", "STAFF", "CONSENT", "SURVEY", "SURVEY_RESPONSE", "COMMUNICATION", "RECALL", "LEAD"];
+  for (const entityType of entityTypes) {
+    const operation = { operationId: `operation-${entityType}`, entityType, action: "CREATE", clientId: `local-${entityType}`, createdAt: new Date().toISOString(), payload: {} };
+    assert.equal(mobileSyncBatchSchema.safeParse({ deviceId: "android-device-1", operations: [operation] }).success, true, entityType);
+  }
+  const invalid = { operationId: "operation-unknown", entityType: "AUDIT_OVERRIDE", action: "CREATE", clientId: "local-unknown", createdAt: new Date().toISOString(), payload: {} };
+  assert.equal(mobileSyncBatchSchema.safeParse({ deviceId: "android-device-1", operations: [invalid] }).success, false);
+});

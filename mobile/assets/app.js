@@ -37,7 +37,7 @@
     { id: 1, patientId: 3, date: todayIso, time: "09:30", duration: 45, treatment: "Dolgu", doctor: "Dr. Emir Aydın", room: "Koltuk 1", status: "PLANNED" },
     { id: 2, patientId: 2, date: todayIso, time: "10:30", duration: 60, treatment: "İmplant", doctor: "Dr. Emir Aydın", room: "Koltuk 2", status: "ARRIVED" },
     { id: 3, patientId: 5, date: todayIso, time: "12:00", duration: 30, treatment: "Kontrol", doctor: "Dr. Lara Er", room: "Koltuk 1", status: "PLANNED" },
-    { id: 4, patientId: 1, date: todayIso, time: "14:30", duration: 60, treatment: "İmplant kontrolü", doctor: "Dr. Emir Aydın", room: "Koltuk 3", status: "PENDING" },
+    { id: 4, patientId: 1, date: todayIso, time: "14:30", duration: 60, treatment: "İmplant kontrolü", doctor: "Dr. Emir Aydın", room: "Koltuk 3", status: "PENDING_CONFIRMATION" },
     { id: 5, patientId: 4, date: tomorrowIso, time: "11:00", duration: 45, treatment: "Ortodonti", doctor: "Dr. Lara Er", room: "Koltuk 2", status: "PLANNED" }
   ];
   const defaultTransactions = [
@@ -93,8 +93,13 @@
   ];
   const modules = [
     { name: "Finans", detail: "Tahsilat, peşinat ve giderler", icon: "i-wallet", color: "#16845b" },
+    { name: "Gerçekleşen tedaviler", detail: "Klinik işlem ve ücret kayıtları", icon: "i-tooth", color: "#276aa8" },
+    { name: "Personel", detail: "Ekip, çalışma ve hakediş", icon: "i-users", color: "#16845b" },
     { name: "Sağlık turizmi", detail: "Lead ve paket yönetimi", icon: "i-plane", color: "#ed6b3a" },
     { name: "İletişim", detail: "WhatsApp, SMS, e-posta", icon: "i-message", color: "#7257b7" },
+    { name: "Anketler", detail: "Memnuniyet ve yanıtlar", icon: "i-chart", color: "#b76b12" },
+    { name: "Recall", detail: "Hasta takip ve geri çağırma", icon: "i-calendar", color: "#a64458" },
+    { name: "Tam web paneli", detail: "Tüm gelişmiş ve yönetim özellikleri", icon: "i-grid", color: "#276aa8" },
     { name: "Raporlar", detail: "Gelir ve performans", icon: "i-chart", color: "#b76b12" },
     { name: "Dijital onam", detail: "Onam ve imza kayıtları", icon: "i-shield", color: "#16845b" },
     { name: "Çöp Kutusu", detail: "30 gün saklanan silinmiş kayıtlar", icon: "i-box", color: "#a64458" }
@@ -117,6 +122,11 @@
   let clinicChairs = storage.get("clinicnova.clinicChairs", demoMode ? defaultClinicChairs : []);
   let communicationLog = localCollection("clinicnova.communicationLog", defaultCommunicationLog);
   let consentRecords = localCollection("clinicnova.consentRecords", defaultConsentRecords);
+  let treatments = localCollection("clinicnova.treatments", []);
+  let staffRecords = localCollection("clinicnova.staff", []);
+  let surveys = localCollection("clinicnova.surveys", []);
+  let surveyResponses = localCollection("clinicnova.surveyResponses", []);
+  let recalls = localCollection("clinicnova.recalls", []);
   let trashItems = demoMode || localDataWasMigrated ? storage.get("clinicnova.trashItems", []) : [];
   let legacyOfferId = Date.now();
   stockItems.forEach((item) => (item.offers ||= []).forEach((offer) => {
@@ -148,6 +158,9 @@
   let syncQueue = storage.get("clinicnova.syncQueue", []);
   let syncMap = storage.get("clinicnova.syncMap", {});
   let syncing = false;
+  let syncTimer = null;
+  let serverPermissions = storage.get("clinicnova.serverPermissions", null);
+  if (demoMode) serverPermissions = null;
   let productSearchInFlight = false;
   let authenticatedThisRun = false;
   let previewMode = false;
@@ -235,7 +248,7 @@
     return state.patients.find((patient) => patient.id === Number(id));
   }
   function statusLabel(status) {
-    return ({ PLANNED: "Planlandı", ARRIVED: "Geldi", COMPLETED: "Tamamlandı", PENDING: "Onay bekliyor", CANCELLED: "İptal edildi", NO_SHOW: "Gelmedi" })[status] || status;
+    return ({ PLANNED: "Planlandı", ARRIVED: "Geldi", COMPLETED: "Tamamlandı", PENDING_CONFIRMATION: "Onay bekliyor", CANCELLED: "İptal edildi", NO_SHOW: "Gelmedi" })[status] || status;
   }
   function saveData() {
     if (previewMode) return;
@@ -252,6 +265,11 @@
     storage.set("clinicnova.clinicChairs", clinicChairs);
     storage.set("clinicnova.communicationLog", communicationLog);
     storage.set("clinicnova.consentRecords", consentRecords);
+    storage.set("clinicnova.treatments", treatments);
+    storage.set("clinicnova.staff", staffRecords);
+    storage.set("clinicnova.surveys", surveys);
+    storage.set("clinicnova.surveyResponses", surveyResponses);
+    storage.set("clinicnova.recalls", recalls);
     storage.set("clinicnova.trashItems", trashItems);
   }
   if (!demoMode && !localDataWasMigrated) saveData();
@@ -267,13 +285,29 @@
     updateNetworkBadge();
   }
 
+  function scheduleSync(delay = 750) {
+    if (demoMode || previewMode || !navigator.onLine || !storage.get("clinicnova.serverUrl", "")) return;
+    if (syncQueue.length && serverPermissions && !syncQueue.some((item) => canSyncEntity(item.entityType))) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncPending(true), delay);
+  }
+
+  function canSyncEntity(entityType) {
+    if (!serverPermissions) return true;
+    const permission = entityType === "PATIENT" ? "patients" : entityType === "APPOINTMENT" ? "appointments" : entityType === "PAYMENT" ? "finance" : ["TREATMENT_PLAN", "TREATMENT"].includes(entityType) ? "treatments" : entityType.startsWith("STOCK_") ? "stocks" : ["DOCTOR", "STAFF"].includes(entityType) ? "staff" : entityType === "CONSENT" ? "consents" : ["SURVEY", "SURVEY_RESPONSE"].includes(entityType) ? "surveys" : entityType === "COMMUNICATION" ? "communication" : entityType === "RECALL" ? "recalls" : entityType === "LEAD" ? "tourism" : "settings";
+    return serverPermissions[permission] !== false;
+  }
+
   function queueCreate(entityType, clientId, payload) {
     if (demoMode || previewMode) return;
     const id = String(clientId);
+    const pendingDelete = syncQueue.some((item) => item.entityType === entityType && item.clientId === id && item.action === "DELETE");
+    if (pendingDelete) syncQueue = syncQueue.filter((item) => !(item.entityType === entityType && item.clientId === id && item.action === "DELETE"));
     const pending = syncQueue.find((item) => item.entityType === entityType && item.clientId === id && item.action === "CREATE");
     if (pending) pending.payload = payload;
-    else syncQueue.push({ operationId: operationId(), entityType, action: "CREATE", clientId: id, createdAt: new Date().toISOString(), payload });
+    else syncQueue.push({ operationId: operationId(), entityType, action: pendingDelete && syncMap[`${entityType}:${id}`] ? "UPDATE" : "CREATE", clientId: id, createdAt: new Date().toISOString(), payload });
     persistSyncState();
+    scheduleSync();
   }
 
   function queueUpdate(entityType, clientId, payload) {
@@ -283,6 +317,7 @@
     if (pendingCreate) pendingCreate.payload = { ...pendingCreate.payload, ...payload };
     else syncQueue.push({ operationId: operationId(), entityType, action: "UPDATE", clientId: id, createdAt: new Date().toISOString(), payload });
     persistSyncState();
+    scheduleSync();
   }
 
   function queueDelete(entityType, clientId, payload = {}) {
@@ -292,10 +327,11 @@
     syncQueue = syncQueue.filter((item) => !(item.entityType === entityType && item.clientId === id));
     if (!hadPendingCreate || syncMap[`${entityType}:${id}`]) syncQueue.push({ operationId: operationId(), entityType, action: "DELETE", clientId: id, createdAt: new Date().toISOString(), payload });
     persistSyncState();
+    scheduleSync();
   }
 
   function patientPayload(patient) {
-    return { name: patient.name, phone: patient.phone, email: patient.email || "", tag: patient.tag || "NEW", treatment: patient.treatment || "", note: patient.note || "" };
+    return { name: patient.name, phone: patient.phone, email: patient.email || "", nationalId: patient.nationalId || "", birthDate: patient.birthDate || undefined, gender: patient.gender || "UNSPECIFIED", address: patient.address || "", allergies: patient.allergies || "", chronicDiseases: patient.chronicDiseases || "", medications: patient.medications || "", tag: patient.tag || "NEW", treatment: patient.treatment || "", note: patient.note || "" };
   }
 
   function appointmentPayload(appointment) {
@@ -304,18 +340,39 @@
 
   function paymentPayload(payment) {
     const method = String(payment.detail || "").split(" · ").pop() || "CARD";
-    return { patientId: String(payment.patientId), amount: payment.amount, totalAmount: payment.totalAmount || payment.amount, remainingAmount: outstandingAmount(payment), method, description: payment.detail, isDeposit: Boolean(payment.isDeposit) };
+    return { patientId: payment.patientId ? String(payment.patientId) : undefined, type: payment.type === "expense" ? "EXPENSE" : "INCOME", status: payment.status || "PAID", amount: payment.amount, totalAmount: payment.totalAmount || payment.amount, remainingAmount: payment.type === "expense" ? 0 : outstandingAmount(payment), method, description: payment.detail, isDeposit: Boolean(payment.isDeposit), paidAt: payment.paidAt, dueDate: payment.dueDate, referralSource: payment.referralSource || "", discountAmount: payment.discountAmount || 0 };
   }
+
+  function treatmentPayload(record) { return { patientId: String(record.patientId), doctor: record.doctor, toothNumber: record.tooth || "", treatmentType: record.treatment, description: record.description || "", fee: record.fee || 0, paymentPlan: record.paymentPlan || null, status: record.status || "COMPLETED", date: record.date || todayIso }; }
+  function staffPayload(record) { return { fullName: record.fullName, roleLabel: record.roleLabel, phone: record.phone || "", email: record.email || "", workingHours: record.workingHours || "", compensation: record.compensation || "", active: record.active !== false }; }
+  const consentStatusCode = (status) => ({ Taslak: "DRAFT", "İmza bekliyor": "SENT", İmzalandı: "SIGNED", "İptal edildi": "CANCELLED" })[status] || status || "DRAFT";
+  const consentStatusLabel = (status) => ({ DRAFT: "Taslak", SENT: "İmza bekliyor", SIGNED: "İmzalandı", CANCELLED: "İptal edildi" })[status] || status || "Taslak";
+  function consentPayload(record) { return { patientId: String(record.patientId), templateName: record.templateName || record.form, content: record.content || [record.treatment, record.note].filter(Boolean).join(" — ") || record.form, status: consentStatusCode(record.status) }; }
+  function surveyPayload(record) { return { title: record.title, description: record.description || "", active: record.active !== false }; }
+  function surveyResponsePayload(record) { return { surveyId: String(record.surveyId), patientId: String(record.patientId), score: record.score, comment: record.comment || "" }; }
+  const communicationChannelCode = (channel) => ({ WhatsApp: "WHATSAPP", SMS: "SMS", "E-posta": "EMAIL", Telefon: "PHONE", "Klinik içi not": "IN_APP" })[channel] || channel || "IN_APP";
+  const communicationStatusCode = (status) => ({ "Yerel taslak": "QUEUED", Arandı: "SENT", "Yanıt bekleniyor": "SENT", "Teslim edildi": "DELIVERED" })[status] || status || "QUEUED";
+  function communicationPayload(record) { const patient = state.patients.find((item) => item.name === record.patient); return { patientId: record.patientId ? String(record.patientId) : patient ? String(patient.id) : undefined, channel: communicationChannelCode(record.channel), direction: record.direction || "OUTBOUND", subject: record.subject || "", source: record.source || "Android", contactName: record.patient || "", contactValue: record.contactValue || patient?.phone || "", message: record.message, status: communicationStatusCode(record.status) }; }
+  function recallPayload(record) { return { patientId: String(record.patientId), reason: record.reason, dueDate: record.dueDate, status: record.status || "OPEN", notes: record.notes || "" }; }
+  function leadPayload(record) { return { fullName: record.name, phone: record.phone || "", email: record.email || "", country: record.country, city: record.city || "", language: record.language || "EN", interestedTreatment: record.treatment, estimatedBudget: record.budget || "", message: record.message || `${record.treatment} için bilgi talebi`, sourceChannel: record.sourceChannel || "MANUAL", leadStatus: record.status || "NEW", leadScore: record.score ?? 50, gdprConsent: Boolean(record.gdprConsent), notes: record.notes || "" }; }
 
   function queueExistingLocalRecords() {
     if (demoMode || previewMode || storage.get("clinicnova.syncBootstrapComplete", false)) return;
     state.patients.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("PATIENT", item.id, patientPayload(item)));
     state.appointments.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("APPOINTMENT", item.id, appointmentPayload(item)));
-    state.transactions.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("PAYMENT", item.id, paymentPayload(item)));
+    state.transactions.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("PAYMENT", item.id, paymentPayload(item)));
     stockItems.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)));
     stockRecipes.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STOCK_RECIPE", item.id, stockRecipePayload(item)));
     treatmentPlans.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("TREATMENT_PLAN", item.id, treatmentPlanPayload(item)));
     clinicDoctors.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("DOCTOR", item.id, doctorPayload(item)));
+    treatments.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("TREATMENT", item.id, treatmentPayload(item)));
+    staffRecords.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("STAFF", item.id, staffPayload(item)));
+    consentRecords.filter((item) => item.patientId && Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("CONSENT", item.id, consentPayload(item)));
+    surveys.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("SURVEY", item.id, surveyPayload(item)));
+    surveyResponses.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("SURVEY_RESPONSE", item.id, surveyResponsePayload(item)));
+    communicationLog.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("COMMUNICATION", item.id, communicationPayload(item)));
+    recalls.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("RECALL", item.id, recallPayload(item)));
+    hotLeads.filter((item) => Number(item.id) > 1_000_000_000_000).forEach((item) => queueCreate("LEAD", item.id, leadPayload(item)));
     storage.set("clinicnova.syncBootstrapComplete", true);
   }
 
@@ -397,17 +454,21 @@
   }
 
   function renderDashboard() {
-    const todayAppointments = state.appointments.filter((item) => item.date === todayIso).sort((a, b) => a.time.localeCompare(b.time));
+    const allowed = (permission) => !serverPermissions || serverPermissions[permission] !== false;
+    const todayAppointments = allowed("appointments") ? state.appointments.filter((item) => item.date === todayIso).sort((a, b) => a.time.localeCompare(b.time)) : [];
     const revenue = state.transactions.filter((item) => item.type === "income" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
     const pending = state.transactions.filter((item) => item.type === "income" && outstandingAmount(item) > 0);
-    $("#opportunitySummary").textContent = `${hotLeads.length} sıcak lead ve ${pending.length} geciken tahsilat bugün aksiyon bekliyor.`;
-    $("#alertBanner").setAttribute("aria-label", `Gelir fırsatları hazır: ${hotLeads.length} sıcak lead ve ${pending.length} geciken tahsilat`);
+    const visibleLeadCount = allowed("tourism") ? hotLeads.length : 0;
+    const visiblePending = allowed("finance") ? pending : [];
+    $("#alertBanner").hidden = !allowed("tourism") && !allowed("finance");
+    $("#opportunitySummary").textContent = `${visibleLeadCount} sıcak lead ve ${visiblePending.length} geciken tahsilat bugün aksiyon bekliyor.`;
+    $("#alertBanner").setAttribute("aria-label", `Gelir fırsatları hazır: ${visibleLeadCount} sıcak lead ve ${visiblePending.length} geciken tahsilat`);
     const metrics = [
       { label: "Bugünkü randevu", value: todayAppointments.length, detail: "+2 geçen haftaya göre", icon: "i-calendar", positive: true },
       { label: "Aylık tahsilat", value: currency(revenue), detail: "+%14 büyüme", icon: "i-wallet", positive: true, bars: true },
       { label: "Aktif hasta", value: state.patients.filter((item) => item.tag !== "PASSIVE").length, detail: "2 yeni kayıt", icon: "i-users" },
-      { label: "Bekleyen ödeme", value: currency(pending.reduce((sum, item) => sum + outstandingAmount(item), 0)), detail: `${pending.length} ödeme planı`, icon: "i-chart" }
-    ];
+      { label: "Bekleyen ödeme", value: currency(visiblePending.reduce((sum, item) => sum + outstandingAmount(item), 0)), detail: `${visiblePending.length} ödeme planı`, icon: "i-chart" }
+    ].filter((metric) => !["Aylık tahsilat", "Bekleyen ödeme"].includes(metric.label) || allowed("finance")).filter((metric) => metric.label !== "Aktif hasta" || allowed("patients")).filter((metric) => metric.label !== "Bugünkü randevu" || allowed("appointments"));
     $("#metricGrid").innerHTML = metrics.map((metric) => `
       <article class="metric-card">
         <div class="metric-top"><span>${escapeHtml(metric.label)}</span><span class="metric-icon"><svg><use href="#${metric.icon}"/></svg></span></div>
@@ -423,6 +484,9 @@
         <span class="status-pill ${appointment.status}">${statusLabel(appointment.status)}</span>
       </button>`;
     }).join("") : `<div class="empty-state">Bugün için randevu görünmüyor.</div>`;
+    const quickPermissions = { "add-patient": "patients", "add-appointment": "appointments", "add-payment": "finance" };
+    $$("#view-home [data-action]").forEach((button) => { if (quickPermissions[button.dataset.action]) button.hidden = !allowed(quickPermissions[button.dataset.action]); });
+    $("#view-home [data-go='appointments']").hidden = !allowed("appointments");
   }
 
   function renderPatients() {
@@ -533,7 +597,11 @@
   }
 
   function renderModules() {
-    $("#moduleGrid").innerHTML = modules.map((module) => `<button class="module-card" data-module="${escapeHtml(module.name)}" style="--module-color:${module.color}"><span class="module-icon"><svg><use href="#${module.icon}"/></svg></span><strong>${escapeHtml(module.name)}</strong><small>${escapeHtml(module.detail)}</small></button>`).join("");
+    const modulePermission = { Finans: "finance", "Gerçekleşen tedaviler": "treatments", Personel: "staff", "Sağlık turizmi": "tourism", İletişim: "communication", Anketler: "surveys", Recall: "recalls", Raporlar: "reports", "Dijital onam": "consents" };
+    const visibleModules = modules.filter((module) => !serverPermissions || !modulePermission[module.name] || serverPermissions[modulePermission[module.name]] !== false);
+    $("#moduleGrid").innerHTML = visibleModules.map((module) => `<button class="module-card" data-module="${escapeHtml(module.name)}" style="--module-color:${module.color}"><span class="module-icon"><svg><use href="#${module.icon}"/></svg></span><strong>${escapeHtml(module.name)}</strong><small>${escapeHtml(module.detail)}</small></button>`).join("");
+    const navPermission = { patients: "patients", appointments: "appointments", "treatment-plans": "treatments", stocks: "stocks", finance: "finance", consents: "consents" };
+    $$(".bottom-nav [data-go]").forEach((button) => { button.hidden = Boolean(serverPermissions && navPermission[button.dataset.go] && serverPermissions[navPermission[button.dataset.go]] === false); });
   }
 
   function renderAll() {
@@ -548,6 +616,8 @@
   }
 
   function navigate(view) {
+    const required = { patients: "patients", appointments: "appointments", "treatment-plans": "treatments", stocks: "stocks", finance: "finance", consents: "consents" }[view];
+    if (serverPermissions && required && serverPermissions[required] === false) return showToast("Bu modül için sunucu yetkiniz yok.");
     state.activeView = view;
     $$(".view").forEach((section) => section.classList.toggle("active", section.dataset.view === view));
     $$(".bottom-nav [data-go]").forEach((button) => {
@@ -598,12 +668,27 @@
   function openAddPatient() {
     openModal("YENİ KAYIT", "Hasta ekle", `<form id="patientForm" class="modal-grid">
       <div class="modal-grid two"><label class="field">Ad soyad<input name="name" autocomplete="name" required placeholder="Örn. Deniz Arslan" /></label><label class="field">Telefon<input name="phone" type="tel" required placeholder="+90 5xx xxx xx xx" /></label></div>
-      <label class="field">E-posta<input name="email" type="email" autocomplete="email" placeholder="hasta@mail.com" /></label>
+      <div class="modal-grid two"><label class="field">E-posta<input name="email" type="email" autocomplete="email" placeholder="hasta@mail.com" /></label><label class="field">TC / kimlik no<input name="nationalId" inputmode="numeric" /></label></div>
+      <div class="modal-grid two"><label class="field">Doğum tarihi<input name="birthDate" type="date" /></label><label class="field">Cinsiyet<select name="gender"><option value="UNSPECIFIED">Belirtilmedi</option><option value="FEMALE">Kadın</option><option value="MALE">Erkek</option><option value="OTHER">Diğer</option></select></label></div>
+      <label class="field">Adres<textarea name="address"></textarea></label>
+      <div class="modal-grid two"><label class="field">Alerjiler<textarea name="allergies"></textarea></label><label class="field">Kronik hastalıklar<textarea name="chronicDiseases"></textarea></label></div>
+      <label class="field">Kullandığı ilaçlar<textarea name="medications"></textarea></label>
       <div class="modal-grid two"><label class="field">Etiket<select name="tag"><option value="NEW">Yeni</option><option value="ACTIVE">Aktif</option><option value="VIP">VIP</option></select></label><label class="field">İlgilendiği tedavi<input name="treatment" placeholder="Muayene" /></label></div>
       <label class="field">Not<textarea name="note" placeholder="Alerji, iletişim tercihi veya ilk görüşme notu"></textarea></label>
       <p class="modal-note">Kayıt hemen bu cihazda saklanır; sunucu bağlandığında otomatik eşitleme kuyruğuna alınır.</p>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Hastayı kaydet</button></div>
     </form>`);
+  }
+
+  function openEditPatient(id) {
+    const patient = patientById(id); if (!patient) return;
+    openModal("HASTA PROFİLİ", "Bilgileri düzenle", `<form id="patientEditForm" class="modal-grid"><input type="hidden" name="patientId" value="${patient.id}" />
+      <div class="modal-grid two"><label class="field">Ad soyad<input name="name" value="${escapeHtml(patient.name)}" required /></label><label class="field">Telefon<input name="phone" type="tel" value="${escapeHtml(patient.phone)}" required /></label></div>
+      <div class="modal-grid two"><label class="field">E-posta<input name="email" type="email" value="${escapeHtml(patient.email || "")}" /></label><label class="field">TC / kimlik no<input name="nationalId" value="${escapeHtml(patient.nationalId || "")}" /></label></div>
+      <div class="modal-grid two"><label class="field">Doğum tarihi<input name="birthDate" type="date" value="${escapeHtml(patient.birthDate || "")}" /></label><label class="field">Cinsiyet<select name="gender">${[["UNSPECIFIED","Belirtilmedi"],["FEMALE","Kadın"],["MALE","Erkek"],["OTHER","Diğer"]].map(([value,label]) => `<option value="${value}" ${patient.gender === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div>
+      <label class="field">Adres<textarea name="address">${escapeHtml(patient.address || "")}</textarea></label><div class="modal-grid two"><label class="field">Alerjiler<textarea name="allergies">${escapeHtml(patient.allergies || "")}</textarea></label><label class="field">Kronik hastalıklar<textarea name="chronicDiseases">${escapeHtml(patient.chronicDiseases || "")}</textarea></label></div><label class="field">Kullandığı ilaçlar<textarea name="medications">${escapeHtml(patient.medications || "")}</textarea></label>
+      <div class="modal-grid two"><label class="field">Etiket<select name="tag">${["NEW","ACTIVE","PASSIVE","RISKY","VIP"].map((tag) => `<option ${patient.tag === tag ? "selected" : ""}>${tag}</option>`).join("")}</select></label><label class="field">İlgilendiği tedavi<input name="treatment" value="${escapeHtml(patient.treatment || "")}" /></label></div><label class="field">Not<textarea name="note">${escapeHtml(patient.note || "")}</textarea></label>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-patient="${patient.id}">Vazgeç</button><button class="button button-primary">Değişiklikleri kaydet</button></div></form>`);
   }
 
   function openAddAppointment(preferredPatientId) {
@@ -759,6 +844,42 @@
     </form>`);
   }
 
+  function openAddTreatment() {
+    if (!state.patients.length || !clinicDoctors.length) return showToast("Tedavi kaydı için hasta ve doktor gereklidir.");
+    openModal("GERÇEKLEŞEN TEDAVİ", "Klinik işlem ekle", `<form id="treatmentForm" class="modal-grid">
+      <div class="modal-grid two"><label class="field">Hasta<select name="patientId">${state.patients.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}</select></label><label class="field">Hekim<select name="doctor">${clinicDoctors.map((item) => `<option>${escapeHtml(item.name)}</option>`).join("")}</select></label></div>
+      <div class="modal-grid two"><label class="field">Tedavi<input name="treatment" required placeholder="İmplant, dolgu..." /></label><label class="field">Diş / bölge<input name="tooth" placeholder="36 veya tüm ağız" /></label></div>
+      <div class="modal-grid two"><label class="field">Tarih<input name="date" type="date" value="${todayIso}" required /></label><label class="field">Durum<select name="status"><option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED" selected>Tamamlandı</option><option value="CANCELLED">İptal</option></select></label></div>
+      <label class="field">Ücret<input name="fee" type="number" min="0" step="0.01" value="0" required /></label><label class="field">Klinik açıklaması<textarea name="description"></textarea></label>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-module="Gerçekleşen tedaviler">Vazgeç</button><button class="button button-primary">Kaydet</button></div>
+    </form>`);
+  }
+
+  function openAddStaff() {
+    openModal("PERSONEL", "Ekip üyesi ekle", `<form id="staffForm" class="modal-grid">
+      <div class="modal-grid two"><label class="field">Ad soyad<input name="fullName" required /></label><label class="field">Görev<input name="roleLabel" required placeholder="Asistan, sekreter..." /></label></div>
+      <div class="modal-grid two"><label class="field">Telefon<input name="phone" type="tel" /></label><label class="field">E-posta<input name="email" type="email" /></label></div>
+      <div class="modal-grid two"><label class="field">Çalışma saatleri<input name="workingHours" placeholder="Pzt-Cum 09:00-18:00" /></label><label class="field">Ücret / hakediş<input name="compensation" placeholder="Aylık veya prim notu" /></label></div>
+      <label class="field checkbox-field"><input name="active" type="checkbox" checked /> Aktif personel</label>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-module="Personel">Vazgeç</button><button class="button button-primary">Kaydet</button></div>
+    </form>`);
+  }
+
+  function openAddSurvey() {
+    openModal("ANKETLER", "Memnuniyet anketi oluştur", `<form id="surveyForm" class="modal-grid"><label class="field">Başlık<input name="title" required /></label><label class="field">Açıklama<textarea name="description"></textarea></label><label class="field checkbox-field"><input name="active" type="checkbox" checked /> Yanıt kabul ediyor</label><div class="modal-actions"><button type="button" class="button button-secondary" data-module="Anketler">Vazgeç</button><button class="button button-primary">Anketi kaydet</button></div></form>`);
+  }
+
+  function openAddSurveyResponse() {
+    const activeSurveys = surveys.filter((item) => item.active !== false);
+    if (!activeSurveys.length || !state.patients.length) return showToast("Önce aktif bir anket ve hasta ekleyin.");
+    openModal("ANKET YANITI", "Hasta yanıtı ekle", `<form id="surveyResponseForm" class="modal-grid"><label class="field">Anket<select name="surveyId">${activeSurveys.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("")}</select></label><label class="field">Hasta<select name="patientId">${state.patients.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}</select></label><label class="field">Puan<select name="score">${[5,4,3,2,1].map((score) => `<option value="${score}">${score} / 5</option>`).join("")}</select></label><label class="field">Yorum<textarea name="comment"></textarea></label><div class="modal-actions"><button type="button" class="button button-secondary" data-module="Anketler">Vazgeç</button><button class="button button-primary">Yanıtı kaydet</button></div></form>`);
+  }
+
+  function openAddRecall() {
+    if (!state.patients.length) return showToast("Önce hasta ekleyin.");
+    openModal("RECALL", "Hasta takibi ekle", `<form id="recallForm" class="modal-grid"><label class="field">Hasta<select name="patientId">${state.patients.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}</select></label><label class="field">Takip nedeni<input name="reason" required placeholder="6 aylık kontrol" /></label><div class="modal-grid two"><label class="field">Takip tarihi<input name="dueDate" type="date" value="${todayIso}" required /></label><label class="field">Durum<select name="status"><option value="OPEN">Açık</option><option value="CONTACTED">İletişime geçildi</option><option value="SCHEDULED">Randevu planlandı</option><option value="CLOSED">Kapandı</option></select></label></div><label class="field">Not<textarea name="notes"></textarea></label><div class="modal-actions"><button type="button" class="button button-secondary" data-module="Recall">Vazgeç</button><button class="button button-primary">Takibi kaydet</button></div></form>`);
+  }
+
   function openAddTreatmentPlan() {
     if (!state.patients.length) return showToast("Önce bir hasta ekleyin.");
     if (!clinicDoctors.length) return showToast("Önce Klinik yönetimi bölümünden doktor ekleyin.");
@@ -882,12 +1003,13 @@
     const totalPaid = payments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const totalRemaining = payments.reduce((sum, item) => sum + outstandingAmount(item), 0);
     openModal("HASTA PROFİLİ", patient.name, `<div class="modal-grid">
-      <p class="modal-note"><strong>${escapeHtml(patient.phone)}</strong><br/>${escapeHtml(patient.email || "E-posta belirtilmedi")}<br/>Son ziyaret: ${escapeHtml(patient.lastVisit)}</p>
+      <p class="modal-note"><strong>${escapeHtml(patient.phone)}</strong><br/>${escapeHtml(patient.email || "E-posta belirtilmedi")}<br/>Kimlik: ${escapeHtml(patient.nationalId || "Belirtilmedi")} · Doğum: ${escapeHtml(patient.birthDate || "Belirtilmedi")}<br/>Adres: ${escapeHtml(patient.address || "Belirtilmedi")}<br/>Son ziyaret: ${escapeHtml(patient.lastVisit)}</p>
+      <p class="modal-note"><strong>Sağlık özeti</strong><br/>Alerji: ${escapeHtml(patient.allergies || "Yok / belirtilmedi")}<br/>Kronik hastalık: ${escapeHtml(patient.chronicDiseases || "Yok / belirtilmedi")}<br/>İlaçlar: ${escapeHtml(patient.medications || "Yok / belirtilmedi")}</p>
       <div class="finance-stats"><article class="finance-stat"><span>Tahsil edilen</span><strong>${currency(totalPaid)}</strong><small>${payments.length} ödeme kaydı</small></article><article class="finance-stat"><span>Kalan bakiye</span><strong>${currency(totalRemaining)}</strong><small>${appointments.length} randevu</small></article></div>
       <section class="patient-section"><div class="patient-section-title"><strong>Geçmiş tedaviler</strong><span>${history.length}</span></div><div class="history-list">${history.length ? history.map((item, index) => `<article><i>🦷</i><span><strong>${escapeHtml(item.treatment)}</strong><small>${escapeHtml(item.date)} · ${escapeHtml(item.doctor)}</small><p>${escapeHtml(item.note)}</p></span><button class="delete-button" data-delete-treatment="${index}" data-patient-id="${patient.id}" aria-label="${escapeHtml(item.treatment)} kaydını sil">Sil</button></article>`).join("") : `<p class="empty-inline">Tedavi geçmişi yok.</p>`}</div><button class="button button-secondary" data-action="add-treatment-history" data-patient-prefill="${patient.id}">Geçmiş tedavi ekle</button></section>
       <section class="patient-section"><div class="patient-section-title"><strong>Ödeme geçmişi</strong><span>${payments.length}</span></div><div class="history-list">${payments.length ? payments.map((item) => `<article><i>₺</i><span><strong>${currency(item.amount)} · ${escapeHtml(item.detail)}</strong><small>${escapeHtml(item.date)}${outstandingAmount(item) ? ` · Kalan ${currency(outstandingAmount(item))}` : " · Tamamlandı"}</small>${item.components?.length ? `<p>${item.components.map((line) => `${escapeHtml(line.name)}: ${currency(line.amount)}`).join(" · ")}</p>` : ""}</span><button class="delete-button" data-delete-transaction="${item.id}" data-patient-id="${patient.id}" aria-label="Ödeme kaydını sil">Sil</button></article>`).join("") : `<p class="empty-inline">Ödeme geçmişi yok.</p>`}</div></section>
       <section class="patient-section"><div class="patient-section-title"><strong>Before / After fotoğrafları</strong><span>${media.length}</span></div><div class="photo-grid">${media.length ? media.map((item) => `<figure><img src="${escapeHtml(item.dataUrl)}" alt="${escapeHtml(item.kind)} fotoğrafı"/><figcaption>${escapeHtml(item.kind)} · ${escapeHtml(item.date)}</figcaption><button class="delete-button photo-delete" data-delete-media="${item.id}" data-patient-id="${patient.id}" aria-label="${escapeHtml(item.kind)} fotoğrafını sil">Sil</button></figure>`).join("") : `<p class="empty-inline">Henüz fotoğraf eklenmedi.</p>`}</div><div class="photo-actions"><label class="button button-secondary">📷 Before çek<input class="visually-hidden" type="file" accept="image/*" capture="environment" data-patient-media="${patient.id}" data-media-kind="Before" /></label><label class="button button-secondary">📷 After çek<input class="visually-hidden" type="file" accept="image/*" capture="environment" data-patient-media="${patient.id}" data-media-kind="After" /></label><label class="button button-secondary">Dosyalardan yükle<input class="visually-hidden" type="file" accept="image/*" data-patient-media="${patient.id}" data-media-kind="Dosya" /></label></div></section>
-      <div class="modal-actions"><button class="button button-secondary" data-action="add-appointment" data-patient-prefill="${patient.id}">Yeni randevu oluştur</button><button class="button button-primary" data-action="add-payment" data-patient-prefill="${patient.id}">Ödeme ekle</button></div>
+      <div class="modal-actions"><button class="button button-secondary" data-edit-patient="${patient.id}">Bilgileri düzenle</button><button class="button button-secondary" data-action="add-appointment" data-patient-prefill="${patient.id}">Yeni randevu oluştur</button><button class="button button-primary" data-action="add-payment" data-patient-prefill="${patient.id}">Ödeme ekle</button></div>
     </div>`);
   }
 
@@ -900,7 +1022,7 @@
     openModal("RANDEVU DETAYI", `${appointment.time} · ${patient?.name || "Hasta"}`, `<div class="modal-grid">
       <p class="modal-note"><strong>${escapeHtml(appointment.treatment)}</strong><br/>${escapeHtml(appointment.doctor)} · ${escapeHtml(appointment.room)}<br/>${appointment.duration} dakika · ${statusLabel(appointment.status)}</p>
       <p class="modal-note"><strong>Onam kontrolü</strong><br/>${signedConsent ? `İmzalı: ${escapeHtml(signedConsent.form)} · ${escapeHtml(signedConsent.signedAt || signedConsent.date)}` : "Bu tedaviyle eşleşen imzalı onam bulunamadı. İşlem öncesi Onam bölümünü kontrol edin."}</p>
-      <label class="field">Durum<select id="appointmentStatus"><option value="PLANNED" ${appointment.status === "PLANNED" ? "selected" : ""}>Planlandı</option><option value="ARRIVED" ${appointment.status === "ARRIVED" ? "selected" : ""}>Geldi</option><option value="COMPLETED" ${appointment.status === "COMPLETED" ? "selected" : ""}>Tamamlandı</option><option value="PENDING" ${appointment.status === "PENDING" ? "selected" : ""}>Onay bekliyor</option><option value="NO_SHOW" ${appointment.status === "NO_SHOW" ? "selected" : ""}>Gelmedi</option><option value="CANCELLED" ${appointment.status === "CANCELLED" ? "selected" : ""}>İptal edildi</option></select></label>
+      <label class="field">Durum<select id="appointmentStatus"><option value="PLANNED" ${appointment.status === "PLANNED" ? "selected" : ""}>Planlandı</option><option value="ARRIVED" ${appointment.status === "ARRIVED" ? "selected" : ""}>Geldi</option><option value="COMPLETED" ${appointment.status === "COMPLETED" ? "selected" : ""}>Tamamlandı</option><option value="PENDING_CONFIRMATION" ${appointment.status === "PENDING_CONFIRMATION" ? "selected" : ""}>Onay bekliyor</option><option value="NO_SHOW" ${appointment.status === "NO_SHOW" ? "selected" : ""}>Gelmedi</option><option value="CANCELLED" ${appointment.status === "CANCELLED" ? "selected" : ""}>İptal edildi</option></select></label>
       <button class="button button-primary" data-save-appointment="${appointment.id}">Durumu güncelle</button>
     </div>`);
   }
@@ -975,6 +1097,7 @@
   function openModule(name) {
     if (name === "Finans") return navigate("finance");
     if (name === "Dijital onam") return navigate("consents");
+    if (name === "Tam web paneli") return openLivePortal("/dashboard");
     const paidIncome = state.transactions.filter((item) => item.type === "income" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
     const expenses = state.transactions.filter((item) => item.type === "expense" && item.status === "PAID").reduce((sum, item) => sum + item.amount, 0);
     const pendingTotal = state.transactions.filter((item) => item.type === "income").reduce((sum, item) => sum + outstandingAmount(item), 0);
@@ -986,16 +1109,20 @@
     const doctorCounts = Object.entries(state.appointments.reduce((result, item) => { result[item.doctor] = (result[item.doctor] || 0) + 1; return result; }, {})).sort((a, b) => b[1] - a[1]);
     const moduleContent = {
       "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span><button class="delete-button" data-delete-record="${plan.id}" data-record-kind="treatmentPlans" aria-label="${escapeHtml(plan.patient)} tedavi planını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Tedavi planı yok.</p>`}</div>`,
+      "Gerçekleşen tedaviler": `<div class="modal-grid"><button class="button button-primary" data-action="add-treatment">Tedavi kaydı ekle</button><div class="list-stack">${treatments.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.treatment)} · ${escapeHtml(item.doctor)} · ${escapeHtml(item.date)}</small></span><span class="record-value">${currency(item.fee || 0)}<small>${escapeHtml(item.status)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="treatments">Sil</button></article>`).join("") || `<p class="empty-inline">Gerçekleşen tedavi kaydı yok.</p>`}</div></div>`,
+      "Personel": `<div class="modal-grid"><button class="button button-primary" data-action="add-staff">Personel ekle</button><div class="list-stack">${staffRecords.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">👤</span><span class="patient-copy"><strong>${escapeHtml(item.fullName)}</strong><small>${escapeHtml(item.roleLabel)} · ${escapeHtml(item.workingHours || "Saat belirtilmedi")}</small></span><span class="record-state">${item.active !== false ? "Aktif" : "Pasif"}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="staffRecords">Sil</button></article>`).join("") || `<p class="empty-inline">Personel kaydı yok.</p>`}</div></div>`,
       "Sağlık turizmi": `<div class="modal-grid"><button class="button button-primary" data-action="add-lead">Yeni lead ekle</button><div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card record-deletable"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a><button class="delete-button" data-delete-record="${lead.id}" data-record-kind="hotLeads" aria-label="${escapeHtml(lead.name)} lead kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Lead kaydı yok.</p>`}</div></div>`,
       "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record record-deletable"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="stockItems" aria-label="${escapeHtml(item.name)} stok kaydını sil">Sil</button></article>`; }).join("") || `<p class="empty-inline">Stok kaydı yok.</p>`}</div>`,
       "İletişim": `<div class="modal-grid"><button class="button button-primary" data-action="add-communication">İletişim kaydı ekle</button><div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}</div><p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
+      "Anketler": `<div class="modal-grid"><div class="modal-actions"><button class="button button-primary" data-action="add-survey">Anket oluştur</button><button class="button button-secondary" data-action="add-survey-response">Yanıt ekle</button></div><div class="list-stack">${surveys.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">★</span><span class="patient-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description || "Açıklama yok")} · ${surveyResponses.filter((response) => Number(response.surveyId) === Number(item.id)).length} yanıt</small></span><span class="record-state">${item.active !== false ? "Aktif" : "Kapalı"}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="surveys">Sil</button></article>`).join("") || `<p class="empty-inline">Anket yok.</p>`}</div><div class="history-list">${surveyResponses.slice(0, 10).map((item) => `<article><i>${item.score}</i><span><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.survey || "Anket")}</strong><small>${escapeHtml(item.date || "Şimdi")}</small><p>${escapeHtml(item.comment || "Yorum yok")}</p></span></article>`).join("")}</div></div>`,
+      "Recall": `<div class="modal-grid"><button class="button button-primary" data-action="add-recall">Takip ekle</button><div class="list-stack">${recalls.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">↻</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.reason)} · ${escapeHtml(item.dueDate)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="recalls">Sil</button></article>`).join("") || `<p class="empty-inline">Takip kaydı yok.</p>`}</div></div>`,
       "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Ödenmiş gelir</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>${currency(expenses)} gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Bekleyen</span><strong>${currency(pendingTotal)}</strong><small>Tahsil edilecek</small></article><article class="finance-stat"><span>Stok değeri</span><strong>${currency(stockValue)}</strong><small>${criticalStock} kritik ürün</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>${completedAppointments} tamamlandı · ${noShowAppointments} gelmedi</small></article></div><section class="patient-section"><div class="patient-section-title"><strong>Hekim performansı</strong><span>${doctorCounts.length}</span></div><div class="history-list">${doctorCounts.map(([doctor, count]) => `<article><i>👨‍⚕️</i><span><strong>${escapeHtml(doctor)}</strong><small>${count} randevu</small></span></article>`).join("") || `<p class="empty-inline">Hekim verisi yok.</p>`}</div></section><section class="patient-section"><div class="patient-section-title"><strong>Tedavi dağılımı</strong><span>${treatmentCounts.length}</span></div><div class="history-list">${treatmentCounts.slice(0, 8).map(([treatment, count]) => `<article><i>🦷</i><span><strong>${escapeHtml(treatment)}</strong><small>${count} kayıt</small></span></article>`).join("") || `<p class="empty-inline">Tedavi verisi yok.</p>`}</div></section><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
       "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Kimlik doğrulamalı imza gönderimi ve yasal sunucu kaydı bağlantı gerektirir.</p></div>`,
       "Çöp Kutusu": `<div class="modal-grid"><p class="modal-note">Silinen kayıtlar 30 gün burada saklanır. Süre dolunca otomatik ve kalıcı olarak temizlenir.</p><div class="list-stack">${trashItems.map((item) => `<article class="trash-record"><span class="record-icon">♻</span><span class="patient-copy"><strong>${escapeHtml(item.label)}</strong><small>${trashDaysLeft(item)} gün kaldı</small></span><button class="mini-action" data-restore-trash="${item.id}">Geri yükle</button><button class="delete-button" data-purge-trash="${item.id}" aria-label="${escapeHtml(item.label)} kaydını kalıcı sil">Kalıcı sil</button></article>`).join("") || `<p class="empty-inline">Çöp Kutusu boş.</p>`}</div>${trashItems.length ? `<button class="button button-secondary" data-empty-trash>Çöp Kutusunu boşalt</button>` : ""}</div>`
     };
-    const routes = { "Tedavi planları": "treatment-plans", "Sağlık turizmi": "tourism/leads", "Stok": "stocks", "İletişim": "communication", "Raporlar": "reports", "Dijital onam": "consents" };
+    const routes = { "Tedavi planları": "treatment-plans", "Gerçekleşen tedaviler": "treatments", Personel: "staff", "Sağlık turizmi": "tourism/leads", "İletişim": "communication", Anketler: "surveys", Recall: "recalls", "Raporlar": "reports", "Dijital onam": "consents" };
     const serverUrl = previewMode ? "" : storage.get("clinicnova.serverUrl", "");
-    const liveButton = serverUrl ? `<a class="button button-secondary" href="${escapeHtml(serverUrl.replace(/\/$/, ""))}/dashboard/${routes[name] || ""}">Canlı panelde aç</a>` : "";
+    const liveButton = serverUrl ? `<button class="button button-secondary" data-open-portal="/dashboard/${escapeHtml(routes[name] || "")}">Canlı panelde aç</button>` : "";
     openModal("YEREL ÇALIŞMA", name, `<div class="modal-grid">${moduleContent[name] || `<p class="modal-note">Bu modül henüz yerel kayda sahip değil.</p>`}${liveButton}</div>`);
   }
 
@@ -1040,6 +1167,7 @@
 
   function enterPreviewMode() {
     previewMode = true;
+    serverPermissions = null;
     previewClinicName = "İnceleme Kliniği";
     state.patients = JSON.parse(JSON.stringify(defaultPatients));
     state.appointments = JSON.parse(JSON.stringify(defaultAppointments));
@@ -1061,6 +1189,7 @@
     clinicChairs = JSON.parse(JSON.stringify(defaultClinicChairs));
     communicationLog = JSON.parse(JSON.stringify(defaultCommunicationLog));
     consentRecords = JSON.parse(JSON.stringify(defaultConsentRecords));
+    treatments = []; staffRecords = []; surveys = []; surveyResponses = []; recalls = [];
     trashItems = [];
     syncQueue = [];
     syncMap = {};
@@ -1070,8 +1199,9 @@
 
   function normalizedServerUrl(value) {
     const parsed = new URL(String(value || "").trim());
-    if (parsed.protocol !== "https:") throw new Error("HTTPS gerekli");
-    parsed.pathname = parsed.pathname.replace(/\/$/, "");
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || (parsed.port && parsed.port !== "443") || !["", "/"].includes(parsed.pathname)) throw new Error("HTTPS gerekli");
+    parsed.port = "";
+    parsed.pathname = "";
     parsed.search = "";
     parsed.hash = "";
     return parsed.href.replace(/\/$/, "");
@@ -1083,12 +1213,24 @@
       storage.set("clinicnova.serverUrl", serverUrl);
       showToast("Sunucu hesabı girişi açılıyor…");
       const platform = encodeURIComponent(mobileConfig.platform || "android");
-      setTimeout(() => { window.location.href = `${serverUrl}/login?next=%2Fmobile-connect&mobile=${platform}`; }, 350);
+      setTimeout(() => {
+        if (typeof window.ClinicNovaNative?.connect === "function") window.ClinicNovaNative.connect(serverUrl);
+        else window.location.href = `${serverUrl}/login?next=%2Fmobile-connect&mobile=${platform}`;
+      }, 350);
       return true;
     } catch {
       showToast("Geçerli bir HTTPS ClinicNova adresi girin.");
       return false;
     }
+  }
+
+  function openLivePortal(path = "/dashboard") {
+    if (previewMode) return showToast("Canlı panel inceleme modunda kapalıdır.");
+    const serverUrl = storage.get("clinicnova.serverUrl", "");
+    if (!serverUrl) return showToast("Önce ClinicNova sunucusuna bağlanın.");
+    if (!navigator.onLine) return showToast("Canlı panel için internet bağlantısı gerekir.");
+    if (typeof window.ClinicNovaNative?.openPortal === "function") window.ClinicNovaNative.openPortal(serverUrl, path);
+    else window.location.href = `${serverUrl.replace(/\/$/, "")}${path}`;
   }
 
   function syncPending(force = false) {
@@ -1099,12 +1241,13 @@
     if (!force && !syncQueue.length && Date.now() - lastPullAt < 60_000) return;
     syncing = true;
     updateNetworkBadge();
-    const operations = syncQueue.slice(0, 50);
+    const operations = syncQueue.filter((item) => canSyncEntity(item.entityType)).slice(0, 50);
     window.ClinicNovaNative.sync(serverUrl, JSON.stringify({ deviceId, operations }));
   }
 
   function applyServerSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return;
+    if (snapshot.permissions && typeof snapshot.permissions === "object") { serverPermissions = snapshot.permissions; storage.set("clinicnova.serverPermissions", serverPermissions); }
     const collections = {
       PATIENT: Array.isArray(snapshot.patients) ? snapshot.patients : [],
       APPOINTMENT: Array.isArray(snapshot.appointments) ? snapshot.appointments : [],
@@ -1112,7 +1255,15 @@
       TREATMENT_PLAN: Array.isArray(snapshot.treatmentPlans) ? snapshot.treatmentPlans : [],
       STOCK_ITEM: Array.isArray(snapshot.stockItems) ? snapshot.stockItems : [],
       STOCK_RECIPE: Array.isArray(snapshot.stockRecipes) ? snapshot.stockRecipes : [],
-      DOCTOR: Array.isArray(snapshot.doctors) ? snapshot.doctors : []
+      DOCTOR: Array.isArray(snapshot.doctors) ? snapshot.doctors : [],
+      TREATMENT: Array.isArray(snapshot.treatments) ? snapshot.treatments : [],
+      STAFF: Array.isArray(snapshot.staff) ? snapshot.staff : [],
+      CONSENT: Array.isArray(snapshot.consents) ? snapshot.consents.map((item) => ({ ...item, form: item.templateName, status: consentStatusLabel(item.status) })) : [],
+      SURVEY: Array.isArray(snapshot.surveys) ? snapshot.surveys : [],
+      SURVEY_RESPONSE: Array.isArray(snapshot.surveyResponses) ? snapshot.surveyResponses : [],
+      COMMUNICATION: Array.isArray(snapshot.communication) ? snapshot.communication : [],
+      RECALL: Array.isArray(snapshot.recalls) ? snapshot.recalls : [],
+      LEAD: Array.isArray(snapshot.leads) ? snapshot.leads : []
     };
     const serverIds = Object.fromEntries(Object.entries(collections).map(([type, items]) => [type, new Map(items.map((item) => [String(item.serverId), item.id]))]));
     for (const [type, items] of Object.entries(collections)) {
@@ -1136,6 +1287,14 @@
     const pendingStocks = retainPending(stockItems, "STOCK_ITEM");
     const pendingRecipes = retainPending(stockRecipes, "STOCK_RECIPE");
     const pendingDoctors = retainPending(clinicDoctors, "DOCTOR");
+    const pendingTreatments = retainPending(treatments, "TREATMENT").map(mapPatientReference);
+    const pendingStaff = retainPending(staffRecords, "STAFF");
+    const pendingConsents = retainPending(consentRecords, "CONSENT").map(mapPatientReference);
+    const pendingSurveys = retainPending(surveys, "SURVEY");
+    const pendingSurveyResponses = retainPending(surveyResponses, "SURVEY_RESPONSE").map((item) => ({ ...mapPatientReference(item), surveyId: localIdForServer("SURVEY", item.surveyId) }));
+    const pendingCommunication = retainPending(communicationLog, "COMMUNICATION").map(mapPatientReference);
+    const pendingRecalls = retainPending(recalls, "RECALL").map(mapPatientReference);
+    const pendingLeads = retainPending(hotLeads, "LEAD");
 
     state.patients = [...pendingPatients, ...collections.PATIENT];
     state.appointments = [...pendingAppointments, ...collections.APPOINTMENT];
@@ -1144,6 +1303,21 @@
     stockItems = [...pendingStocks, ...collections.STOCK_ITEM];
     stockRecipes = [...pendingRecipes, ...collections.STOCK_RECIPE];
     clinicDoctors = [...pendingDoctors, ...collections.DOCTOR];
+    treatments = [...pendingTreatments, ...collections.TREATMENT];
+    staffRecords = [...pendingStaff, ...collections.STAFF];
+    consentRecords = [...pendingConsents, ...collections.CONSENT];
+    surveys = [...pendingSurveys, ...collections.SURVEY];
+    surveyResponses = [...pendingSurveyResponses, ...collections.SURVEY_RESPONSE];
+    communicationLog = [...pendingCommunication, ...collections.COMMUNICATION];
+    recalls = [...pendingRecalls, ...collections.RECALL];
+    hotLeads = [...pendingLeads, ...collections.LEAD];
+    const syncedTreatmentHistory = {};
+    for (const item of treatments) (syncedTreatmentHistory[item.patientId] ||= []).push({ id: item.id, date: item.date, treatment: item.treatment, doctor: item.doctor, note: item.description || statusLabel(item.status), syncedTreatment: true });
+    for (const [patientId, entries] of Object.entries(state.treatmentHistory)) {
+      const localOnly = entries.filter((item) => !item.syncedTreatment && !treatments.some((treatment) => Number(treatment.id) === Number(item.id)));
+      if (localOnly.length) (syncedTreatmentHistory[patientId] ||= []).push(...localOnly);
+    }
+    state.treatmentHistory = syncedTreatmentHistory;
     if (snapshot.clinicConfig) {
       clinicChairs = Array.isArray(snapshot.clinicConfig.chairs) ? snapshot.clinicConfig.chairs : clinicChairs;
       const account = localAccount() || {};
@@ -1167,6 +1341,7 @@
     if (status < 200 || status >= 300) {
       showToast(response.error || "Sunucuya ulaşılamadı; kayıtlar cihazda bekliyor.");
       updateNetworkBadge();
+      scheduleSync(30_000);
       return;
     }
     const byId = new Map(syncQueue.map((item) => [item.operationId, item]));
@@ -1182,7 +1357,7 @@
     persistSyncState();
     if (response.failed) showToast(`${response.synced} kayıt eşitlendi, ${response.failed} kayıt bekliyor.`);
     else if (response.synced) showToast(`${response.synced} kayıt sunucuya eşitlendi.`);
-    if (syncQueue.length && response.synced > 0) setTimeout(syncPending, 300);
+    if (syncQueue.some((item) => canSyncEntity(item.entityType))) scheduleSync(response.synced > 0 && !response.failed ? 300 : 30_000);
   };
   window.ClinicNovaNative?.onSyncResult?.(window.ClinicNovaSyncResult);
 
@@ -1204,6 +1379,7 @@
       productUrl: String(offer.productUrl || "").trim(), inStock: offer.inStock !== false, checkedAt, source: "online"
     })).filter((offer) => offer.seller.length >= 2 && Number.isFinite(offer.unitPrice) && offer.unitPrice > 0 && Number.isFinite(offer.shippingPrice) && offer.shippingPrice >= 0 && offer.productUrl.startsWith("https://"));
     item.offers = offers.sort((left, right) => left.unitPrice + left.shippingPrice - right.unitPrice - right.shippingPrice);
+    offers.forEach((offer) => queueCreate("STOCK_OFFER", offer.id, { itemId: String(item.id), seller: offer.seller, unitPrice: offer.unitPrice, shippingPrice: offer.shippingPrice, productUrl: offer.productUrl, inStock: offer.inStock }));
     saveData(); openStockDetail(item.id);
     showToast(offers.length ? `${offers.length} internet teklifi güncellendi.` : "Bu ürün için satışta teklif bulunamadı.");
   };
@@ -1351,6 +1527,10 @@
         state.appointments.push(...payload.appointments);
         state.transactions.push(...payload.transactions);
         treatmentPlans.push(...(payload.treatmentPlans || []));
+        treatments.push(...(payload.treatments || []));
+        recalls.push(...(payload.recalls || []));
+        surveyResponses.push(...(payload.surveyResponses || []));
+        communicationLog.push(...(payload.communication || []));
         consentRecords.push(...(payload.consents || []));
         if (payload.treatmentHistory?.length) state.treatmentHistory[payload.patient.id] = payload.treatmentHistory;
         if (payload.media?.length) state.patientMedia[payload.patient.id] = payload.media;
@@ -1358,23 +1538,34 @@
         payload.appointments.forEach((item) => queueCreate("APPOINTMENT", item.id, appointmentPayload(item)));
         payload.transactions.filter((item) => item.patientId).forEach((item) => queueCreate("PAYMENT", item.id, paymentPayload(item)));
         (payload.treatmentPlans || []).forEach((item) => queueCreate("TREATMENT_PLAN", item.id, treatmentPlanPayload(item)));
+        (payload.treatments || []).forEach((item) => queueCreate("TREATMENT", item.id, treatmentPayload(item)));
+        (payload.recalls || []).forEach((item) => queueCreate("RECALL", item.id, recallPayload(item)));
+        (payload.surveyResponses || []).forEach((item) => queueCreate("SURVEY_RESPONSE", item.id, surveyResponsePayload(item)));
+        (payload.communication || []).forEach((item) => queueCreate("COMMUNICATION", item.id, communicationPayload(item)));
       }
       if (trashItem.kind === "appointment") { state.appointments.push(payload); queueCreate("APPOINTMENT", payload.id, appointmentPayload(payload)); }
       if (trashItem.kind === "transaction") { state.transactions.unshift(payload); if (payload.patientId) queueCreate("PAYMENT", payload.id, paymentPayload(payload)); }
-      if (trashItem.kind === "treatmentHistory") (state.treatmentHistory[payload.patientId] ||= []).splice(payload.index, 0, payload.item);
+      if (trashItem.kind === "treatmentHistory") {
+        (state.treatmentHistory[payload.patientId] ||= []).splice(payload.index, 0, payload.item);
+        if (payload.treatmentRecord) { treatments.unshift(payload.treatmentRecord); queueCreate("TREATMENT", payload.treatmentRecord.id, treatmentPayload(payload.treatmentRecord)); }
+      }
       if (trashItem.kind === "media") (state.patientMedia[payload.patientId] ||= []).unshift(payload.item);
-      if (trashItem.kind === "treatmentPlans") treatmentPlans.unshift(payload);
-      if (trashItem.kind === "hotLeads") hotLeads.unshift(payload);
-      if (trashItem.kind === "stockItems") stockItems.unshift(payload);
+      if (trashItem.kind === "treatmentPlans") { treatmentPlans.unshift(payload); queueCreate("TREATMENT_PLAN", payload.id, treatmentPlanPayload(payload)); }
+      if (trashItem.kind === "hotLeads") { hotLeads.unshift(payload); queueCreate("LEAD", payload.id, leadPayload(payload)); }
+      if (trashItem.kind === "stockItems") { stockItems.unshift(payload); queueCreate("STOCK_ITEM", payload.id, stockItemPayload(payload)); }
       if (trashItem.kind === "stockOffer") {
         const stockItem = stockItems.find((item) => Number(item.id) === Number(payload.stockId));
         if (stockItem) {
           (stockItem.offers ||= []).push(payload.offer);
-          if (payload.offer.source !== "online") queueCreate("STOCK_OFFER", payload.offer.id, { itemId: String(stockItem.id), seller: payload.offer.seller, unitPrice: payload.offer.unitPrice, shippingPrice: payload.offer.shippingPrice || 0, productUrl: payload.offer.productUrl, inStock: payload.offer.inStock !== false });
+          queueCreate("STOCK_OFFER", payload.offer.id, { itemId: String(stockItem.id), seller: payload.offer.seller, unitPrice: payload.offer.unitPrice, shippingPrice: payload.offer.shippingPrice || 0, productUrl: payload.offer.productUrl, inStock: payload.offer.inStock !== false });
         }
       }
-      if (trashItem.kind === "communicationLog") communicationLog.unshift(payload);
-      if (trashItem.kind === "consentRecords") consentRecords.unshift(payload);
+      if (trashItem.kind === "communicationLog") { communicationLog.unshift(payload); queueCreate("COMMUNICATION", payload.id, communicationPayload(payload)); }
+      if (trashItem.kind === "consentRecords") { consentRecords.unshift(payload); queueCreate("CONSENT", payload.id, consentPayload(payload)); }
+      if (trashItem.kind === "treatments") { treatments.unshift(payload); queueCreate("TREATMENT", payload.id, treatmentPayload(payload)); }
+      if (trashItem.kind === "staffRecords") { staffRecords.unshift(payload); queueCreate("STAFF", payload.id, staffPayload(payload)); }
+      if (trashItem.kind === "surveys") { surveys.unshift(payload); queueCreate("SURVEY", payload.id, surveyPayload(payload)); }
+      if (trashItem.kind === "recalls") { recalls.unshift(payload); queueCreate("RECALL", payload.id, recallPayload(payload)); }
       trashItems = trashItems.filter((item) => Number(item.id) !== trashId);
       saveData(); renderAll(); openModule("Çöp Kutusu"); showToast("Kayıt geri yüklendi."); return;
     }
@@ -1391,16 +1582,30 @@
     if (target.dataset.deleteRecord) {
       const id = Number(target.dataset.deleteRecord);
       const kind = target.dataset.recordKind;
-      const moduleByKind = { treatmentPlans: "Tedavi planları", hotLeads: "Sağlık turizmi", stockItems: "Stok", communicationLog: "İletişim", consentRecords: "Dijital onam" };
+      const moduleByKind = { treatmentPlans: "Tedavi planları", treatments: "Gerçekleşen tedaviler", staffRecords: "Personel", hotLeads: "Sağlık turizmi", stockItems: "Stok", communicationLog: "İletişim", consentRecords: "Dijital onam", surveys: "Anketler", recalls: "Recall" };
       if (!moduleByKind[kind] || !window.confirm("Bu kayıt silinsin mi?")) return;
-      const sourceByKind = { treatmentPlans, hotLeads, stockItems, communicationLog, consentRecords };
+      const sourceByKind = { treatmentPlans, treatments, staffRecords, hotLeads, stockItems, communicationLog, consentRecords, surveys, recalls };
       const deletedRecord = sourceByKind[kind].find((item) => item.id === id);
-      if (deletedRecord) moveToTrash(kind, deletedRecord.name || deletedRecord.patient || deletedRecord.form || "Silinen kayıt", deletedRecord);
+      if (deletedRecord) moveToTrash(kind, deletedRecord.name || deletedRecord.fullName || deletedRecord.title || deletedRecord.patient || deletedRecord.form || deletedRecord.reason || "Silinen kayıt", deletedRecord);
       if (kind === "treatmentPlans") treatmentPlans = treatmentPlans.filter((item) => item.id !== id);
+      if (kind === "treatments") { treatments = treatments.filter((item) => item.id !== id); queueDelete("TREATMENT", id); }
+      if (kind === "staffRecords") { staffRecords = staffRecords.filter((item) => item.id !== id); queueDelete("STAFF", id); }
       if (kind === "hotLeads") hotLeads = hotLeads.filter((item) => item.id !== id);
       if (kind === "stockItems") stockItems = stockItems.filter((item) => item.id !== id);
       if (kind === "communicationLog") communicationLog = communicationLog.filter((item) => item.id !== id);
       if (kind === "consentRecords") consentRecords = consentRecords.filter((item) => item.id !== id);
+      if (kind === "surveys") {
+        const linkedResponses = surveyResponses.filter((item) => Number(item.surveyId) === id);
+        linkedResponses.forEach((item) => queueDelete("SURVEY_RESPONSE", item.id));
+        surveyResponses = surveyResponses.filter((item) => Number(item.surveyId) !== id);
+        surveys = surveys.filter((item) => item.id !== id); queueDelete("SURVEY", id);
+      }
+      if (kind === "recalls") { recalls = recalls.filter((item) => item.id !== id); queueDelete("RECALL", id); }
+      if (kind === "hotLeads") queueDelete("LEAD", id);
+      if (kind === "communicationLog") queueDelete("COMMUNICATION", id);
+      if (kind === "consentRecords") queueDelete("CONSENT", id);
+      if (kind === "treatmentPlans") queueDelete("TREATMENT_PLAN", id);
+      if (kind === "stockItems") queueDelete("STOCK_ITEM", id);
       const originalOpener = modalOpener;
       saveData();
       if (kind === "hotLeads") renderDashboard();
@@ -1415,17 +1620,30 @@
       const linkedTransactions = state.transactions.filter((item) => item.patientId === patientId);
       const linkedPlans = treatmentPlans.filter((item) => Number(item.patientId) === patientId);
       const linkedConsents = consentRecords.filter((item) => Number(item.patientId) === patientId);
+      const linkedTreatments = treatments.filter((item) => Number(item.patientId) === patientId);
+      const linkedRecalls = recalls.filter((item) => Number(item.patientId) === patientId);
+      const linkedSurveyResponses = surveyResponses.filter((item) => Number(item.patientId) === patientId);
+      const linkedCommunication = communicationLog.filter((item) => Number(item.patientId) === patientId);
       linkedAppointments.filter((item) => item.status === "COMPLETED").forEach((item) => { applyLocalStockForAppointment(item, "CANCELLED"); item.status = "CANCELLED"; });
-      moveToTrash("patientBundle", patient.name, { patient, appointments: linkedAppointments, transactions: linkedTransactions, treatmentPlans: linkedPlans, consents: linkedConsents, treatmentHistory: state.treatmentHistory[patientId] || [], media: state.patientMedia[patientId] || [] });
+      moveToTrash("patientBundle", patient.name, { patient, appointments: linkedAppointments, transactions: linkedTransactions, treatmentPlans: linkedPlans, consents: linkedConsents, treatments: linkedTreatments, recalls: linkedRecalls, surveyResponses: linkedSurveyResponses, communication: linkedCommunication, treatmentHistory: state.treatmentHistory[patientId] || [], media: state.patientMedia[patientId] || [] });
       linkedAppointments.forEach((item) => queueDelete("APPOINTMENT", item.id));
       linkedTransactions.forEach((item) => queueDelete("PAYMENT", item.id));
       linkedPlans.forEach((item) => queueDelete("TREATMENT_PLAN", item.id));
+      linkedConsents.forEach((item) => queueDelete("CONSENT", item.id));
+      linkedTreatments.forEach((item) => queueDelete("TREATMENT", item.id));
+      linkedRecalls.forEach((item) => queueDelete("RECALL", item.id));
+      linkedSurveyResponses.forEach((item) => queueDelete("SURVEY_RESPONSE", item.id));
+      linkedCommunication.forEach((item) => queueDelete("COMMUNICATION", item.id));
       queueDelete("PATIENT", patientId);
       state.patients = state.patients.filter((item) => item.id !== patientId);
       state.appointments = state.appointments.filter((item) => item.patientId !== patientId);
       state.transactions = state.transactions.filter((item) => item.patientId !== patientId);
       treatmentPlans = treatmentPlans.filter((item) => Number(item.patientId) !== patientId);
       consentRecords = consentRecords.filter((item) => Number(item.patientId) !== patientId);
+      treatments = treatments.filter((item) => Number(item.patientId) !== patientId);
+      recalls = recalls.filter((item) => Number(item.patientId) !== patientId);
+      surveyResponses = surveyResponses.filter((item) => Number(item.patientId) !== patientId);
+      communicationLog = communicationLog.filter((item) => Number(item.patientId) !== patientId);
       delete state.treatmentHistory[patientId];
       delete state.patientMedia[patientId];
       saveData(); renderAll(); closeModal(); showToast("Hasta ve bağlı kayıtları silindi."); return;
@@ -1457,7 +1675,7 @@
       if (!stockItem || !offer || !window.confirm(`${offer.seller} satın alma fiyatı silinsin mi?`)) return;
       moveToTrash("stockOffer", `${stockItem.name} · ${offer.seller} fiyatı`, { stockId, offer });
       stockItem.offers = stockItem.offers.filter((item) => Number(item.id) !== offerId);
-      if (offer.source !== "online") queueDelete("STOCK_OFFER", offerId);
+      queueDelete("STOCK_OFFER", offerId);
       saveData(); openStockDetail(stockId); showToast("Satın alma fiyatı silindi."); return;
     }
     if (target.dataset.deleteTransaction) {
@@ -1466,7 +1684,7 @@
       if (!window.confirm("Bu finans kaydı silinsin mi?")) return;
       const deletedTransaction = state.transactions.find((item) => item.id === transactionId);
       if (deletedTransaction) moveToTrash("transaction", `${deletedTransaction.name} · ${deletedTransaction.detail}`, deletedTransaction);
-      if (deletedTransaction?.patientId) queueDelete("PAYMENT", transactionId);
+      if (deletedTransaction) queueDelete("PAYMENT", transactionId);
       state.transactions = state.transactions.filter((item) => item.id !== transactionId);
       saveData(); renderAll();
       if (patientId && patientById(patientId)) openPatientDetail(patientId); else closeModal();
@@ -1477,8 +1695,10 @@
       const index = Number(target.dataset.deleteTreatment);
       if (!window.confirm("Bu tedavi geçmişi kaydı silinsin mi?")) return;
       const deletedTreatment = (state.treatmentHistory[patientId] || [])[index];
-      if (deletedTreatment) moveToTrash("treatmentHistory", `${patientById(patientId)?.name || "Hasta"} · ${deletedTreatment.treatment}`, { patientId, index, item: deletedTreatment });
+      const syncedTreatmentRecord = deletedTreatment?.id ? treatments.find((item) => Number(item.id) === Number(deletedTreatment.id)) : null;
+      if (deletedTreatment) moveToTrash("treatmentHistory", `${patientById(patientId)?.name || "Hasta"} · ${deletedTreatment.treatment}`, { patientId, index, item: deletedTreatment, treatmentRecord: syncedTreatmentRecord });
       state.treatmentHistory[patientId] = (state.treatmentHistory[patientId] || []).filter((_, itemIndex) => itemIndex !== index);
+      if (deletedTreatment?.id) { treatments = treatments.filter((item) => Number(item.id) !== Number(deletedTreatment.id)); queueDelete("TREATMENT", deletedTreatment.id); }
       saveData(); openPatientDetail(patientId); showToast("Tedavi kaydı silindi."); return;
     }
     if (target.dataset.deleteMedia) {
@@ -1509,10 +1729,12 @@
       queueUpdate("CLINIC_CONFIG", "clinic", clinicConfigPayload());
       saveData(); openClinicManagement(); showToast("Koltuk silindi."); return;
     }
+    if (target.dataset.editPatient) return openEditPatient(target.dataset.editPatient);
     if (target.dataset.patient) return openPatientDetail(target.dataset.patient);
     if (target.dataset.appointment) return openAppointmentDetail(target.dataset.appointment);
     if (target.dataset.treatmentPlan) return openTreatmentPlanDetail(target.dataset.treatmentPlan);
     if (target.dataset.stockItem) return openStockDetail(target.dataset.stockItem);
+    if (target.dataset.openPortal) return openLivePortal(target.dataset.openPortal);
     if (target.dataset.module) return openModule(target.dataset.module);
     if (target.dataset.transactionFilter) {
       state.transactionFilter = target.dataset.transactionFilter;
@@ -1539,7 +1761,7 @@
     if (target.hasAttribute("data-clear-local")) {
       if (!window.confirm("Bu cihazdaki tüm yerel klinik kayıtları ve bekleyen eşitleme işlemleri silinsin mi?")) return;
       state.patients = []; state.appointments = []; state.transactions = []; state.treatmentHistory = {}; state.patientMedia = {};
-      hotLeads = []; treatmentPlans = []; stockItems = []; stockRecipes = []; communicationLog = []; consentRecords = []; trashItems = [];
+      hotLeads = []; treatmentPlans = []; stockItems = []; stockRecipes = []; communicationLog = []; consentRecords = []; treatments = []; staffRecords = []; surveys = []; surveyResponses = []; recalls = []; trashItems = [];
       syncQueue = []; syncMap = {}; storage.set("clinicnova.syncBootstrapComplete", true);
       saveData(); persistSyncState(); renderAll(); closeModal(); showToast("Yerel kayıtlar temizlendi."); return;
     }
@@ -1554,6 +1776,7 @@
       stockItems = JSON.parse(JSON.stringify(defaultStockItems));
       communicationLog = JSON.parse(JSON.stringify(defaultCommunicationLog));
       consentRecords = JSON.parse(JSON.stringify(defaultConsentRecords));
+      treatments = []; staffRecords = []; surveys = []; surveyResponses = []; recalls = [];
       trashItems = [];
       state.transactionFilter = "ALL";
       state.consentFilter = "ALL";
@@ -1575,6 +1798,11 @@
     if (action === "add-treatment-history") return openAddTreatmentHistory(target.dataset.patientPrefill);
     if (action === "add-lead") return openAddLead();
     if (action === "add-communication") return openAddCommunication();
+    if (action === "add-treatment") return openAddTreatment();
+    if (action === "add-staff") return openAddStaff();
+    if (action === "add-survey") return openAddSurvey();
+    if (action === "add-survey-response") return openAddSurveyResponse();
+    if (action === "add-recall") return openAddRecall();
     if (action === "clinic-management") return openClinicManagement();
     if (action === "add-doctor") return openAddDoctor();
     if (action === "add-chair") return openAddChair();
@@ -1633,6 +1861,41 @@
   });
 
   document.addEventListener("submit", async (event) => {
+    if (event.target.id === "patientEditForm") {
+      event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId")); if (!patient) return showToast("Hasta bulunamadı.");
+      const name = String(form.get("name") || "").trim(); const phone = String(form.get("phone") || "").trim();
+      if (name.length < 2 || phone.replace(/\D/g, "").length < 7) return showToast("Hasta adı ve telefonu kontrol edin.");
+      Object.assign(patient, { name, phone, email: String(form.get("email") || "").trim(), nationalId: String(form.get("nationalId") || "").trim(), birthDate: String(form.get("birthDate") || ""), gender: String(form.get("gender") || "UNSPECIFIED"), address: String(form.get("address") || "").trim(), allergies: String(form.get("allergies") || "").trim(), chronicDiseases: String(form.get("chronicDiseases") || "").trim(), medications: String(form.get("medications") || "").trim(), tag: String(form.get("tag") || "NEW"), treatment: String(form.get("treatment") || "").trim(), note: String(form.get("note") || "").trim() });
+      queueUpdate("PATIENT", patient.id, patientPayload(patient)); saveData(); renderAll(); openPatientDetail(patient.id); showToast("Hasta bilgileri güncellendi."); return;
+    }
+    if (event.target.id === "treatmentForm") {
+      event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId"));
+      const record = { id: Date.now(), patientId: patient?.id, patient: patient?.name || "", doctor: String(form.get("doctor") || ""), tooth: String(form.get("tooth") || ""), treatment: String(form.get("treatment") || "").trim(), description: String(form.get("description") || "").trim(), fee: Number(form.get("fee")), status: String(form.get("status") || "COMPLETED"), date: String(form.get("date") || todayIso), branch: currentClinicName() };
+      if (!patient || record.treatment.length < 2 || !record.doctor || !Number.isFinite(record.fee) || record.fee < 0) return showToast("Tedavi bilgilerini kontrol edin.");
+      treatments.unshift(record); queueCreate("TREATMENT", record.id, treatmentPayload(record)); saveData(); openModule("Gerçekleşen tedaviler"); showToast("Tedavi kaydı eklendi."); return;
+    }
+    if (event.target.id === "staffForm") {
+      event.preventDefault(); const form = new FormData(event.target); const record = { id: Date.now(), fullName: String(form.get("fullName") || "").trim(), roleLabel: String(form.get("roleLabel") || "").trim(), phone: String(form.get("phone") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), workingHours: String(form.get("workingHours") || "").trim(), compensation: String(form.get("compensation") || "").trim(), active: form.get("active") === "on" };
+      if (record.fullName.length < 2 || record.roleLabel.length < 2 || (record.email && !record.email.includes("@"))) return showToast("Personel bilgilerini kontrol edin.");
+      staffRecords.unshift(record); queueCreate("STAFF", record.id, staffPayload(record)); saveData(); openModule("Personel"); showToast("Personel kaydedildi."); return;
+    }
+    if (event.target.id === "surveyForm") {
+      event.preventDefault(); const form = new FormData(event.target); const record = { id: Date.now(), title: String(form.get("title") || "").trim(), description: String(form.get("description") || "").trim(), active: form.get("active") === "on" };
+      if (record.title.length < 2) return showToast("Anket başlığını kontrol edin.");
+      surveys.unshift(record); queueCreate("SURVEY", record.id, surveyPayload(record)); saveData(); openModule("Anketler"); showToast("Anket oluşturuldu."); return;
+    }
+    if (event.target.id === "surveyResponseForm") {
+      event.preventDefault(); const form = new FormData(event.target); const survey = surveys.find((item) => Number(item.id) === Number(form.get("surveyId"))); const patient = patientById(form.get("patientId"));
+      const record = { id: Date.now(), surveyId: survey?.id, patientId: patient?.id, patient: patient?.name || "", survey: survey?.title || "", score: Number(form.get("score")), comment: String(form.get("comment") || "").trim(), date: new Date().toISOString() };
+      if (!survey || !patient || !Number.isInteger(record.score) || record.score < 1 || record.score > 5) return showToast("Anket yanıtını kontrol edin.");
+      surveyResponses.unshift(record); queueCreate("SURVEY_RESPONSE", record.id, surveyResponsePayload(record)); saveData(); openModule("Anketler"); showToast("Anket yanıtı kaydedildi."); return;
+    }
+    if (event.target.id === "recallForm") {
+      event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId"));
+      const record = { id: Date.now(), patientId: patient?.id, patient: patient?.name || "", reason: String(form.get("reason") || "").trim(), dueDate: String(form.get("dueDate") || ""), status: String(form.get("status") || "OPEN"), notes: String(form.get("notes") || "").trim() };
+      if (!patient || record.reason.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(record.dueDate)) return showToast("Takip bilgilerini kontrol edin.");
+      recalls.unshift(record); queueCreate("RECALL", record.id, recallPayload(record)); saveData(); openModule("Recall"); showToast("Hasta takibi kaydedildi."); return;
+    }
     if (event.target.id === "treatmentHistoryForm") {
       event.preventDefault();
       const form = new FormData(event.target);
@@ -1642,8 +1905,11 @@
       const note = String(form.get("note") || "").trim();
       const date = String(form.get("date") || todayIso);
       if (!patient || treatment.length < 2 || !doctor || note.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return showToast("Tedavi, tarih, hekim ve not bilgilerini kontrol edin.");
-      const record = { id: Date.now(), date: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), treatment, doctor, note, manual: true };
+      const recordId = Date.now();
+      const record = { id: recordId, date: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), treatment, doctor, note, manual: true };
       (state.treatmentHistory[patient.id] ||= []).unshift(record);
+      const treatmentRecord = { id: recordId, patientId: patient.id, patient: patient.name, doctor, tooth: "", treatment, description: note, fee: 0, paymentPlan: null, status: "COMPLETED", date, branch: currentClinicName() };
+      treatments.unshift(treatmentRecord); queueCreate("TREATMENT", treatmentRecord.id, treatmentPayload(treatmentRecord));
       patient.lastVisit = date === todayIso ? "Bugün" : patient.lastVisit;
       saveData(); openPatientDetail(patient.id); showToast("Tedavi geçmişine kayıt eklendi."); return;
     }
@@ -1652,14 +1918,16 @@
       const form = new FormData(event.target);
       const lead = { id: Date.now(), name: String(form.get("name") || "").trim(), country: String(form.get("country") || "").trim(), phone: String(form.get("phone") || "").trim(), treatment: String(form.get("treatment") || "").trim(), score: Number(form.get("score")) };
       if (lead.name.length < 2 || lead.country.length < 2 || lead.phone.replace(/\D/g, "").length < 7 || lead.treatment.length < 2 || !Number.isInteger(lead.score) || lead.score < 0 || lead.score > 100) return showToast("Lead bilgilerini ve 0-100 arasındaki puanı kontrol edin.");
-      hotLeads.unshift(lead); saveData(); renderDashboard(); openModule("Sağlık turizmi"); showToast("Yeni lead kaydedildi."); return;
+      hotLeads.unshift(lead); queueCreate("LEAD", lead.id, leadPayload(lead)); saveData(); renderDashboard(); openModule("Sağlık turizmi"); showToast("Yeni lead kaydedildi."); return;
     }
     if (event.target.id === "communicationForm") {
       event.preventDefault();
       const form = new FormData(event.target);
-      const record = { id: Date.now(), patient: String(form.get("patient") || "").trim(), channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
+      const patientName = String(form.get("patient") || "").trim();
+      const patient = state.patients.find((item) => item.name === patientName);
+      const record = { id: Date.now(), patientId: patient?.id || null, patient: patientName, channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
       if (record.patient.length < 2 || record.message.length < 3) return showToast("Kişi ve iletişim notunu kontrol edin.");
-      communicationLog.unshift(record); saveData(); openModule("İletişim"); showToast("İletişim kaydı eklendi."); return;
+      communicationLog.unshift(record); queueCreate("COMMUNICATION", record.id, communicationPayload(record)); saveData(); openModule("İletişim"); showToast("İletişim kaydı eklendi."); return;
     }
     if (event.target.id === "balancePaymentForm") {
       event.preventDefault();
@@ -1733,6 +2001,7 @@
       const form = new FormData(event.target);
       const patient = {
         id: Date.now(), name: form.get("name").trim(), phone: form.get("phone").trim(), email: form.get("email").trim(),
+        nationalId: String(form.get("nationalId") || "").trim(), birthDate: String(form.get("birthDate") || ""), gender: String(form.get("gender") || "UNSPECIFIED"), address: String(form.get("address") || "").trim(), allergies: String(form.get("allergies") || "").trim(), chronicDiseases: String(form.get("chronicDiseases") || "").trim(), medications: String(form.get("medications") || "").trim(),
         tag: form.get("tag"), lastVisit: "Yeni kayıt", treatment: form.get("treatment").trim() || "Muayene", note: form.get("note").trim(), color: state.patients.length % palette.length
       };
       state.patients.unshift(patient);
@@ -1783,7 +2052,7 @@
       const method = String(form.get("method") || "Belirtilmedi");
       const description = String(form.get("description") || "").trim();
       const expense = { id: Date.now(), patientId: null, name, category, method, detail: `${category} · ${method}${description ? ` · ${description}` : ""}`, amount, type: "expense", status: "PAID", date: "Şimdi" };
-      state.transactions.unshift(expense); state.transactionFilter = "ALL";
+      state.transactions.unshift(expense); queueCreate("PAYMENT", expense.id, paymentPayload(expense)); state.transactionFilter = "ALL";
       saveData(); renderAll(); closeModal(); navigate("finance"); showToast("Gider finans kaydına eklendi.");
     }
     if (event.target.id === "consentForm") {
@@ -1794,6 +2063,7 @@
       const status = String(form.get("status") || "Taslak");
       const consent = { id: Date.now(), patientId: patient.id, patient: patient.name, form: String(form.get("form") || "Genel tedavi onamı"), treatment: String(form.get("treatment") || "Genel tedavi").trim(), language: String(form.get("language") || "Türkçe"), channel: String(form.get("channel") || "Klinikte"), status, date: "Şimdi", signedAt: status === "İmzalandı" ? "Şimdi" : "", signer: status === "İmzalandı" ? patient.name : "", version: "v1", note: String(form.get("note") || "").trim(), history: [{ status, date: "Şimdi", note: "Onam kaydı oluşturuldu." }] };
       consentRecords.unshift(consent); state.consentFilter = "ALL";
+      queueCreate("CONSENT", consent.id, consentPayload(consent));
       saveData(); renderAll(); closeModal(); navigate("consents"); showToast(status === "İmzalandı" ? "İmzalı onam kaydedildi." : "Onam kaydı oluşturuldu.");
     }
     if (event.target.id === "consentStatusForm") {
@@ -1813,6 +2083,7 @@
       consent.history.unshift({ status: nextStatus, date: "Şimdi", note: `${actor}: ${note}` });
       if (nextStatus === "İmzalandı") { consent.signer = actor; consent.signedAt = "Şimdi"; }
       if (nextStatus === "İptal edildi") consent.revokedBy = actor;
+      queueUpdate("CONSENT", consent.id, consentPayload(consent));
       saveData(); renderConsents(); openConsentDetail(consent.id); showToast(`Onam durumu “${nextStatus}” olarak güncellendi.`);
     }
     if (event.target.id === "stockItemForm") {
