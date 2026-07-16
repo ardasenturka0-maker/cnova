@@ -9,6 +9,7 @@ console.log(`AUTH_SECRET="${secret()}"`);
 console.log(`CRON_SECRET="${secret(32)}"`);
 console.log(`N8N_WEBHOOK_SECRET="${secret(32)}"`);
 console.log(`N8N_OUTBOUND_SECRET="${secret(32)}"`);
+console.log(`PRODUCT_SEARCH_API_KEY="${secret(32)}"`);
 console.log(`FILE_ENCRYPTION_KEY="${fileKey}"`);
 console.log(`FILE_ENCRYPTION_KEYS='{"2026-07":"${fileKey}"}'`);
 console.log('FILE_ENCRYPTION_ACTIVE_KEY_ID="2026-07"');

@@ -14,15 +14,25 @@ const responseSchema = z.object({
 const secureProductUrlSchema = z.string().url().refine((value) => value.startsWith("https://"), "Yalnızca HTTPS ürün sayfası kullanılabilir.");
 
 async function requestProductProvider(parameter: "q" | "url", value: string) {
-  const endpoint = process.env.PRODUCT_SEARCH_API_URL;
+  const configuredEndpoint = process.env.PRODUCT_SEARCH_API_URL;
   const apiKey = process.env.PRODUCT_SEARCH_API_KEY;
-  if (!endpoint || !apiKey || !endpoint.startsWith("https://")) throw new Error("Canlı ürün fiyat sağlayıcısı yapılandırılmamış.");
+  let endpoint = configuredEndpoint;
+  if (configuredEndpoint?.startsWith("/")) {
+    try { endpoint = new URL(configuredEndpoint, process.env.NEXT_PUBLIC_APP_URL).toString(); }
+    catch { endpoint = undefined; }
+  }
+  const localDevelopmentEndpoint = process.env.NODE_ENV !== "production" && endpoint?.startsWith("http://localhost:");
+  if (!endpoint || !apiKey || (!endpoint.startsWith("https://") && !localDevelopmentEndpoint)) throw new Error("Canlı ürün fiyat sağlayıcısı yapılandırılmamış.");
 
   const url = new URL(endpoint);
   url.searchParams.set(parameter, value);
   const response = await fetch(url, { headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
-  if (!response.ok) throw new Error("Ürün fiyatı satın alma sayfasından alınamadı.");
-  return responseSchema.parse(await response.json()).offers
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "";
+    throw new Error(detail || "Ürün fiyatı satın alma sayfasından alınamadı.");
+  }
+  return responseSchema.parse(body).offers
     .filter((offer) => offer.inStock)
     .sort((left, right) => left.unitPrice + left.shippingPrice - right.unitPrice - right.shippingPrice);
 }

@@ -122,7 +122,7 @@ Gelen tenant webhook'ları `Authorization: Bearer <N8N_WEBHOOK_SECRET>` ve `X-Cl
 
 ### İnternet ürün fiyatı sağlayıcısı
 
-Web ve Android stok ekranında dişçi, mağazadaki satın alma sayfasını girer. ClinicNova `PRODUCT_SEARCH_API_URL` adresine `Authorization: Bearer <PRODUCT_SEARCH_API_KEY>` başlığıyla HTTPS GET isteği gönderir; girilen sayfa `url` parametresidir. Sağlayıcı sayfadaki güncel fiyatı okuyup aşağıdaki sözleşmede teklif döndürmelidir. ClinicNova ilk satıştaki sonucu gösterir ve “Satın al” düğmesini dişçinin girdiği sayfaya bağlar:
+Web ve Android stok ekranında dişçi, mağazadaki satın alma sayfasını girer. ClinicNova'nın yerleşik fiyat okuyucusu `/api/integrations/product-page-price` yolundadır. Üretimde `PRODUCT_SEARCH_API_URL=/api/integrations/product-page-price` ve en az 24 karakterlik rastgele `PRODUCT_SEARCH_API_KEY` tanımlanır; göreli yol `NEXT_PUBLIC_APP_URL` ile aynı ClinicNova sunucusuna bağlanır. ClinicNova bu adrese `Authorization: Bearer <PRODUCT_SEARCH_API_KEY>` başlığıyla HTTPS GET isteği gönderir; girilen sayfa `url` parametresidir. API JSON-LD veya ürün fiyatı meta etiketini okuyup aşağıdaki sözleşmede teklif döndürür. Yerel/özel ağ adresleri, HTTP, standart dışı portlar, aşırı yönlendirme ve büyük/HTML olmayan yanıtlar reddedilir. “Satın al” düğmesi dişçinin girdiği sayfaya bağlanır:
 
 ```json
 {"offers":[{"seller":"Dental Market","unitPrice":100,"shippingPrice":10,"productUrl":"https://shop.example/product","inStock":true}]}

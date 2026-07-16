@@ -43,7 +43,10 @@ export function getProductionReadiness() {
   const outboundSecret = process.env.N8N_OUTBOUND_SECRET;
   const outboundConfigured = isHttpsUrl(outboundUrl) && isStrongSecret(outboundSecret);
   const requireProductSearch = process.env.REQUIRE_PRODUCT_SEARCH === "true";
-  const productSearchConfigured = isHttpsUrl(process.env.PRODUCT_SEARCH_API_URL) && isStrongSecret(process.env.PRODUCT_SEARCH_API_KEY, 24);
+  const productSearchUrl = process.env.PRODUCT_SEARCH_API_URL?.startsWith("/")
+    ? (() => { try { return new URL(process.env.PRODUCT_SEARCH_API_URL || "", process.env.NEXT_PUBLIC_APP_URL).toString(); } catch { return ""; } })()
+    : process.env.PRODUCT_SEARCH_API_URL;
+  const productSearchConfigured = isHttpsUrl(productSearchUrl) && isStrongSecret(process.env.PRODUCT_SEARCH_API_KEY, 24);
 
   const checks: ReadinessCheck[] = [
     {

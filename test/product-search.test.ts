@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectProductPage, searchProductOffers } from "../src/lib/services/productSearchService";
+import { parseProductPage } from "../src/lib/services/productPageInspectorService";
 
 test("internet product offers are validated, filtered and sorted by delivered total", async () => {
   const previousUrl = process.env.PRODUCT_SEARCH_API_URL;
@@ -29,6 +30,15 @@ test("internet product offers are validated, filtered and sorted by delivered to
     if (previousUrl === undefined) delete process.env.PRODUCT_SEARCH_API_URL; else process.env.PRODUCT_SEARCH_API_URL = previousUrl;
     if (previousKey === undefined) delete process.env.PRODUCT_SEARCH_API_KEY; else process.env.PRODUCT_SEARCH_API_KEY = previousKey;
   }
+});
+
+test("built-in product page API reads JSON-LD and meta prices", () => {
+  const jsonLd = `<html><script type="application/ld+json">{"@type":"Product","name":"Kompozit","brand":{"name":"Dental Depo"},"offers":{"@type":"Offer","price":"1299.90","priceCurrency":"TRY","availability":"https://schema.org/InStock"}}</script></html>`;
+  assert.deepEqual(parseProductPage(jsonLd, "https://shop.example/kompozit"), {
+    seller: "Dental Depo", unitPrice: 1299.9, shippingPrice: 0, productUrl: "https://shop.example/kompozit", inStock: true
+  });
+  const meta = `<meta property="og:site_name" content="Medikal Market"><meta property="product:price:amount" content="1.499,50">`;
+  assert.equal(parseProductPage(meta, "https://market.example/urun").unitPrice, 1499.5);
 });
 
 test("a dentist can paste a purchase page and receive its live price", async () => {
