@@ -29,6 +29,7 @@ test("iPhone file preview never exposes the login gate when scripts are blocked"
 });
 
 test("bundled Android interface works offline", async ({ page }) => {
+  test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -66,6 +67,14 @@ test("bundled Android interface works offline", async ({ page }) => {
   await expect(page.getByText("Geçmiş tedaviler", { exact: true })).toBeVisible();
   await expect(page.getByText("Ödeme geçmişi", { exact: true })).toBeVisible();
   await expect(page.getByText("Before / After fotoğrafları", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Geçmiş tedavi ekle" }).click();
+  await page.locator('#treatmentHistoryForm input[name="treatment"]').fill("Acil muayene");
+  await page.locator('#treatmentHistoryForm textarea[name="note"]').fill("Randevu dışı hassasiyet kontrolü yapıldı.");
+  await page.getByRole("button", { name: "Tedavi kaydını ekle" }).click();
+  await expect(page.getByText("Acil muayene", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Acil muayene kaydını sil" }).click();
+  await expect(page.getByText("Acil muayene", { exact: true })).toHaveCount(0);
   await page.locator('input[data-media-kind="Before"]').setInputFiles({
     name: "before.png",
     mimeType: "image/png",
@@ -112,6 +121,35 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: /Yeni sağlık turizmi lead/ }).click();
   await expect(page.getByRole("heading", { name: "Bugünkü fırsatlar" })).toBeVisible();
 
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Sağlık turizmi/ }).click();
+  await page.getByRole("button", { name: "Yeni lead ekle" }).click();
+  await page.locator('#leadForm input[name="name"]').fill("Anna Müller");
+  await page.locator('#leadForm input[name="country"]').fill("Almanya");
+  await page.locator('#leadForm input[name="phone"]').fill("+49 555 1234567");
+  await page.locator('#leadForm input[name="treatment"]').fill("İmplant");
+  await page.locator('#leadForm input[name="score"]').fill("91");
+  await page.getByRole("button", { name: "Lead’i kaydet" }).click();
+  await expect(page.getByText("Anna Müller", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Anna Müller lead kaydını sil" }).click();
+  await expect(page.getByText("Anna Müller", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /İletişim/ }).click();
+  await page.getByRole("button", { name: "İletişim kaydı ekle" }).click();
+  await page.locator('#communicationForm input[name="patient"]').fill("Tuna Akın");
+  await page.locator('#communicationForm select[name="channel"]').selectOption({ label: "Telefon" });
+  await page.locator('#communicationForm select[name="status"]').selectOption({ label: "Arandı" });
+  await page.locator('#communicationForm textarea[name="message"]').fill("Kontrol randevusu için arandı.");
+  await page.getByRole("button", { name: "Kaydı ekle" }).click();
+  await expect(page.getByText("Kontrol randevusu için arandı.", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Tuna Akın iletişim kaydını sil" }).click();
+  await expect(page.getByText("Kontrol randevusu için arandı.", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
 
   await page.locator(".bottom-nav").getByRole("button", { name: "Tedaviler", exact: true }).click();
@@ -170,6 +208,9 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.locator('#stockOfferForm input[name="productUrl"]').fill("https://example.com/maske");
   await page.getByRole("button", { name: "Fiyatı kaydet" }).click();
   await expect(page.getByText("Medikal Market", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Medikal Market satın alma fiyatını sil" }).click();
+  await expect(page.getByText("Medikal Market", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
 
   await page.locator(".bottom-nav").getByRole("button", { name: "Randevu", exact: true }).click();

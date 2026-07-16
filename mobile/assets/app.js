@@ -65,7 +65,7 @@
     { id: 3, patientId: 4, patient: "Can Şahin", treatment: "Ortodonti", tooth: "Tüm ağız", doctor: "Dr. Lara Er", branch: "Nişantaşı Klinik", plannedAt: "22 Temmuz 2026", total: 36000, paid: 29500, status: "Kontrol bekliyor", note: "Aylık plak ve kapanış kontrolü." }
   ];
   const defaultStockItems = [
-    { id: 1, name: "Anestezi kartuşu", category: "Anestezi", amount: 8, minimum: 20, unit: "adet", supplier: "DentalLine", purchasePrice: 42, movements: [], offers: [{ seller: "DentalLine", unitPrice: 39, shippingPrice: 30, productUrl: "https://example.com", inStock: true }] },
+    { id: 1, name: "Anestezi kartuşu", category: "Anestezi", amount: 8, minimum: 20, unit: "adet", supplier: "DentalLine", purchasePrice: 42, movements: [], offers: [{ id: 1, seller: "DentalLine", unitPrice: 39, shippingPrice: 30, productUrl: "https://example.com", inStock: true }] },
     { id: 2, name: "İmplant seti", category: "Cerrahi", amount: 14, minimum: 10, unit: "set", supplier: "ImplantPro", purchasePrice: 2450, movements: [], offers: [] },
     { id: 3, name: "Cerrahi eldiven", category: "Sarf", amount: 85, minimum: 50, unit: "kutu", supplier: "Medikal Depo", purchasePrice: 310, movements: [], offers: [] },
     { id: 4, name: "Kompozit dolgu", category: "Restoratif", amount: 11, minimum: 8, unit: "tüp", supplier: "DentalLine", purchasePrice: 780, movements: [], offers: [] }
@@ -118,6 +118,10 @@
   let communicationLog = localCollection("clinicnova.communicationLog", defaultCommunicationLog);
   let consentRecords = localCollection("clinicnova.consentRecords", defaultConsentRecords);
   let trashItems = demoMode || localDataWasMigrated ? storage.get("clinicnova.trashItems", []) : [];
+  let legacyOfferId = Date.now();
+  stockItems.forEach((item) => (item.offers ||= []).forEach((offer) => {
+    if (!Number.isFinite(Number(offer.id))) offer.id = legacyOfferId++;
+  }));
 
   const state = {
     patients: localCollection("clinicnova.patients", defaultPatients),
@@ -719,6 +723,41 @@
     </form>`);
   }
 
+  function openAddTreatmentHistory(patientId) {
+    const patient = patientById(patientId);
+    if (!patient) return showToast("Hasta kaydı bulunamadı.");
+    const doctorOptions = clinicDoctors.map((doctor) => `<option>${escapeHtml(doctor.name)}</option>`).join("");
+    if (!doctorOptions) return showToast("Önce Klinik yönetimi bölümünden doktor ekleyin.");
+    openModal("TEDAVİ GEÇMİŞİ", `${patient.name} için kayıt`, `<form id="treatmentHistoryForm" class="modal-grid"><input type="hidden" name="patientId" value="${patient.id}" />
+      <div class="modal-grid two"><label class="field">Tedavi<input name="treatment" required placeholder="Dolgu, kontrol, ölçü..." /></label><label class="field">Tarih<input name="date" type="date" value="${todayIso}" required /></label></div>
+      <label class="field">Hekim<select name="doctor" required>${doctorOptions}</select></label>
+      <label class="field">Klinik notu<textarea name="note" required minlength="3" placeholder="Uygulanan işlem, kullanılan malzeme ve takip notu"></textarea></label>
+      <p class="modal-note">Bu alan geçmişten gelen veya randevu dışında tamamlanan klinik işlemler içindir. Randevuyu “Tamamlandı” yapmak tedavi geçmişini zaten otomatik oluşturur.</p>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-patient="${patient.id}">Vazgeç</button><button type="submit" class="button button-primary">Tedavi kaydını ekle</button></div>
+    </form>`);
+  }
+
+  function openAddLead() {
+    openModal("SAĞLIK TURİZMİ", "Yeni lead ekle", `<form id="leadForm" class="modal-grid">
+      <div class="modal-grid two"><label class="field">Ad soyad<input name="name" required /></label><label class="field">Ülke<input name="country" required placeholder="Almanya" /></label></div>
+      <label class="field">Telefon<input name="phone" type="tel" required placeholder="+49 ..." /></label>
+      <label class="field">Talep edilen tedavi<input name="treatment" required placeholder="İmplant, zirkonyum..." /></label>
+      <label class="field">Lead puanı<input name="score" type="number" min="0" max="100" step="1" value="50" required /></label>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-module="Sağlık turizmi">Vazgeç</button><button type="submit" class="button button-primary">Lead’i kaydet</button></div>
+    </form>`);
+  }
+
+  function openAddCommunication() {
+    const recipients = [...state.patients.map((item) => item.name), ...hotLeads.map((item) => item.name)];
+    openModal("İLETİŞİM", "İletişim kaydı ekle", `<form id="communicationForm" class="modal-grid">
+      <label class="field">Hasta / kişi<input name="patient" list="communicationRecipients" required /><datalist id="communicationRecipients">${recipients.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist></label>
+      <div class="modal-grid two"><label class="field">Kanal<select name="channel"><option>WhatsApp</option><option>SMS</option><option>E-posta</option><option>Telefon</option><option>Klinik içi not</option></select></label><label class="field">Durum<select name="status"><option>Yerel taslak</option><option>Arandı</option><option>Yanıt bekleniyor</option><option>Teslim edildi</option></select></label></div>
+      <label class="field">Mesaj / görüşme notu<textarea name="message" required minlength="3"></textarea></label>
+      <p class="modal-note">Bu kayıt cihazda saklanır. WhatsApp, SMS veya e-posta gönderimi yapmaz; gönderim için bağlı canlı panel kullanılmalıdır.</p>
+      <div class="modal-actions"><button type="button" class="button button-secondary" data-module="İletişim">Vazgeç</button><button type="submit" class="button button-primary">Kaydı ekle</button></div>
+    </form>`);
+  }
+
   function openAddTreatmentPlan() {
     if (!state.patients.length) return showToast("Önce bir hasta ekleyin.");
     if (!clinicDoctors.length) return showToast("Önce Klinik yönetimi bölümünden doktor ekleyin.");
@@ -806,7 +845,7 @@
       <div class="finance-stats"><article class="finance-stat"><span>Mevcut</span><strong>${item.amount} ${escapeHtml(item.unit)}</strong><small>Minimum ${item.minimum}</small></article><article class="finance-stat"><span>Stok değeri</span><strong>${currency(Number(item.amount) * Number(item.purchasePrice || 0))}</strong><small>${currency(item.purchasePrice || 0)} / ${escapeHtml(item.unit)}</small></article></div>
       <p class="modal-note"><strong>${escapeHtml(item.category || "Kategorisiz")}</strong><br/>Tedarikçi: ${escapeHtml(item.supplier || "Belirtilmedi")}<br/>Son hareket: ${escapeHtml(item.movements?.[0]?.note || "Henüz hareket yok")}</p>
       <div class="stock-actions"><button class="button button-primary" data-action="stock-movement" data-stock-prefill="${item.id}">Adet ekle / çıkar</button><button class="button button-secondary" data-action="add-stock-offer" data-stock-prefill="${item.id}">Satın alma fiyatı ekle</button></div>
-      <section class="patient-section"><div class="patient-section-title"><strong>Satın alma · ucuzdan pahalıya</strong><span>${offers.length}</span></div><div class="purchase-list">${offers.length ? offers.map((offer) => { const total = Number(offer.unitPrice) + Number(offer.shippingPrice || 0); return `<div class="purchase-row"><span><strong>${escapeHtml(offer.seller)}</strong><small>Ürün ${currency(offer.unitPrice)} + kargo ${currency(offer.shippingPrice || 0)}</small></span><a class="mini-action" href="${escapeHtml(offer.productUrl)}" target="_blank" rel="noopener noreferrer">${currency(total)} · Satın al</a></div>`; }).join("") : `<p class="empty-inline">Henüz fiyat bulunmuyor. Bir fiyat ekleyin veya bağlı sunucuda canlı fiyat arayın.</p>`}</div></section>
+      <section class="patient-section"><div class="patient-section-title"><strong>Satın alma · ucuzdan pahalıya</strong><span>${offers.length}</span></div><div class="purchase-list">${offers.length ? offers.map((offer) => { const total = Number(offer.unitPrice) + Number(offer.shippingPrice || 0); return `<div class="purchase-row"><span><strong>${escapeHtml(offer.seller)}</strong><small>Ürün ${currency(offer.unitPrice)} + kargo ${currency(offer.shippingPrice || 0)}</small></span><span class="purchase-actions"><a class="mini-action" href="${escapeHtml(offer.productUrl)}" target="_blank" rel="noopener noreferrer">${currency(total)} · Satın al</a><button class="delete-button" data-delete-stock-offer="${offer.id}" data-stock-id="${item.id}" aria-label="${escapeHtml(offer.seller)} satın alma fiyatını sil">Sil</button></span></div>`; }).join("") : `<p class="empty-inline">Henüz fiyat bulunmuyor. Bir fiyat ekleyin veya bağlı sunucuda canlı fiyat arayın.</p>`}</div></section>
       ${serverUrl ? `<a class="button button-secondary" href="${escapeHtml(serverUrl.replace(/\/$/, ""))}/dashboard/stocks">Canlı fiyatları sunucuda yenile</a>` : `<p class="modal-note">Canlı mağaza fiyatlarını karşılaştırmak için ClinicNova sunucunuzu bağlayın.</p>`}
     </div>`);
   }
@@ -832,7 +871,7 @@
     openModal("HASTA PROFİLİ", patient.name, `<div class="modal-grid">
       <p class="modal-note"><strong>${escapeHtml(patient.phone)}</strong><br/>${escapeHtml(patient.email || "E-posta belirtilmedi")}<br/>Son ziyaret: ${escapeHtml(patient.lastVisit)}</p>
       <div class="finance-stats"><article class="finance-stat"><span>Tahsil edilen</span><strong>${currency(totalPaid)}</strong><small>${payments.length} ödeme kaydı</small></article><article class="finance-stat"><span>Kalan bakiye</span><strong>${currency(totalRemaining)}</strong><small>${appointments.length} randevu</small></article></div>
-      <section class="patient-section"><div class="patient-section-title"><strong>Geçmiş tedaviler</strong><span>${history.length}</span></div><div class="history-list">${history.length ? history.map((item, index) => `<article><i>🦷</i><span><strong>${escapeHtml(item.treatment)}</strong><small>${escapeHtml(item.date)} · ${escapeHtml(item.doctor)}</small><p>${escapeHtml(item.note)}</p></span><button class="delete-button" data-delete-treatment="${index}" data-patient-id="${patient.id}" aria-label="${escapeHtml(item.treatment)} kaydını sil">Sil</button></article>`).join("") : `<p class="empty-inline">Tedavi geçmişi yok.</p>`}</div></section>
+      <section class="patient-section"><div class="patient-section-title"><strong>Geçmiş tedaviler</strong><span>${history.length}</span></div><div class="history-list">${history.length ? history.map((item, index) => `<article><i>🦷</i><span><strong>${escapeHtml(item.treatment)}</strong><small>${escapeHtml(item.date)} · ${escapeHtml(item.doctor)}</small><p>${escapeHtml(item.note)}</p></span><button class="delete-button" data-delete-treatment="${index}" data-patient-id="${patient.id}" aria-label="${escapeHtml(item.treatment)} kaydını sil">Sil</button></article>`).join("") : `<p class="empty-inline">Tedavi geçmişi yok.</p>`}</div><button class="button button-secondary" data-action="add-treatment-history" data-patient-prefill="${patient.id}">Geçmiş tedavi ekle</button></section>
       <section class="patient-section"><div class="patient-section-title"><strong>Ödeme geçmişi</strong><span>${payments.length}</span></div><div class="history-list">${payments.length ? payments.map((item) => `<article><i>₺</i><span><strong>${currency(item.amount)} · ${escapeHtml(item.detail)}</strong><small>${escapeHtml(item.date)}${outstandingAmount(item) ? ` · Kalan ${currency(outstandingAmount(item))}` : " · Tamamlandı"}</small>${item.components?.length ? `<p>${item.components.map((line) => `${escapeHtml(line.name)}: ${currency(line.amount)}`).join(" · ")}</p>` : ""}</span><button class="delete-button" data-delete-transaction="${item.id}" data-patient-id="${patient.id}" aria-label="Ödeme kaydını sil">Sil</button></article>`).join("") : `<p class="empty-inline">Ödeme geçmişi yok.</p>`}</div></section>
       <section class="patient-section"><div class="patient-section-title"><strong>Before / After fotoğrafları</strong><span>${media.length}</span></div><div class="photo-grid">${media.length ? media.map((item) => `<figure><img src="${escapeHtml(item.dataUrl)}" alt="${escapeHtml(item.kind)} fotoğrafı"/><figcaption>${escapeHtml(item.kind)} · ${escapeHtml(item.date)}</figcaption><button class="delete-button photo-delete" data-delete-media="${item.id}" data-patient-id="${patient.id}" aria-label="${escapeHtml(item.kind)} fotoğrafını sil">Sil</button></figure>`).join("") : `<p class="empty-inline">Henüz fotoğraf eklenmedi.</p>`}</div><div class="photo-actions"><label class="button button-secondary">📷 Before çek<input class="visually-hidden" type="file" accept="image/*" capture="environment" data-patient-media="${patient.id}" data-media-kind="Before" /></label><label class="button button-secondary">📷 After çek<input class="visually-hidden" type="file" accept="image/*" capture="environment" data-patient-media="${patient.id}" data-media-kind="After" /></label><label class="button button-secondary">Dosyalardan yükle<input class="visually-hidden" type="file" accept="image/*" data-patient-media="${patient.id}" data-media-kind="Dosya" /></label></div></section>
       <div class="modal-actions"><button class="button button-secondary" data-action="add-appointment" data-patient-prefill="${patient.id}">Yeni randevu oluştur</button><button class="button button-primary" data-action="add-payment" data-patient-prefill="${patient.id}">Ödeme ekle</button></div>
@@ -934,9 +973,9 @@
     const doctorCounts = Object.entries(state.appointments.reduce((result, item) => { result[item.doctor] = (result[item.doctor] || 0) + 1; return result; }, {})).sort((a, b) => b[1] - a[1]);
     const moduleContent = {
       "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span><button class="delete-button" data-delete-record="${plan.id}" data-record-kind="treatmentPlans" aria-label="${escapeHtml(plan.patient)} tedavi planını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Tedavi planı yok.</p>`}</div>`,
-      "Sağlık turizmi": `<div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card record-deletable"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a><button class="delete-button" data-delete-record="${lead.id}" data-record-kind="hotLeads" aria-label="${escapeHtml(lead.name)} lead kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Lead kaydı yok.</p>`}</div>`,
+      "Sağlık turizmi": `<div class="modal-grid"><button class="button button-primary" data-action="add-lead">Yeni lead ekle</button><div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card record-deletable"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a><button class="delete-button" data-delete-record="${lead.id}" data-record-kind="hotLeads" aria-label="${escapeHtml(lead.name)} lead kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Lead kaydı yok.</p>`}</div></div>`,
       "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record record-deletable"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="stockItems" aria-label="${escapeHtml(item.name)} stok kaydını sil">Sil</button></article>`; }).join("") || `<p class="empty-inline">Stok kaydı yok.</p>`}</div>`,
-      "İletişim": `<div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}<p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
+      "İletişim": `<div class="modal-grid"><button class="button button-primary" data-action="add-communication">İletişim kaydı ekle</button><div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}</div><p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
       "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Ödenmiş gelir</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>${currency(expenses)} gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Bekleyen</span><strong>${currency(pendingTotal)}</strong><small>Tahsil edilecek</small></article><article class="finance-stat"><span>Stok değeri</span><strong>${currency(stockValue)}</strong><small>${criticalStock} kritik ürün</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>${completedAppointments} tamamlandı · ${noShowAppointments} gelmedi</small></article></div><section class="patient-section"><div class="patient-section-title"><strong>Hekim performansı</strong><span>${doctorCounts.length}</span></div><div class="history-list">${doctorCounts.map(([doctor, count]) => `<article><i>👨‍⚕️</i><span><strong>${escapeHtml(doctor)}</strong><small>${count} randevu</small></span></article>`).join("") || `<p class="empty-inline">Hekim verisi yok.</p>`}</div></section><section class="patient-section"><div class="patient-section-title"><strong>Tedavi dağılımı</strong><span>${treatmentCounts.length}</span></div><div class="history-list">${treatmentCounts.slice(0, 8).map(([treatment, count]) => `<article><i>🦷</i><span><strong>${escapeHtml(treatment)}</strong><small>${count} kayıt</small></span></article>`).join("") || `<p class="empty-inline">Tedavi verisi yok.</p>`}</div></section><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
       "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Kimlik doğrulamalı imza gönderimi ve yasal sunucu kaydı bağlantı gerektirir.</p></div>`,
       "Çöp Kutusu": `<div class="modal-grid"><p class="modal-note">Silinen kayıtlar 30 gün burada saklanır. Süre dolunca otomatik ve kalıcı olarak temizlenir.</p><div class="list-stack">${trashItems.map((item) => `<article class="trash-record"><span class="record-icon">♻</span><span class="patient-copy"><strong>${escapeHtml(item.label)}</strong><small>${trashDaysLeft(item)} gün kaldı</small></span><button class="mini-action" data-restore-trash="${item.id}">Geri yükle</button><button class="delete-button" data-purge-trash="${item.id}" aria-label="${escapeHtml(item.label)} kaydını kalıcı sil">Kalıcı sil</button></article>`).join("") || `<p class="empty-inline">Çöp Kutusu boş.</p>`}</div>${trashItems.length ? `<button class="button button-secondary" data-empty-trash>Çöp Kutusunu boşalt</button>` : ""}</div>`
@@ -1289,6 +1328,13 @@
       if (trashItem.kind === "treatmentPlans") treatmentPlans.unshift(payload);
       if (trashItem.kind === "hotLeads") hotLeads.unshift(payload);
       if (trashItem.kind === "stockItems") stockItems.unshift(payload);
+      if (trashItem.kind === "stockOffer") {
+        const stockItem = stockItems.find((item) => Number(item.id) === Number(payload.stockId));
+        if (stockItem) {
+          (stockItem.offers ||= []).push(payload.offer);
+          queueCreate("STOCK_OFFER", payload.offer.id, { itemId: String(stockItem.id), seller: payload.offer.seller, unitPrice: payload.offer.unitPrice, shippingPrice: payload.offer.shippingPrice || 0, productUrl: payload.offer.productUrl, inStock: payload.offer.inStock !== false });
+        }
+      }
       if (trashItem.kind === "communicationLog") communicationLog.unshift(payload);
       if (trashItem.kind === "consentRecords") consentRecords.unshift(payload);
       trashItems = trashItems.filter((item) => Number(item.id) !== trashId);
@@ -1364,6 +1410,17 @@
       queueDelete("STOCK_RECIPE", recipe.id);
       stockRecipes = stockRecipes.filter((item) => Number(item.id) !== recipeId);
       saveData(); renderStocks(); showToast("Tedavi reçetesi silindi."); return;
+    }
+    if (target.dataset.deleteStockOffer) {
+      const stockId = Number(target.dataset.stockId);
+      const offerId = Number(target.dataset.deleteStockOffer);
+      const stockItem = stockItems.find((item) => Number(item.id) === stockId);
+      const offer = stockItem?.offers?.find((item) => Number(item.id) === offerId);
+      if (!stockItem || !offer || !window.confirm(`${offer.seller} satın alma fiyatı silinsin mi?`)) return;
+      moveToTrash("stockOffer", `${stockItem.name} · ${offer.seller} fiyatı`, { stockId, offer });
+      stockItem.offers = stockItem.offers.filter((item) => Number(item.id) !== offerId);
+      queueDelete("STOCK_OFFER", offerId);
+      saveData(); openStockDetail(stockId); showToast("Satın alma fiyatı silindi."); return;
     }
     if (target.dataset.deleteTransaction) {
       const transactionId = Number(target.dataset.deleteTransaction);
@@ -1477,6 +1534,9 @@
     if (action === "stock-movement") { closeModal(); return openStockMovement(target.dataset.stockPrefill); }
     if (action === "add-stock-offer") { closeModal(); return openAddStockOffer(target.dataset.stockPrefill); }
     if (action === "add-stock-recipe") { closeModal(); return openAddStockRecipe(); }
+    if (action === "add-treatment-history") return openAddTreatmentHistory(target.dataset.patientPrefill);
+    if (action === "add-lead") return openAddLead();
+    if (action === "add-communication") return openAddCommunication();
     if (action === "clinic-management") return openClinicManagement();
     if (action === "add-doctor") return openAddDoctor();
     if (action === "add-chair") return openAddChair();
@@ -1535,6 +1595,34 @@
   });
 
   document.addEventListener("submit", async (event) => {
+    if (event.target.id === "treatmentHistoryForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const patient = patientById(form.get("patientId"));
+      const treatment = String(form.get("treatment") || "").trim();
+      const doctor = String(form.get("doctor") || "").trim();
+      const note = String(form.get("note") || "").trim();
+      const date = String(form.get("date") || todayIso);
+      if (!patient || treatment.length < 2 || !doctor || note.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return showToast("Tedavi, tarih, hekim ve not bilgilerini kontrol edin.");
+      const record = { id: Date.now(), date: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), treatment, doctor, note, manual: true };
+      (state.treatmentHistory[patient.id] ||= []).unshift(record);
+      patient.lastVisit = date === todayIso ? "Bugün" : patient.lastVisit;
+      saveData(); openPatientDetail(patient.id); showToast("Tedavi geçmişine kayıt eklendi."); return;
+    }
+    if (event.target.id === "leadForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const lead = { id: Date.now(), name: String(form.get("name") || "").trim(), country: String(form.get("country") || "").trim(), phone: String(form.get("phone") || "").trim(), treatment: String(form.get("treatment") || "").trim(), score: Number(form.get("score")) };
+      if (lead.name.length < 2 || lead.country.length < 2 || lead.phone.replace(/\D/g, "").length < 7 || lead.treatment.length < 2 || !Number.isInteger(lead.score) || lead.score < 0 || lead.score > 100) return showToast("Lead bilgilerini ve 0-100 arasındaki puanı kontrol edin.");
+      hotLeads.unshift(lead); saveData(); renderDashboard(); openModule("Sağlık turizmi"); showToast("Yeni lead kaydedildi."); return;
+    }
+    if (event.target.id === "communicationForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const record = { id: Date.now(), patient: String(form.get("patient") || "").trim(), channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
+      if (record.patient.length < 2 || record.message.length < 3) return showToast("Kişi ve iletişim notunu kontrol edin.");
+      communicationLog.unshift(record); saveData(); openModule("İletişim"); showToast("İletişim kaydı eklendi."); return;
+    }
     if (event.target.id === "balancePaymentForm") {
       event.preventDefault();
       const form = new FormData(event.target);
@@ -1750,9 +1838,9 @@
       event.preventDefault();
       const form = new FormData(event.target);
       const item = stockItems.find((entry) => Number(entry.id) === Number(form.get("itemId")));
-      const offer = { seller: String(form.get("seller") || "").trim(), unitPrice: Number(form.get("unitPrice")), shippingPrice: Number(form.get("shippingPrice") || 0), productUrl: String(form.get("productUrl") || "").trim(), inStock: true };
+      const offer = { id: Date.now(), seller: String(form.get("seller") || "").trim(), unitPrice: Number(form.get("unitPrice")), shippingPrice: Number(form.get("shippingPrice") || 0), productUrl: String(form.get("productUrl") || "").trim(), inStock: true };
       if (!item || !offer.seller || !Number.isFinite(offer.unitPrice) || offer.unitPrice <= 0 || !offer.productUrl.startsWith("https://")) return showToast("Satıcı, fiyat ve HTTPS ürün adresini kontrol edin.");
-      (item.offers ||= []).push(offer); queueCreate("STOCK_OFFER", Date.now(), { itemId: String(item.id), ...offer }); saveData(); renderAll(); openStockDetail(item.id); showToast("Satın alma fiyatı kaydedildi.");
+      (item.offers ||= []).push(offer); queueCreate("STOCK_OFFER", offer.id, { itemId: String(item.id), seller: offer.seller, unitPrice: offer.unitPrice, shippingPrice: offer.shippingPrice, productUrl: offer.productUrl, inStock: offer.inStock }); saveData(); renderAll(); openStockDetail(item.id); showToast("Satın alma fiyatı kaydedildi.");
     }
     if (event.target.id === "connectionForm") {
       event.preventDefault();

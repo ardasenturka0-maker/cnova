@@ -248,8 +248,12 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
 
   if (operation.entityType === "STOCK_OFFER") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_OFFER", operation.clientId);
+    if (operation.action === "DELETE") {
+      if (existingId) await tx.stockOffer.deleteMany({ where: { id: existingId, organizationId } });
+      return existingId;
+    }
     if (existingId) return existingId;
-    if (operation.action !== "CREATE") throw new Error("Satın alma fiyatları yalnızca eklenebilir.");
+    if (operation.action !== "CREATE") throw new Error("Satın alma fiyatları yalnızca eklenebilir veya silinebilir.");
     const payload = stockOfferPayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
