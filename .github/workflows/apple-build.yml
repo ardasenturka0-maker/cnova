@@ -40,5 +40,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ClinicNova-macOS-unsigned
-          path: release-desktop/*.zip
+          path: releases/desktop/*.zip
           if-no-files-found: error

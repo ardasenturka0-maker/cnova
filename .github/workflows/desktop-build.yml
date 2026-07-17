@@ -28,7 +28,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
         with:
-          name: ClinicNova-Windows-1.6.1
+          name: ClinicNova-Windows-${{ github.sha }}
           path: releases/desktop/*.exe
           if-no-files-found: error
 
@@ -46,7 +46,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
         with:
-          name: ClinicNova-macOS-1.6.1
+          name: ClinicNova-macOS-${{ github.sha }}
           path: releases/desktop/*.dmg
           if-no-files-found: error
 
