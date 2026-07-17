@@ -10,6 +10,10 @@ files:
 mac:
   category: public.app-category.medical
   icon: ../build-resources/icon.png
+  extendInfo:
+    NSLocalNetworkUsageDescription: Aynı kliniğe ait Android, iPhone, Windows ve Mac cihazlarla şifreli yerel eşitleme için kullanılır.
+    NSBonjourServices:
+      - _clinicnova._tcp
   target:
     - target: dmg
       arch: [universal]

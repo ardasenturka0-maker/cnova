@@ -228,6 +228,8 @@ public class MainActivity extends Activity {
     }
 
     private final class SyncBridge {
+        @JavascriptInterface public String storageGet(String key) { return validStorageKey(key) ? meshRead("store-" + key) : null; }
+        @JavascriptInterface public boolean storageSet(String key, String value) { return validStorageKey(key) && value != null && value.getBytes(StandardCharsets.UTF_8).length <= 64 * 1024 * 1024 && meshWrite("store-" + key, value); }
         @JavascriptInterface public String meshGetConfig() { return meshRead("config"); }
         @JavascriptInterface public String meshGetEnvelope() { return meshRead("envelope"); }
         @JavascriptInterface public boolean meshConfigure(String json) { try { if (json == null || json.getBytes(StandardCharsets.UTF_8).length > 8192) return false; meshTransport.configure(json); return meshWrite("config", json); } catch (Exception ignored) { return false; } }
@@ -287,6 +289,8 @@ public class MainActivity extends Activity {
             new Thread(() -> performProductSearch(serverUrl, productUrl, itemId)).start();
         }
     }
+
+    private boolean validStorageKey(String key) { return key != null && key.matches("^clinicnova\\.[A-Za-z0-9._-]{1,80}$"); }
 
     private SecretKey meshEncryptionKey() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);

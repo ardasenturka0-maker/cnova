@@ -2,6 +2,8 @@ package app.clinicnova.mobile;
 
 import android.content.Context;
 import android.net.wifi.WifiManager;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.util.Base64;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -17,6 +19,10 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
@@ -44,6 +50,10 @@ final class MeshTransport {
     private DatagramSocket udp;
     private Timer timer;
     private WifiManager.MulticastLock multicastLock;
+    private NsdManager nsdManager;
+    private NsdManager.DiscoveryListener discoveryListener;
+    private NsdManager.RegistrationListener registrationListener;
+    private ExecutorService nsdResolver;
 
     MeshTransport(Context context, Listener listener) { this.context = context; this.listener = listener; }
 
@@ -61,6 +71,7 @@ final class MeshTransport {
         if (wifi != null) { multicastLock = wifi.createMulticastLock("ClinicNovaMesh"); multicastLock.setReferenceCounted(false); multicastLock.acquire(); }
         server = new ServerSocket(0);
         new Thread(this::acceptLoop, "clinicnova-mesh-tcp").start();
+        startBonjour();
         udp = new DatagramSocket(null); udp.setReuseAddress(true); udp.setBroadcast(true); udp.bind(new java.net.InetSocketAddress(DISCOVERY_PORT));
         new Thread(this::discoveryLoop, "clinicnova-mesh-udp").start();
         timer = new Timer("clinicnova-mesh-announce", true);
@@ -104,14 +115,67 @@ final class MeshTransport {
     private void discovered(String text, InetAddress address) {
         try {
             JSONObject value = new JSONObject(text);
+            discoveredValue(value, address, value.optInt("port"));
+        } catch (Exception ignored) { /* Ignore unauthenticated discovery traffic. */ }
+    }
+
+    private void discoveredValue(JSONObject value, InetAddress address, int advertisedPort) {
+        try {
             if (value.optInt("v") != VERSION || value.optString("deviceId").equals(config.getString("deviceId")) || !MessageDigest.isEqual(value.optString("clinicHash").getBytes(StandardCharsets.UTF_8), clinicHash().getBytes(StandardCharsets.UTF_8))) return;
             String signed = value.getInt("v") + "|" + value.getString("clinicHash") + "|" + value.getString("deviceId") + "|" + value.getString("deviceName") + "|" + value.getInt("port") + "|" + value.getString("nonce");
             if (!MessageDigest.isEqual(value.optString("mac").getBytes(StandardCharsets.UTF_8), hmac(signed).getBytes(StandardCharsets.UTF_8))) return;
-            int port = value.getInt("port"); if (port < 1 || port > 65535) return;
+            int port = value.getInt("port"); if (port < 1 || port > 65535 || advertisedPort != port) return;
             String key = address.getHostAddress() + ":" + port;
             synchronized (connecting) { if (!connecting.add(key)) return; }
             new Thread(() -> { try { connect(address, port, value.optString("deviceName", "Klinik cihazı")); } finally { synchronized (connecting) { connecting.remove(key); } } }, "clinicnova-mesh-connect").start();
         } catch (Exception ignored) { /* Ignore unauthenticated discovery traffic. */ }
+    }
+
+    private void startBonjour() {
+        try {
+            nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
+            if (nsdManager == null) return;
+            nsdResolver = Executors.newSingleThreadExecutor();
+            JSONObject announcement = announcement();
+            NsdServiceInfo info = new NsdServiceInfo();
+            info.setServiceName("ClinicNova-" + config.getString("deviceId").substring(Math.max(0, config.getString("deviceId").length() - 16)));
+            info.setServiceType("_clinicnova._tcp."); info.setPort(server.getLocalPort());
+            java.util.Iterator<String> keys = announcement.keys();
+            while (keys.hasNext()) { String key = keys.next(); info.setAttribute(key, String.valueOf(announcement.get(key))); }
+            registrationListener = new NsdManager.RegistrationListener() {
+                public void onServiceRegistered(NsdServiceInfo serviceInfo) {}
+                public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) { listener.onStatus("Apple cihaz yayını tekrar denenecek", ""); }
+                public void onServiceUnregistered(NsdServiceInfo serviceInfo) {}
+                public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {}
+            };
+            nsdManager.registerService(info, NsdManager.PROTOCOL_DNS_SD, registrationListener);
+            discoveryListener = new NsdManager.DiscoveryListener() {
+                public void onDiscoveryStarted(String serviceType) {}
+                public void onServiceFound(NsdServiceInfo serviceInfo) {
+                    if (!serviceInfo.getServiceType().startsWith("_clinicnova._tcp")) return;
+                    if (nsdResolver == null || nsdResolver.isShutdown()) return;
+                    nsdResolver.submit(() -> {
+                        CountDownLatch finished = new CountDownLatch(1);
+                        try { nsdManager.resolveService(serviceInfo, new NsdManager.ResolveListener() {
+                            public void onResolveFailed(NsdServiceInfo value, int errorCode) { finished.countDown(); }
+                            public void onServiceResolved(NsdServiceInfo resolved) {
+                                try {
+                                    JSONObject discovered = new JSONObject();
+                                    for (java.util.Map.Entry<String, byte[]> entry : resolved.getAttributes().entrySet()) discovered.put(entry.getKey(), new String(entry.getValue(), StandardCharsets.UTF_8));
+                                    discoveredValue(discovered, resolved.getHost(), resolved.getPort());
+                                } catch (Exception ignored) {} finally { finished.countDown(); }
+                            }
+                        }); finished.await(6, TimeUnit.SECONDS); }
+                        catch (Exception ignored) { finished.countDown(); }
+                    });
+                }
+                public void onServiceLost(NsdServiceInfo serviceInfo) {}
+                public void onDiscoveryStopped(String serviceType) {}
+                public void onStartDiscoveryFailed(String serviceType, int errorCode) { try { nsdManager.stopServiceDiscovery(this); } catch (Exception ignored) {} }
+                public void onStopDiscoveryFailed(String serviceType, int errorCode) {}
+            };
+            nsdManager.discoverServices("_clinicnova._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        } catch (Exception error) { listener.onStatus("Apple cihaz keşfi tekrar denenecek", ""); }
     }
 
     private JSONObject messageObject() throws Exception {
@@ -151,6 +215,10 @@ final class MeshTransport {
 
     synchronized void stop() {
         running = false; if (timer != null) timer.cancel(); timer = null;
+        try { if (nsdManager != null && discoveryListener != null) nsdManager.stopServiceDiscovery(discoveryListener); } catch (Exception ignored) {}
+        try { if (nsdManager != null && registrationListener != null) nsdManager.unregisterService(registrationListener); } catch (Exception ignored) {}
+        discoveryListener = null; registrationListener = null; nsdManager = null;
+        if (nsdResolver != null) nsdResolver.shutdownNow(); nsdResolver = null;
         try { if (udp != null) udp.close(); } catch (Exception ignored) {} try { if (server != null) server.close(); } catch (Exception ignored) {}
         udp = null; server = null; synchronized (connecting) { connecting.clear(); }
         if (multicastLock != null && multicastLock.isHeld()) multicastLock.release(); multicastLock = null;

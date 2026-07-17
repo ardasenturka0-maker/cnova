@@ -85,9 +85,11 @@ test("LAN mesh transport is authenticated, encrypted, bounded, and native-only",
   assert.match(androidActivity, /AndroidKeyStore/);
   assert.match(androidActivity, /KeyGenParameterSpec/);
   assert.match(android, /HmacSHA256/);
+  assert.match(android, /NsdManager/);
   assert.match(android, /MessageDigest\.isEqual/);
   assert.match(android, /MAX_FRAME = 64 \* 1024 \* 1024/);
   assert.match(manifest, /CHANGE_WIFI_MULTICAST_STATE/);
   assert.match(main, /safeStorage\.encryptString\(envelope\)/);
   assert.match(preload, /meshGetConfig/);
+  assert.match(transport, /bonjour-service/);
 });

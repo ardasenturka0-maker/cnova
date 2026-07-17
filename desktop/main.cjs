@@ -37,7 +37,7 @@ function installIpcHandlers() {
   });
   ipcMain.on("clinicnova:storage-set", (event, key, value) => {
     event.returnValue = false;
-    if (!rendererAllowed(event) || !validStorageKey(key) || typeof value !== "string" || Buffer.byteLength(value) > 5 * 1024 * 1024) return;
+    if (!rendererAllowed(event) || !validStorageKey(key) || typeof value !== "string" || Buffer.byteLength(value) > 64 * 1024 * 1024) return;
     if (!safeStorage.isEncryptionAvailable()) return;
     encryptedStore[key] = safeStorage.encryptString(value).toString("base64");
     persistStore();

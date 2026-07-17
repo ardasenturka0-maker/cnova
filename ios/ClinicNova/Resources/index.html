@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+    <meta name="theme-color" content="#f8fafc" />
+    <meta name="color-scheme" content="light dark" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
+    <title>ClinicNova</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <svg class="svg-sprite" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v15H3V6a2 2 0 0 1 2-2z"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v10a2 2 0 0 1-2 2H5a3 3 0 0 1-3-3V6M16 14h2"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-tooth" viewBox="0 0 24 24"><path d="M12 3c-2-2-7-1-8 3-1 5 3 15 6 15 2 0 1-6 2-6s0 6 2 6c3 0 7-10 6-15-1-4-6-5-8-3z"/></symbol>
+      <symbol id="i-plane" viewBox="0 0 24 24"><path d="M22 2 9 15M22 2l-7 20-4-9-9-4z"/></symbol>
+      <symbol id="i-box" viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5zM3 8v9l9 5 9-5V8M12 13v9"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-5"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></symbol>
+      <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.6a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 20h.01M2 9a15 15 0 0 1 20 0"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h5a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-5"/></symbol>
+    </svg>
+
+    <section id="loginScreen" class="login-screen">
+      <div class="login-orb login-orb-one"></div>
+      <div class="login-orb login-orb-two"></div>
+      <div class="login-card">
+        <div class="brand brand-large">
+          <span class="brand-mark"><span class="pulse-line">⌁</span></span>
+          <span><strong>ClinicNova</strong><small>Dental Growth OS</small></span>
+        </div>
+        <div class="login-copy">
+          <span id="loginEyebrow" class="eyebrow">GÜVENLİ KLİNİK ERİŞİMİ</span>
+          <h1 id="loginTitle">Kliniğiniz çevrimdışı da çalışır.</h1>
+          <p id="loginDescription">Kayıtları önce bu cihazda saklayın; sunucuyu bağladığınızda otomatik eşitleyin.</p>
+        </div>
+        <form id="loginForm" class="form-stack">
+          <label id="serverUrlField">ClinicNova sunucu adresi<input id="serverUrl" name="serverUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://app.kliniginiz.com" /></label>
+          <div id="localSetupFields" class="form-stack" hidden>
+            <label>Klinik adı<input id="localClinicName" autocomplete="organization" maxlength="120" /></label>
+            <label>Yönetici adı<input id="localAdminName" autocomplete="name" maxlength="120" /></label>
+          </div>
+          <div id="demoLoginFields" class="form-stack" hidden>
+            <label>E-posta<input id="loginEmail" type="email" autocomplete="email" /></label>
+            <label>Parola<input id="loginPassword" type="password" autocomplete="current-password" minlength="10" /></label>
+          </div>
+          <button class="button button-primary button-large" type="submit"><span id="loginSubmitLabel">Yerel çalışmayı başlat</span> <svg><use href="#i-chevron"/></svg></button>
+          <button id="serverLoginButton" class="button button-secondary button-large" type="button" hidden>İnternetli kullanım / sunucuya bağlan</button>
+          <button id="recoveryButton" class="text-button" type="button" hidden>Parolamı kurtarma koduyla sıfırla</button>
+          <button id="previewDemoButton" class="button button-secondary button-large" type="button" hidden>Sürümü incele</button>
+        </form>
+        <div class="secure-note"><svg><use href="#i-shield"/></svg><span id="loginSecureNote">Yerel kayıtlar uygulamanın özel alanında tutulur ve yalnızca seçtiğiniz HTTPS sunucusuna eşitlenir.</span></div>
+      </div>
+    </section>
+
+    <div id="appShell" class="app-shell" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"><span class="pulse-line">⌁</span></span>
+          <span><strong>ClinicNova</strong><small id="branchLabel">Nişantaşı Klinik</small></span>
+        </div>
+        <div class="top-actions">
+          <span id="networkBadge" class="network-badge"><svg><use href="#i-wifi"/></svg><span>Çevrimdışı hazır</span></span>
+          <button id="notificationButton" class="icon-button" aria-label="Bildirimler"><svg><use href="#i-bell"/></svg><span id="notificationDot" class="notification-dot"></span></button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section id="view-home" class="view active" data-view="home">
+          <div class="welcome-row">
+            <div><p id="todayLabel" class="muted"></p><h1 id="welcomeTitle">Günaydın 👋</h1></div>
+            <button id="profileAvatar" class="avatar" type="button" data-action="profile" aria-label="Profil">CN</button>
+          </div>
+          <button id="alertBanner" class="alert-banner" type="button" data-action="opportunities" aria-label="Gelir fırsatları hazır: 3 sıcak lead ve 2 geciken tahsilat">
+            <div class="alert-icon">↗</div>
+            <div><strong>Gelir fırsatları hazır</strong><p id="opportunitySummary">3 sıcak lead ve 2 geciken tahsilat bugün aksiyon bekliyor.</p></div>
+            <svg><use href="#i-chevron"/></svg>
+          </button>
+          <div id="metricGrid" class="metric-grid"></div>
+          <div class="section-heading"><div><span class="eyebrow">BUGÜN</span><h2>Randevu akışı</h2></div><button class="text-button" data-go="appointments">Tümünü gör</button></div>
+          <div id="todayAppointments" class="timeline-card"></div>
+          <div class="section-heading"><div><span class="eyebrow">HIZLI İŞLEMLER</span><h2>Ne yapmak istersiniz?</h2></div></div>
+          <div class="quick-grid">
+            <button data-action="add-patient"><span class="quick-icon teal"><svg><use href="#i-users"/></svg></span><span>Hasta ekle</span></button>
+            <button data-action="add-appointment"><span class="quick-icon orange"><svg><use href="#i-calendar"/></svg></span><span>Randevu oluştur</span></button>
+            <button data-action="add-payment"><span class="quick-icon blue"><svg><use href="#i-wallet"/></svg></span><span>Ödeme al</span></button>
+            <button data-go="more"><span class="quick-icon purple"><svg><use href="#i-grid"/></svg></span><span>Tüm modüller</span></button>
+          </div>
+        </section>
+
+        <section id="view-patients" class="view" data-view="patients">
+          <div class="page-heading"><div><span class="eyebrow">HASTA YÖNETİMİ</span><h1>Hastalar</h1><p id="patientCountLabel" class="muted"></p></div><button class="button button-primary button-square" data-action="add-patient" aria-label="Hasta ekle"><svg><use href="#i-plus"/></svg></button></div>
+          <label class="search-box"><svg><use href="#i-search"/></svg><input id="patientSearch" type="search" placeholder="Ad, telefon veya etiket ara" /></label>
+          <div class="filter-chips" id="patientFilters"><button class="active" data-filter="ALL">Tümü</button><button data-filter="ACTIVE">Aktif</button><button data-filter="NEW">Yeni</button><button data-filter="VIP">VIP</button></div>
+          <div id="patientList" class="list-stack"></div>
+        </section>
+
+        <section id="view-appointments" class="view" data-view="appointments">
+          <div class="page-heading"><div><span class="eyebrow">PLANLAMA</span><h1>Randevular</h1><p class="muted">Günlük klinik akışı</p></div><button class="button button-primary button-square" data-action="add-appointment" aria-label="Randevu oluştur"><svg><use href="#i-plus"/></svg></button></div>
+          <div class="calendar-toolbar"><button class="icon-button" data-calendar-step="-1" aria-label="Önceki ay">‹</button><strong id="calendarMonthLabel"></strong><button class="icon-button" data-calendar-step="1" aria-label="Sonraki ay">›</button></div>
+          <div class="calendar-weekdays" aria-hidden="true"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div>
+          <div id="dateStrip" class="month-calendar"></div>
+          <div class="summary-strip"><span><strong id="appointmentTotal">0</strong> randevu</span><span><i class="status-dot status-planned"></i>Planlı</span><span><i class="status-dot status-arrived"></i>Geldi</span></div>
+          <div id="appointmentList" class="appointment-list"></div>
+        </section>
+
+        <section id="view-treatment-plans" class="view" data-view="treatment-plans">
+          <div class="page-heading"><div><span class="eyebrow">TEDAVİ</span><h1>Tedavi planları</h1><p class="muted">Hasta, hekim, ücret ve süreç ayrıntıları</p></div><button class="button button-primary button-square" data-action="add-treatment-plan" aria-label="Tedavi planı ekle"><svg><use href="#i-plus"/></svg></button></div>
+          <button class="button button-primary full-action" data-action="add-treatment-plan">Yeni tedavi planı ekle</button>
+          <div id="treatmentPlanList" class="list-stack page-list"></div>
+        </section>
+
+        <section id="view-stocks" class="view" data-view="stocks">
+          <div class="page-heading"><div><span class="eyebrow">STOK YÖNETİMİ</span><h1>Stok</h1><p class="muted">Ürün, miktar, tedarik ve satın alma</p></div><button class="button button-primary button-square" data-action="add-stock-item" aria-label="Stok ürünü ekle"><svg><use href="#i-plus"/></svg></button></div>
+          <div id="stockSummary" class="finance-stats"></div>
+          <div class="stock-actions"><button class="button button-primary" data-action="add-stock-item">Yeni ürün ekle</button><button class="button button-secondary" data-action="stock-movement">Adet ekle / çıkar</button></div>
+          <button class="button button-secondary full-action" data-action="add-stock-recipe">Tedavi reçetesi tanımla</button>
+          <div class="section-heading"><div><span class="eyebrow">OTOMATİK SARF</span><h2>Tedavi reçeteleri</h2></div></div>
+          <div id="stockRecipeList" class="list-stack"></div>
+          <div class="section-heading"><div><span class="eyebrow">MALZEMELER</span><h2>Stok listesi</h2></div></div>
+          <div id="stockList" class="list-stack"></div>
+        </section>
+
+        <section id="view-finance" class="view" data-view="finance">
+          <div class="page-heading"><div><span class="eyebrow">FİNANS</span><h1>Tahsilat merkezi</h1><p id="financePeriod" class="muted"></p></div><button class="icon-button" type="button" data-action="finance-report" aria-label="Finans raporu"><svg><use href="#i-chart"/></svg></button></div>
+          <div class="finance-hero"><span>Bu ay tahsil edilen</span><strong id="monthlyRevenue"></strong><div class="finance-progress"><span style="width:72%"></span></div><small>Hedefin %72’si · 11 gün kaldı</small></div>
+          <div id="financeStats" class="finance-stats"></div>
+          <div class="stock-actions"><button class="button button-primary" data-action="add-payment">Tahsilat ekle</button><button class="button button-secondary" data-action="add-expense">Gider ekle</button></div>
+          <div id="financeFilterChips" class="filter-chips finance-filter-chips"><button class="active" data-finance-filter="ALL">Tümü</button><button data-finance-filter="PAID">Ödenen</button><button data-finance-filter="PENDING">Bekleyen</button><button data-finance-filter="EXPENSE">Gider</button></div>
+          <div class="section-heading"><div><span class="eyebrow">ÖDEME PLANLARI</span><h2>Bekleyen bakiyeler</h2></div></div>
+          <div id="pendingPaymentList" class="list-stack"></div>
+          <div class="section-heading"><div><span class="eyebrow">SON HAREKETLER</span><h2>İşlemler</h2></div><button id="transactionFilterButton" class="text-button" type="button" data-action="transaction-filter">Filtrele</button></div>
+          <div id="transactionList" class="list-stack"></div>
+        </section>
+
+        <section id="view-consents" class="view" data-view="consents">
+          <div class="page-heading"><div><span class="eyebrow">DİJİTAL ONAM</span><h1>Onam merkezi</h1><p class="muted">Hasta onamları, imza durumu ve takip</p></div><button class="button button-primary button-square" data-action="add-consent" aria-label="Onam oluştur"><svg><use href="#i-plus"/></svg></button></div>
+          <div id="consentStats" class="finance-stats"></div>
+          <button class="button button-primary full-action" data-action="add-consent">Yeni onam oluştur</button>
+          <div id="consentFilterChips" class="filter-chips"><button class="active" data-consent-filter="ALL">Tümü</button><button data-consent-filter="İmza bekliyor">Bekleyen</button><button data-consent-filter="İmzalandı">İmzalı</button><button data-consent-filter="Taslak">Taslak</button><button data-consent-filter="İptal edildi">İptal</button></div>
+          <div class="section-heading"><div><span class="eyebrow">ONAM KAYITLARI</span><h2>Hasta belgeleri</h2></div></div>
+          <div id="consentList" class="list-stack page-list"></div>
+        </section>
+
+        <section id="view-more" class="view" data-view="more">
+          <div class="page-heading"><div><span class="eyebrow">CLINICNOVA</span><h1>Tüm modüller</h1><p class="muted">Klinik operasyon merkezi</p></div><button id="themeButton" class="icon-button" aria-label="Temayı değiştir"><svg><use href="#i-moon"/></svg></button></div>
+          <div id="moduleGrid" class="module-grid"></div>
+          <div class="settings-card">
+            <button data-action="clinic-management"><span class="settings-icon"><svg><use href="#i-tooth"/></svg></span><span><strong>Klinik yönetimi</strong><small>Klinik adı, doktorlar ve koltuklar</small></span><svg><use href="#i-chevron"/></svg></button>
+            <button data-action="connect"><span class="settings-icon"><svg><use href="#i-wifi"/></svg></span><span><strong>Sunucuya bağla ve eşitle</strong><small>Bekleyen yerel kayıtları güvenli sunucuya gönderin</small></span><svg><use href="#i-chevron"/></svg></button>
+            <button data-action="security"><span class="settings-icon"><svg><use href="#i-shield"/></svg></span><span><strong>Güvenlik ve veri</strong><small>Yerel saklama ve uygulama bilgisi</small></span><svg><use href="#i-chevron"/></svg></button>
+            <button data-action="logout"><span class="settings-icon danger"><svg><use href="#i-logout"/></svg></span><span><strong>Çıkış yap</strong><small>Bu cihazdaki oturumu kapatın</small></span><svg><use href="#i-chevron"/></svg></button>
+          </div>
+          <p id="versionLabel" class="version-label">ClinicNova Android</p>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Ana menü">
+        <button class="active" data-go="home"><svg><use href="#i-home"/></svg><span>Ana Sayfa</span></button>
+        <button data-go="patients"><svg><use href="#i-users"/></svg><span>Hastalar</span></button>
+        <button data-go="appointments"><svg><use href="#i-calendar"/></svg><span>Randevu</span></button>
+        <button data-go="treatment-plans"><svg><use href="#i-tooth"/></svg><span>Tedaviler</span></button>
+        <button data-go="stocks"><svg><use href="#i-box"/></svg><span>Stok</span></button>
+        <button data-go="finance"><svg><use href="#i-wallet"/></svg><span>Finans</span></button>
+        <button data-go="consents"><svg><use href="#i-shield"/></svg><span>Onam</span></button>
+        <button data-go="more"><svg><use href="#i-grid"/></svg><span>Diğer</span></button>
+      </nav>
+    </div>
+
+    <div id="modalBackdrop" class="modal-backdrop" hidden>
+      <section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-handle"></div>
+        <header><div><span id="modalEyebrow" class="eyebrow"></span><h2 id="modalTitle"></h2></div><button id="modalClose" class="icon-button" aria-label="Kapat"><svg><use href="#i-close"/></svg></button></header>
+        <div id="modalBody" class="modal-body"></div>
+      </section>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="runtime-config.js"></script>
+    <script src="mesh-sync.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

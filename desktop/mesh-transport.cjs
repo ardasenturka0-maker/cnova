@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const dgram = require("node:dgram");
 const nodeNet = require("node:net");
 const os = require("node:os");
+const { Bonjour } = require("bonjour-service");
 
 const DISCOVERY_PORT = 45872;
 const MAX_FRAME = 64 * 1024 * 1024;
@@ -55,7 +56,7 @@ function readFrame(socket, timeout = 15000) {
 class MeshTransport {
   constructor({ getEnvelope, onEnvelope, onStatus }) {
     this.getEnvelope = getEnvelope; this.onEnvelope = onEnvelope; this.onStatus = onStatus;
-    this.config = null; this.udp = null; this.server = null; this.port = 0; this.timer = null; this.connecting = new Set();
+    this.config = null; this.udp = null; this.server = null; this.port = 0; this.timer = null; this.connecting = new Set(); this.bonjour = null; this.bonjourService = null; this.bonjourBrowser = null;
   }
 
   configure(input) {
@@ -78,6 +79,7 @@ class MeshTransport {
     this.udp.on("message", (data, remote) => this.discovered(data, remote));
     this.udp.on("error", error => this.onStatus(`Yerel ağ keşfi: ${error.message}`));
     this.udp.bind(DISCOVERY_PORT, () => { this.udp.setBroadcast(true); this.announce(); });
+    this.startBonjour();
     this.timer = setInterval(() => this.announce(), 8000);
     this.onStatus("Yerel ağda eşler aranıyor");
   }
@@ -85,6 +87,19 @@ class MeshTransport {
   announcement() {
     const base = { v: PROTOCOL, clinicHash: clinicHash(this.config), deviceId: this.config.deviceId, deviceName: this.config.deviceName, port: this.port, nonce: crypto.randomBytes(12).toString("base64url") };
     return { ...base, mac: hmac(this.config.secret, [base.v, base.clinicHash, base.deviceId, base.deviceName, base.port, base.nonce].join("|")) };
+  }
+
+  startBonjour() {
+    try {
+      const value = this.announcement();
+      this.bonjour = new Bonjour();
+      this.bonjourService = this.bonjour.publish({ name: `ClinicNova-${this.config.deviceId}`, type: "clinicnova", protocol: "tcp", port: this.port, txt: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item)])) });
+      this.bonjourBrowser = this.bonjour.find({ type: "clinicnova", protocol: "tcp" }, service => {
+        const addresses = Array.isArray(service.addresses) ? service.addresses : [];
+        const host = addresses.find(address => nodeNet.isIPv4(address) && !address.startsWith("127."));
+        if (host) this.discoveredValue(service.txt || {}, host, service.port);
+      });
+    } catch (error) { this.onStatus(`Apple cihaz keşfi: ${error.message}`); }
   }
 
   announce() {
@@ -99,14 +114,22 @@ class MeshTransport {
   discovered(data, remote) {
     try {
       const value = JSON.parse(data.toString("utf8"));
-      if (value.v !== PROTOCOL || value.deviceId === this.config.deviceId || value.clinicHash !== clinicHash(this.config)) return;
-      const expected = hmac(this.config.secret, [value.v, value.clinicHash, value.deviceId, value.deviceName, value.port, value.nonce].join("|"));
-      if (!crypto.timingSafeEqual(Buffer.from(String(value.mac)), Buffer.from(expected))) return;
-      if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535) return;
-      const key = `${remote.address}:${value.port}`;
+      this.discoveredValue(value, remote.address, value.port);
+    } catch { /* Ignore unauthenticated discovery traffic. */ }
+  }
+
+  discoveredValue(value, host, advertisedPort) {
+    try {
+      const normalized = { v: Number(value.v), clinicHash: String(value.clinicHash || ""), deviceId: String(value.deviceId || ""), deviceName: String(value.deviceName || ""), port: Number(value.port), nonce: String(value.nonce || ""), mac: String(value.mac || "") };
+      if (normalized.v !== PROTOCOL || normalized.deviceId === this.config.deviceId || normalized.clinicHash !== clinicHash(this.config)) return;
+      const expected = hmac(this.config.secret, [normalized.v, normalized.clinicHash, normalized.deviceId, normalized.deviceName, normalized.port, normalized.nonce].join("|"));
+      if (!crypto.timingSafeEqual(Buffer.from(normalized.mac), Buffer.from(expected))) return;
+      const port = Number(advertisedPort || normalized.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || port !== normalized.port) return;
+      const key = `${host}:${port}`;
       if (this.connecting.has(key)) return;
       this.connecting.add(key);
-      void this.connect(remote.address, value.port, value.deviceName).finally(() => this.connecting.delete(key));
+      void this.connect(host, port, normalized.deviceName).finally(() => this.connecting.delete(key));
     } catch { /* Ignore unauthenticated discovery traffic. */ }
   }
 
@@ -137,7 +160,7 @@ class MeshTransport {
   }
 
   syncNow() { this.announce(); }
-  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; try { if (this.udp) this.udp.close(); } catch {} try { if (this.server) this.server.close(); } catch {} this.udp = null; this.server = null; this.port = 0; this.connecting.clear(); }
+  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; try { this.bonjourBrowser?.stop(); } catch {} try { this.bonjourService?.stop(); } catch {} try { this.bonjour?.destroy(); } catch {} this.bonjourBrowser = null; this.bonjourService = null; this.bonjour = null; try { if (this.udp) this.udp.close(); } catch {} try { if (this.server) this.server.close(); } catch {} this.udp = null; this.server = null; this.port = 0; this.connecting.clear(); }
 }
 
 module.exports = { MeshTransport, encrypt, decrypt, clinicHash, DISCOVERY_PORT, MAX_FRAME };

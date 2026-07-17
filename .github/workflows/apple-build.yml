@@ -1,0 +1,44 @@
+name: Apple builds
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ios:prepare
+      - name: Compile iPhone application without signing
+        run: xcodebuild -project ios/ClinicNova.xcodeproj -scheme ClinicNova -sdk iphonesimulator -configuration Release CODE_SIGNING_ALLOWED=NO clean build
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:prepare
+      - name: Package unsigned universal macOS application
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --projectDir desktop/app --config ../../electron-builder.yml --mac zip --universal --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClinicNova-macOS-unsigned
+          path: release-desktop/*.zip
+          if-no-files-found: error

@@ -39,3 +39,20 @@ test("two native peers exchange both durable envelopes over an interrupted-safe 
     assert.deepEqual(receivedByB, { operations: ["a"] });
   } finally { a.stop(); b.stop(); }
 });
+
+test("authenticated Bonjour TXT discovery connects Apple and non-Apple peers", async () => {
+  const secret = Buffer.alloc(32, 11).toString("base64");
+  let received: unknown = null;
+  const apple = new MeshTransport({ getEnvelope: () => ({ operations: ["apple"] }), onEnvelope: () => undefined, onStatus: () => undefined });
+  const android = new MeshTransport({ getEnvelope: () => ({ operations: ["android"] }), onEnvelope: (value: unknown) => { received = value; }, onStatus: () => undefined });
+  try {
+    apple.configure({ clinicId: "clinic-bonjour", deviceId: "device-apple-one", deviceName: "iPhone", secret });
+    android.configure({ clinicId: "clinic-bonjour", deviceId: "device-android-one", deviceName: "Android", secret });
+    const deadline = Date.now() + 3000;
+    while (!apple.port && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    const txt = Object.fromEntries(Object.entries(apple.announcement()).map(([key, value]) => [key, String(value)]));
+    android.discoveredValue(txt, "127.0.0.1", apple.port);
+    while (!received && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(received, { operations: ["apple"] });
+  } finally { apple.stop(); android.stop(); }
+});

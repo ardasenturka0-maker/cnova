@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="theme-color" content="#f8fafc" />
     <meta name="color-scheme" content="light dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-OlvGKa6nuvDFyedRFaG0eDwzhRErgFyHw1up/JMNT6Y=' 'sha256-GfPSWAVtt2efA6obLJ4EBmpxxEN+Y6icaOjbQfBjZME=' 'sha256-txt5OIhG2WeplzFfTUBBilInXobykmq7TqvyTiXwitA='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-OlvGKa6nuvDFyedRFaG0eDwzhRErgFyHw1up/JMNT6Y=' 'sha256-GfPSWAVtt2efA6obLJ4EBmpxxEN+Y6icaOjbQfBjZME=' 'sha256-bNdk79c9MvjUADx+qjIa5V7bWSchPypW4ZzKgCSLHzM='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
     <title>ClinicNova</title>
     <style>:root {
   color-scheme: light;
@@ -337,6 +337,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .record-state { max-width: 74px; color: var(--muted); text-align: right; font-size: 8px; font-weight: 750; }
 .record-progress { display: block; height: 4px; margin-top: 7px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
 .record-progress i { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
+.treatment-photo-record { align-items: start; }
+.treatment-photo-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 92px)); gap: 7px; margin-top: 9px; }
+.treatment-photo-pair figure { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.treatment-photo-pair img { width: 100%; aspect-ratio: 4/3; display: block; object-fit: cover; }
+.treatment-photo-pair figcaption { padding: 4px 6px; color: var(--muted); font-size: 7px; font-weight: 800; }
 .score-badge { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 13px; color: white; background: linear-gradient(145deg, var(--primary-2), #0a5f59); font-size: 12px; font-weight: 850; }
 .mini-action { border: 1px solid var(--line); border-radius: 10px; color: var(--primary); background: var(--surface); padding: 7px 9px; text-decoration: none; font-size: 9px; font-weight: 800; }
 .filter-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -742,14 +747,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   const storage = {
     get(key, fallback) {
       try {
-        const value = window.ClinicNovaNative?.storage?.getItem(key) ?? localStorage.getItem(key);
+        const value = window.ClinicNovaNative?.storage?.getItem?.(key) ?? window.ClinicNovaNative?.storageGet?.(key) ?? localStorage.getItem(key);
         return value === null ? fallback : JSON.parse(value);
       } catch { return fallback; }
     },
     set(key, value) {
       try {
         const serialized = JSON.stringify(value);
-        if (window.ClinicNovaNative?.storage) window.ClinicNovaNative.storage.setItem(key, serialized);
+        if (window.ClinicNovaNative?.storage?.setItem) window.ClinicNovaNative.storage.setItem(key, serialized);
+        else if (window.ClinicNovaNative?.storageSet) window.ClinicNovaNative.storageSet(key, serialized);
         else localStorage.setItem(key, serialized);
       } catch { /* Platform storage can be unavailable when the OS keychain is locked. */ }
     }
@@ -861,6 +867,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   let surveys = localCollection("clinicnova.surveys", []);
   let surveyResponses = localCollection("clinicnova.surveyResponses", []);
   let recalls = localCollection("clinicnova.recalls", []);
+  let reminderSettings = storage.get("clinicnova.reminderSettings", { id: "clinic", enabled: false, weekEnabled: true, dayEnabled: true, channel: "WHATSAPP", endpoint: "", token: "", senderDeviceId: "", template: "Merhaba {{name}}, {{date}} {{time}} tarihindeki {{treatment}} randevunuzu hatırlatırız. {{clinic}}" });
+  let reminderDeliveries = localCollection("clinicnova.reminderDeliveries", []);
   let trashItems = demoMode || localDataWasMigrated ? storage.get("clinicnova.trashItems", []) : [];
   let legacyOfferId = Date.now();
   stockItems.forEach((item) => (item.offers ||= []).forEach((offer) => {
@@ -1020,7 +1028,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       communicationLog,
       consentRecords: consentRecords.map(({ history: _history, ...consent }) => consent),
       consentHistory: consentRecords.flatMap((consent) => (consent.history || []).map((entry, index) => ({ ...entry, id: entry.id ?? `${consent.id}:${index}:${window.ClinicNovaMeshEngine.digest(entry)}`, consentId: consent.id }))),
-      treatments, staffRecords, surveys, surveyResponses, recalls, trashItems
+      treatments, staffRecords, surveys, surveyResponses, recalls,
+      reminderSettings: [{ ...reminderSettings, id: "clinic" }], reminderDeliveries, trashItems
     };
   }
   function applyMeshDocument(document) {
@@ -1047,7 +1056,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       const consentHistory = document.consentHistory || [];
       consentRecords.forEach((consent) => { consent.history = consentHistory.filter((entry) => String(entry.consentId) === String(consent.id)).map(({ consentId: _consentId, ...entry }) => entry); });
       treatments = document.treatments || []; staffRecords = document.staffRecords || []; surveys = document.surveys || []; surveyResponses = document.surveyResponses || [];
-      recalls = document.recalls || []; trashItems = document.trashItems || [];
+      recalls = document.recalls || [];
+      reminderSettings = document.reminderSettings?.[0] || reminderSettings;
+      reminderDeliveries = document.reminderDeliveries || [];
+      trashItems = document.trashItems || [];
       const clinic = document.clinicConfig?.[0];
       if (clinic) {
         clinicChairs = (document.clinicChairs || []).map((chair) => String(chair.name || "")).filter(Boolean);
@@ -1089,9 +1101,61 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     storage.set("clinicnova.surveys", surveys);
     storage.set("clinicnova.surveyResponses", surveyResponses);
     storage.set("clinicnova.recalls", recalls);
+    storage.set("clinicnova.reminderSettings", reminderSettings);
+    storage.set("clinicnova.reminderDeliveries", reminderDeliveries);
     storage.set("clinicnova.trashItems", trashItems);
     captureMeshState();
   }
+
+  let reminderProcessing = false;
+  function reminderText(appointment, patient) {
+    return String(reminderSettings.template || "")
+      .replaceAll("{{name}}", patient.name || "")
+      .replaceAll("{{date}}", appointment.date || "")
+      .replaceAll("{{time}}", appointment.time || "")
+      .replaceAll("{{treatment}}", appointment.treatment || "")
+      .replaceAll("{{clinic}}", currentClinicName());
+  }
+  function daysUntil(dateText) {
+    const target = new Date(`${dateText}T12:00:00`);
+    const current = new Date(`${localDate(new Date())}T12:00:00`);
+    return Math.round((target.getTime() - current.getTime()) / 86_400_000);
+  }
+  async function processAppointmentReminders() {
+    if (reminderProcessing || !reminderSettings.enabled || reminderSettings.senderDeviceId !== deviceId) return;
+    if (!/^https:\/\//i.test(reminderSettings.endpoint || "") || !reminderSettings.token) return;
+    reminderProcessing = true;
+    try {
+      const offsets = [reminderSettings.weekEnabled ? 7 : null, reminderSettings.dayEnabled ? 1 : null].filter(Number.isInteger);
+      for (const appointment of state.appointments) {
+        if (!["PLANNED", "PENDING_CONFIRMATION"].includes(appointment.status) || !offsets.includes(daysUntil(appointment.date))) continue;
+        const offset = daysUntil(appointment.date);
+        const deliveryId = `${appointment.id}:${offset}`;
+        const previous = reminderDeliveries.find((item) => item.id === deliveryId);
+        if (previous?.status === "SENT" || (previous?.status === "SENDING" && Date.now() - Date.parse(previous.updatedAt || 0) < 10 * 60_000)) continue;
+        const patient = patientById(appointment.patientId);
+        if (!patient?.phone) continue;
+        const delivery = previous || { id: deliveryId, appointmentId: appointment.id, offset, attempts: 0 };
+        Object.assign(delivery, { status: "SENDING", updatedAt: new Date().toISOString(), attempts: Number(delivery.attempts || 0) + 1 });
+        if (!previous) reminderDeliveries.unshift(delivery);
+        saveData();
+        try {
+          const response = await fetch(reminderSettings.endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${reminderSettings.token}`, "Idempotency-Key": deliveryId },
+            body: JSON.stringify({ idempotencyKey: deliveryId, channel: reminderSettings.channel, to: patient.phone, patientId: String(patient.id), appointmentId: String(appointment.id), message: reminderText(appointment, patient) })
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          delivery.status = "SENT"; delivery.sentAt = new Date().toISOString(); delivery.lastError = "";
+          communicationLog.unshift({ id: nextLocalId(), patientId: patient.id, patient: patient.name, channel: reminderSettings.channel === "SMS" ? "SMS" : "WhatsApp", status: "Teslim edildi", message: reminderText(appointment, patient), date: "Şimdi", reminderDeliveryId: deliveryId });
+        } catch (error) {
+          delivery.status = "FAILED"; delivery.lastError = String(error instanceof Error ? error.message : error).slice(0, 180);
+        }
+        delivery.updatedAt = new Date().toISOString(); saveData();
+      }
+    } finally { reminderProcessing = false; }
+  }
+  window.ClinicNovaProcessReminders = processAppointmentReminders;
 
   function meshPairingCode(config) {
     const bytes = new TextEncoder().encode(JSON.stringify({ v: 1, clinicId: config.clinicId, secret: config.secret }));
@@ -1215,6 +1279,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   }
 
   function treatmentPayload(record) { return { patientId: String(record.patientId), doctor: record.doctor, toothNumber: record.tooth || "", treatmentType: record.treatment, description: record.description || "", fee: record.fee || 0, paymentPlan: record.paymentPlan || null, status: record.status || "COMPLETED", date: record.date || todayIso }; }
+  function imageFileData(file) {
+    if (!file || !(file instanceof File) || !file.size) return Promise.resolve("");
+    if (!file.type.startsWith("image/")) return Promise.reject(new Error("Yalnızca fotoğraf seçilebilir."));
+    if (file.size > 12 * 1024 * 1024) return Promise.reject(new Error("Kaynak fotoğraf en fazla 12 MB olabilir."));
+    return new Promise((resolve, reject) => {
+      const image = new Image(); const url = URL.createObjectURL(file);
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+        let result = canvas.toDataURL("image/jpeg", .82);
+        if (result.length > 1_500_000) result = canvas.toDataURL("image/jpeg", .62);
+        if (result.length > 2_000_000) return reject(new Error("Fotoğraf güvenli eşitleme boyutuna küçültülemedi."));
+        resolve(result);
+      };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Fotoğraf okunamadı.")); };
+      image.src = url;
+    });
+  }
   function staffPayload(record) { return { fullName: record.fullName, roleLabel: record.roleLabel, phone: record.phone || "", email: record.email || "", workingHours: record.workingHours || "", compensation: record.compensation || "", active: record.active !== false }; }
   const consentStatusCode = (status) => ({ Taslak: "DRAFT", "İmza bekliyor": "SENT", İmzalandı: "SIGNED", "İptal edildi": "CANCELLED" })[status] || status || "DRAFT";
   const consentStatusLabel = (status) => ({ DRAFT: "Taslak", SENT: "İmza bekliyor", SIGNED: "İmzalandı", CANCELLED: "İptal edildi" })[status] || status || "Taslak";
@@ -1740,6 +1824,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       <div class="modal-grid two"><label class="field">Tedavi<input name="treatment" required placeholder="İmplant, dolgu..." /></label><label class="field">Diş / bölge<input name="tooth" placeholder="36 veya tüm ağız" /></label></div>
       <div class="modal-grid two"><label class="field">Tarih<input name="date" type="date" value="${todayIso}" required /></label><label class="field">Durum<select name="status"><option value="PROPOSED">Önerildi</option><option value="ACCEPTED">Kabul edildi</option><option value="STARTED">Başladı</option><option value="COMPLETED" selected>Tamamlandı</option><option value="CANCELLED">İptal</option></select></label></div>
       <label class="field">Ücret<input name="fee" type="number" min="0" step="0.01" value="0" required /></label><label class="field">Klinik açıklaması<textarea name="description"></textarea></label>
+      <div class="modal-grid two"><label class="field">Before fotoğraf<input name="beforePhoto" type="file" accept="image/*" capture="environment" /></label><label class="field">After fotoğraf<input name="afterPhoto" type="file" accept="image/*" capture="environment" /></label></div>
+      <p class="modal-note">Fotoğraflar cihazda güvenli saklanır, eşitleme için otomatik küçültülür ve yalnız eşleştirilmiş klinik cihazlarıyla şifreli eşitlenir.</p>
       <div class="modal-actions"><button type="button" class="button button-secondary" data-module="Gerçekleşen tedaviler">Vazgeç</button><button class="button button-primary">Kaydet</button></div>
     </form>`);
   }
@@ -2022,13 +2108,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     const doctorCounts = Object.entries(state.appointments.reduce((result, item) => { result[item.doctor] = (result[item.doctor] || 0) + 1; return result; }, {})).sort((a, b) => b[1] - a[1]);
     const moduleContent = {
       "Tedavi planları": `<div class="list-stack">${treatmentPlans.map((plan) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(plan.patient)}</strong><small>${escapeHtml(plan.treatment)} · ${escapeHtml(plan.status)}</small><span class="record-progress"><i style="width:${Math.round(plan.paid / plan.total * 100)}%"></i></span></span><span class="record-value">${currency(plan.paid)}<small>${currency(plan.total)} plan</small></span><button class="delete-button" data-delete-record="${plan.id}" data-record-kind="treatmentPlans" aria-label="${escapeHtml(plan.patient)} tedavi planını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Tedavi planı yok.</p>`}</div>`,
-      "Gerçekleşen tedaviler": `<div class="modal-grid"><button class="button button-primary" data-action="add-treatment">Tedavi kaydı ekle</button><div class="list-stack">${treatments.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.treatment)} · ${escapeHtml(item.doctor)} · ${escapeHtml(item.date)}</small></span><span class="record-value">${currency(item.fee || 0)}<small>${escapeHtml(item.status)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="treatments">Sil</button></article>`).join("") || `<p class="empty-inline">Gerçekleşen tedavi kaydı yok.</p>`}</div></div>`,
+      "Gerçekleşen tedaviler": `<div class="modal-grid"><button class="button button-primary" data-action="add-treatment">Tedavi kaydı ekle</button><div class="list-stack">${treatments.map((item) => `<article class="offline-record record-deletable treatment-photo-record"><span class="record-icon">🦷</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.treatment)} · ${escapeHtml(item.doctor)} · ${escapeHtml(item.date)}</small>${item.beforePhoto || item.afterPhoto ? `<span class="treatment-photo-pair">${item.beforePhoto ? `<figure><img src="${escapeHtml(item.beforePhoto)}" alt="Tedavi öncesi"/><figcaption>Before</figcaption></figure>` : ""}${item.afterPhoto ? `<figure><img src="${escapeHtml(item.afterPhoto)}" alt="Tedavi sonrası"/><figcaption>After</figcaption></figure>` : ""}</span>` : ""}</span><span class="record-value">${currency(item.fee || 0)}<small>${escapeHtml(item.status)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="treatments">Sil</button></article>`).join("") || `<p class="empty-inline">Gerçekleşen tedavi kaydı yok.</p>`}</div></div>`,
       "Personel": `<div class="modal-grid"><button class="button button-primary" data-action="add-staff">Personel ekle</button><div class="list-stack">${staffRecords.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">👤</span><span class="patient-copy"><strong>${escapeHtml(item.fullName)}</strong><small>${escapeHtml(item.roleLabel)} · ${escapeHtml(item.workingHours || "Saat belirtilmedi")}</small></span><span class="record-state">${item.active !== false ? "Aktif" : "Pasif"}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="staffRecords">Sil</button></article>`).join("") || `<p class="empty-inline">Personel kaydı yok.</p>`}</div></div>`,
       "Sağlık turizmi": `<div class="modal-grid"><button class="button button-primary" data-action="add-lead">Yeni lead ekle</button><div class="list-stack">${hotLeads.map((lead) => `<article class="opportunity-card record-deletable"><span class="score-badge">${lead.score}</span><span class="patient-copy"><strong>${escapeHtml(lead.name)}</strong><small>${escapeHtml(lead.country)} · ${escapeHtml(lead.treatment)}</small></span><a class="mini-action" href="tel:${escapeHtml(lead.phone.replace(/\s+/g, ""))}">Ara</a><button class="delete-button" data-delete-record="${lead.id}" data-record-kind="hotLeads" aria-label="${escapeHtml(lead.name)} lead kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Lead kaydı yok.</p>`}</div></div>`,
       "Stok": `<div class="list-stack">${stockItems.map((item) => { const critical = item.amount < item.minimum; return `<article class="offline-record record-deletable"><span class="transaction-icon ${critical ? "expense" : ""}">${critical ? "!" : "✓"}</span><span class="patient-copy"><strong>${escapeHtml(item.name)}</strong><small>Minimum ${item.minimum} ${escapeHtml(item.unit)}</small></span><span class="record-value ${critical ? "critical" : ""}">${item.amount}<small>${escapeHtml(item.unit)}</small></span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="stockItems" aria-label="${escapeHtml(item.name)} stok kaydını sil">Sil</button></article>`; }).join("") || `<p class="empty-inline">Stok kaydı yok.</p>`}</div>`,
       "İletişim": `<div class="modal-grid"><button class="button button-primary" data-action="add-communication">İletişim kaydı ekle</button><div class="list-stack">${communicationLog.map((item) => `<article class="offline-record record-deletable"><span class="record-channel">${escapeHtml(item.channel.slice(0, 1))}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.channel)}</strong><small>${escapeHtml(item.message)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="communicationLog" aria-label="${escapeHtml(item.patient)} iletişim kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">İletişim kaydı yok.</p>`}</div><p class="modal-note">Çevrimdışı modda geçmiş ve taslaklar görüntülenir. Gerçek WhatsApp, SMS ve e-posta gönderimi canlı bağlantı ister.</p></div>`,
       "Anketler": `<div class="modal-grid"><div class="modal-actions"><button class="button button-primary" data-action="add-survey">Anket oluştur</button><button class="button button-secondary" data-action="add-survey-response">Yanıt ekle</button></div><div class="list-stack">${surveys.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">★</span><span class="patient-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description || "Açıklama yok")} · ${surveyResponses.filter((response) => Number(response.surveyId) === Number(item.id)).length} yanıt</small></span><span class="record-state">${item.active !== false ? "Aktif" : "Kapalı"}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="surveys">Sil</button></article>`).join("") || `<p class="empty-inline">Anket yok.</p>`}</div><div class="history-list">${surveyResponses.slice(0, 10).map((item) => `<article><i>${item.score}</i><span><strong>${escapeHtml(item.patient)} · ${escapeHtml(item.survey || "Anket")}</strong><small>${escapeHtml(item.date || "Şimdi")}</small><p>${escapeHtml(item.comment || "Yorum yok")}</p></span></article>`).join("")}</div></div>`,
-      "Recall": `<div class="modal-grid"><button class="button button-primary" data-action="add-recall">Takip ekle</button><div class="list-stack">${recalls.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">↻</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.reason)} · ${escapeHtml(item.dueDate)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="recalls">Sil</button></article>`).join("") || `<p class="empty-inline">Takip kaydı yok.</p>`}</div></div>`,
+      "Recall": `<div class="modal-grid"><form id="reminderSettingsForm" class="modal-grid"><strong>Otomatik randevu mesajları</strong><label class="toggle-row"><span>Otomatik gönderimi aç</span><input name="enabled" type="checkbox" ${reminderSettings.enabled ? "checked" : ""}/></label><div class="modal-grid two"><label class="toggle-row"><span>1 hafta önce</span><input name="weekEnabled" type="checkbox" ${reminderSettings.weekEnabled ? "checked" : ""}/></label><label class="toggle-row"><span>1 gün önce</span><input name="dayEnabled" type="checkbox" ${reminderSettings.dayEnabled ? "checked" : ""}/></label></div><div class="modal-grid two"><label class="field">Kanal<select name="channel"><option value="WHATSAPP" ${reminderSettings.channel === "WHATSAPP" ? "selected" : ""}>WhatsApp</option><option value="SMS" ${reminderSettings.channel === "SMS" ? "selected" : ""}>SMS</option></select></label><label class="field">Gönderici cihaz<input value="Bu cihaz · ${escapeHtml((mobileConfig.platformLabel || "ClinicNova") + "-" + deviceId.slice(-6))}" readonly /></label></div><label class="field">Mesaj sağlayıcı webhook adresi<input name="endpoint" type="url" value="${escapeHtml(reminderSettings.endpoint || "")}" placeholder="https://..." /></label><label class="field">Sağlayıcı anahtarı<input name="token" type="password" autocomplete="new-password" placeholder="${reminderSettings.token ? "Kayıtlı anahtarı korumak için boş bırakın" : "Bearer anahtarı"}" /></label><label class="field">Mesaj şablonu<textarea name="template" required>${escapeHtml(reminderSettings.template || "")}</textarea></label><p class="modal-note">Kullanılabilen alanlar: {{name}}, {{date}}, {{time}}, {{treatment}}, {{clinic}}. Sağlayıcı aynı Idempotency-Key değerini ikinci kez göndermemelidir. Seçilen cihaz açık ve internete bağlıyken kuyruk çalışır.</p><button class="button button-primary">Hatırlatma ayarlarını kaydet</button></form><div class="finance-stats"><article class="finance-stat"><span>Gönderildi</span><strong>${reminderDeliveries.filter((item) => item.status === "SENT").length}</strong><small>Tekrarsız teslimat</small></article><article class="finance-stat"><span>Hata</span><strong>${reminderDeliveries.filter((item) => item.status === "FAILED").length}</strong><small>Otomatik yeniden denenir</small></article></div><button class="button button-secondary" data-action="add-recall">Takip ekle</button><div class="list-stack">${recalls.map((item) => `<article class="offline-record record-deletable"><span class="record-icon">↻</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.reason)} · ${escapeHtml(item.dueDate)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="recalls">Sil</button></article>`).join("") || `<p class="empty-inline">Takip kaydı yok.</p>`}</div></div>`,
       "Raporlar": `<div class="modal-grid"><div class="finance-stats"><article class="finance-stat"><span>Tahsilat</span><strong>${currency(paidIncome)}</strong><small>Ödenmiş gelir</small></article><article class="finance-stat"><span>Net akış</span><strong>${currency(paidIncome - expenses)}</strong><small>${currency(expenses)} gider</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Bekleyen</span><strong>${currency(pendingTotal)}</strong><small>Tahsil edilecek</small></article><article class="finance-stat"><span>Stok değeri</span><strong>${currency(stockValue)}</strong><small>${criticalStock} kritik ürün</small></article></div><div class="finance-stats"><article class="finance-stat"><span>Hasta</span><strong>${state.patients.length}</strong><small>Yerel kayıt</small></article><article class="finance-stat"><span>Randevu</span><strong>${state.appointments.length}</strong><small>${completedAppointments} tamamlandı · ${noShowAppointments} gelmedi</small></article></div><section class="patient-section"><div class="patient-section-title"><strong>Hekim performansı</strong><span>${doctorCounts.length}</span></div><div class="history-list">${doctorCounts.map(([doctor, count]) => `<article><i>👨‍⚕️</i><span><strong>${escapeHtml(doctor)}</strong><small>${count} randevu</small></span></article>`).join("") || `<p class="empty-inline">Hekim verisi yok.</p>`}</div></section><section class="patient-section"><div class="patient-section-title"><strong>Tedavi dağılımı</strong><span>${treatmentCounts.length}</span></div><div class="history-list">${treatmentCounts.slice(0, 8).map(([treatment, count]) => `<article><i>🦷</i><span><strong>${escapeHtml(treatment)}</strong><small>${count} kayıt</small></span></article>`).join("") || `<p class="empty-inline">Tedavi verisi yok.</p>`}</div></section><button class="button button-primary" data-go="finance">Finans ayrıntısını aç</button></div>`,
       "Dijital onam": `<div class="list-stack">${consentRecords.map((item) => `<article class="offline-record record-deletable"><span class="transaction-icon ${item.status === "İmzalandı" ? "" : "pending"}">${item.status === "İmzalandı" ? "✓" : "!"}</span><span class="patient-copy"><strong>${escapeHtml(item.patient)}</strong><small>${escapeHtml(item.form)} · ${escapeHtml(item.date)}</small></span><span class="record-state">${escapeHtml(item.status)}</span><button class="delete-button" data-delete-record="${item.id}" data-record-kind="consentRecords" aria-label="${escapeHtml(item.patient)} onam kaydını sil">Sil</button></article>`).join("") || `<p class="empty-inline">Onam kaydı yok.</p>`}<p class="modal-note">Kimlik doğrulamalı imza gönderimi ve yasal sunucu kaydı bağlantı gerektirir.</p></div>`,
       "Çöp Kutusu": `<div class="modal-grid"><p class="modal-note">Silinen kayıtlar 30 gün burada saklanır. Süre dolunca otomatik ve kalıcı olarak temizlenir.</p><div class="list-stack">${trashItems.map((item) => `<article class="trash-record"><span class="record-icon">♻</span><span class="patient-copy"><strong>${escapeHtml(item.label)}</strong><small>${trashDaysLeft(item)} gün kaldı</small></span><button class="mini-action" data-restore-trash="${item.id}">Geri yükle</button><button class="delete-button" data-purge-trash="${item.id}" aria-label="${escapeHtml(item.label)} kaydını kalıcı sil">Kalıcı sil</button></article>`).join("") || `<p class="empty-inline">Çöp Kutusu boş.</p>`}</div>${trashItems.length ? `<button class="button button-secondary" data-empty-trash>Çöp Kutusunu boşalt</button>` : ""}</div>`
@@ -2853,7 +2939,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     document.documentElement.classList.toggle("dark");
     storage.set("clinicnova.theme", document.documentElement.classList.contains("dark") ? "dark" : "light");
   });
-  window.addEventListener("online", () => { updateNetworkBadge(); syncPending(); });
+  window.addEventListener("online", () => { updateNetworkBadge(); syncPending(); processAppointmentReminders(); });
   window.addEventListener("offline", updateNetworkBadge);
   document.addEventListener("keydown", (event) => {
     if ($("#modalBackdrop").hidden) return;
@@ -2880,6 +2966,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       const requestedStatus = String(form.get("status") || "COMPLETED");
       const record = { id: nextLocalId(), patientId: patient?.id, patient: patient?.name || "", doctor: String(form.get("doctor") || ""), tooth: String(form.get("tooth") || ""), treatment: String(form.get("treatment") || "").trim(), description: String(form.get("description") || "").trim(), fee: Number(form.get("fee")), status: requestedStatus === "COMPLETED" ? "STARTED" : requestedStatus, date: String(form.get("date") || todayIso), branch: currentClinicName() };
       if (!patient || record.treatment.length < 2 || !record.doctor || !Number.isFinite(record.fee) || record.fee < 0) return showToast("Tedavi bilgilerini kontrol edin.");
+      try {
+        [record.beforePhoto, record.afterPhoto] = await Promise.all([imageFileData(form.get("beforePhoto")), imageFileData(form.get("afterPhoto"))]);
+      } catch (error) { return showToast(error instanceof Error ? error.message : "Fotoğraflar okunamadı."); }
       const stockResult = applyLocalStockForTreatment(record, requestedStatus);
       if (!stockResult.ok) return showToast(stockResult.message);
       record.status = requestedStatus;
@@ -2906,6 +2995,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       const record = { id: nextLocalId(), patientId: patient?.id, patient: patient?.name || "", reason: String(form.get("reason") || "").trim(), dueDate: String(form.get("dueDate") || ""), status: String(form.get("status") || "OPEN"), notes: String(form.get("notes") || "").trim() };
       if (!patient || record.reason.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(record.dueDate)) return showToast("Takip bilgilerini kontrol edin.");
       recalls.unshift(record); queueCreate("RECALL", record.id, recallPayload(record)); saveData(); openModule("Recall"); showToast("Hasta takibi kaydedildi."); return;
+    }
+    if (event.target.id === "reminderSettingsForm") {
+      event.preventDefault(); const form = new FormData(event.target);
+      const enabled = form.get("enabled") === "on"; const endpoint = String(form.get("endpoint") || "").trim(); const nextToken = String(form.get("token") || "").trim();
+      const template = String(form.get("template") || "").trim();
+      if (enabled && (!/^https:\/\/[^\s]+$/i.test(endpoint) || !(nextToken || reminderSettings.token))) return showToast("Otomatik gönderim için HTTPS webhook adresi ve sağlayıcı anahtarı gereklidir.");
+      if (template.length < 10 || template.length > 1000) return showToast("Mesaj şablonu 10-1000 karakter olmalıdır.");
+      reminderSettings = { id: "clinic", enabled, weekEnabled: form.get("weekEnabled") === "on", dayEnabled: form.get("dayEnabled") === "on", channel: String(form.get("channel") || "WHATSAPP"), endpoint, token: nextToken || reminderSettings.token || "", senderDeviceId: deviceId, template };
+      if (enabled && !reminderSettings.weekEnabled && !reminderSettings.dayEnabled) return showToast("En az bir gönderim zamanı seçin.");
+      saveData(); openModule("Recall"); showToast(enabled ? "Otomatik randevu mesajları açıldı." : "Otomatik randevu mesajları kapatıldı."); processAppointmentReminders(); return;
     }
     if (event.target.id === "treatmentHistoryForm") {
       event.preventDefault();
@@ -3182,6 +3281,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   purgeExpiredTrash();
   queueExistingLocalRecords();
   initializeMesh();
+  setTimeout(processAppointmentReminders, 2500);
+  setInterval(processAppointmentReminders, 60_000);
   configureEntryMode();
   if (storage.get("clinicnova.theme", "light") === "dark") document.documentElement.classList.add("dark");
   $("#notificationDot").hidden = storage.get("clinicnova.notificationsRead", false);
@@ -3208,6 +3309,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       closeModal(); showLogin(); showToast("Güvenlik için yerel oturum kilitlendi.");
     }
     backgroundedAt = 0;
+    processAppointmentReminders();
   });
   if (new URLSearchParams(window.location.search).has("sync")) setTimeout(() => syncPending(true), 500);
   else setTimeout(syncPending, 1500);

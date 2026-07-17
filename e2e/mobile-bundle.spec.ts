@@ -542,8 +542,12 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await page.getByRole("button", { name: "Tedavi kaydı ekle" }).click();
   await page.locator('#treatmentForm input[name="treatment"]').fill("Parite dolgusu");
   await page.locator('#treatmentForm input[name="fee"]').fill("2500");
+  const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZST8AAAAASUVORK5CYII=", "base64");
+  await page.locator('#treatmentForm input[name="beforePhoto"]').setInputFiles({ name: "before.png", mimeType: "image/png", buffer: pixel });
+  await page.locator('#treatmentForm input[name="afterPhoto"]').setInputFiles({ name: "after.png", mimeType: "image/png", buffer: pixel });
   await page.locator("#treatmentForm").getByRole("button", { name: "Kaydet" }).click();
   await expect(page.locator("#modalBody")).toContainText("Parite dolgusu");
+  await expect(page.locator(".treatment-photo-pair img")).toHaveCount(2);
 
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.locator("#moduleGrid").getByRole("button", { name: /Personel/ }).click();
@@ -566,6 +570,18 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await page.locator('#recallForm input[name="reason"]').fill("Altı aylık kontrol");
   await page.getByRole("button", { name: "Takibi kaydet" }).click();
   await expect(page.locator("#modalBody")).toContainText("Altı aylık kontrol");
+  let reminderRequest: Record<string, unknown> | null = null;
+  await page.route("https://messages.example.test/reminder", async (route) => {
+    reminderRequest = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+  });
+  await page.locator('#reminderSettingsForm input[name="enabled"]').check();
+  await page.locator('#reminderSettingsForm input[name="endpoint"]').fill("https://messages.example.test/reminder");
+  await page.locator('#reminderSettingsForm input[name="token"]').fill("test-provider-token");
+  await page.locator("#reminderSettingsForm").getByRole("button", { name: "Hatırlatma ayarlarını kaydet" }).click();
+  await page.evaluate(() => (window as typeof window & { ClinicNovaProcessReminders: () => Promise<void> }).ClinicNovaProcessReminders());
+  await expect.poll(() => reminderRequest).not.toBeNull();
+  expect(reminderRequest).toMatchObject({ channel: "WHATSAPP", appointmentId: "5" });
 
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await expect(page.locator("#moduleGrid").getByRole("button", { name: /Tam web paneli/ })).toBeVisible();
