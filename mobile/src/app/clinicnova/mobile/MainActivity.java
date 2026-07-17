@@ -5,10 +5,13 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.content.ContentValues;
+import android.content.SharedPreferences;
 import android.provider.MediaStore;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import android.view.View;
 import android.view.Window;
 import android.webkit.CookieManager;
@@ -29,6 +32,11 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import org.json.JSONObject;
@@ -36,17 +44,26 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     private static final String HOME_URL = "file:///android_asset/index.html";
     private static final int FILE_CHOOSER_REQUEST = 4102;
+    private static final String MESH_KEY_ALIAS = "clinicnova.mesh.local.v1";
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraPhotoUri;
     private boolean recoveringFromRemoteError = false;
     private String trustedOrigin = null;
     private final SyncBridge syncBridge = new SyncBridge();
+    private MeshTransport meshTransport;
+    private SharedPreferences meshPreferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         configureWindow();
+        meshPreferences = getSharedPreferences("clinicnova_mesh", MODE_PRIVATE);
+        meshTransport = new MeshTransport(this, new MeshTransport.Listener() {
+            public String getEnvelope() { return meshRead("envelope"); }
+            public void onEnvelope(String envelope, String peerName) { runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript("window.ClinicNovaMeshEnvelope && window.ClinicNovaMeshEnvelope(" + JSONObject.quote(envelope) + "," + JSONObject.quote(peerName) + ")", null); }); }
+            public void onStatus(String status, String peerName) { runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript("window.ClinicNovaMeshStatus && window.ClinicNovaMeshStatus(" + JSONObject.quote(status) + "," + JSONObject.quote(peerName) + ")", null); }); }
+        });
         configureWebView();
         setContentView(webView);
 
@@ -55,6 +72,8 @@ public class MainActivity extends Activity {
         } else {
             webView.restoreState(savedInstanceState);
         }
+        String meshConfig = meshRead("config");
+        if (!meshConfig.isEmpty()) try { meshTransport.configure(meshConfig); } catch (Exception ignored) {}
     }
 
     private void configureWindow() {
@@ -209,6 +228,12 @@ public class MainActivity extends Activity {
     }
 
     private final class SyncBridge {
+        @JavascriptInterface public String meshGetConfig() { return meshRead("config"); }
+        @JavascriptInterface public String meshGetEnvelope() { return meshRead("envelope"); }
+        @JavascriptInterface public boolean meshConfigure(String json) { try { if (json == null || json.getBytes(StandardCharsets.UTF_8).length > 8192) return false; meshTransport.configure(json); return meshWrite("config", json); } catch (Exception ignored) { return false; } }
+        @JavascriptInterface public boolean meshPublish(String envelope) { if (envelope == null || envelope.getBytes(StandardCharsets.UTF_8).length > 64 * 1024 * 1024) return false; return meshWrite("envelope", envelope); }
+        @JavascriptInterface public void meshSyncNow() { meshTransport.announce(); }
+        @JavascriptInterface public boolean meshDisable() { meshTransport.stop(); return meshPreferences.edit().clear().commit(); }
         @JavascriptInterface
         public void connect(String serverUrl) {
             runOnUiThread(() -> {
@@ -261,6 +286,33 @@ public class MainActivity extends Activity {
         public void productSearch(String serverUrl, String productUrl, String itemId) {
             new Thread(() -> performProductSearch(serverUrl, productUrl, itemId)).start();
         }
+    }
+
+    private SecretKey meshEncryptionKey() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
+        java.security.Key existing = store.getKey(MESH_KEY_ALIAS, null);
+        if (existing instanceof SecretKey) return (SecretKey) existing;
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(MESH_KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).build());
+        return generator.generateKey();
+    }
+
+    private String meshRead(String name) {
+        try {
+            String stored = meshPreferences.getString(name, ""); if (stored.isEmpty()) return "";
+            JSONObject value = new JSONObject(stored); byte[] iv = Base64.decode(value.getString("iv"), Base64.DEFAULT); byte[] data = Base64.decode(value.getString("data"), Base64.DEFAULT);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, meshEncryptionKey(), new GCMParameterSpec(128, iv));
+            return new String(cipher.doFinal(data), StandardCharsets.UTF_8);
+        } catch (Exception ignored) { return ""; }
+    }
+
+    private boolean meshWrite(String name, String plaintext) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, meshEncryptionKey());
+            JSONObject stored = new JSONObject(); stored.put("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP)); stored.put("data", Base64.encodeToString(cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP));
+            return meshPreferences.edit().putString(name, stored.toString()).commit();
+        } catch (Exception ignored) { return false; }
     }
 
     private URL validatedServerUrl(String serverUrl) throws Exception {
@@ -419,6 +471,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (meshTransport != null) meshTransport.stop();
         if (webView != null) {
             webView.loadUrl("about:blank");
             webView.stopLoading();

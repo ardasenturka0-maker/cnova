@@ -99,7 +99,7 @@ test("sales workflows expose full calendar, treatment details, stock purchasing 
 
 test("completed treatments consume their material recipe and reversal returns stock", async ({ page }, testInfo) => {
   await page.goto("/demo-open");
-  const suffix = testInfo.project.name === "android-chrome" ? "mobil" : "masaustu";
+  const suffix = `${testInfo.project.name === "android-chrome" ? "mobil" : "masaustu"}-${Date.now()}-${testInfo.retry}`;
   const stockName = `Otomatik sarf ${suffix}`;
   const treatmentName = `Reçeteli işlem ${suffix}`;
 
@@ -111,7 +111,8 @@ test("completed treatments consume their material recipe and reversal returns st
   await stockForm.locator('input[name="minimumQuantity"]').fill("1");
   await stockForm.locator('input[name="unit"]').fill("adet");
   await stockForm.getByRole("button", { name: "Ürün Kaydet" }).click();
-  await expect(page.getByRole("row").filter({ hasText: stockName })).toContainText("5 adet");
+  const stockRow = () => page.getByRole("row").filter({ has: page.getByRole("cell", { name: stockName, exact: true }) }).filter({ has: page.getByRole("cell", { name: "Sarf", exact: true }) });
+  await expect(stockRow()).toContainText("5 adet");
 
   const recipeForm = page.locator('form').filter({ has: page.locator('input[name="treatmentType"]') });
   await recipeForm.locator('input[name="treatmentType"]').fill(treatmentName);
@@ -121,7 +122,7 @@ test("completed treatments consume their material recipe and reversal returns st
   await expect(page.getByRole("row").filter({ hasText: treatmentName })).toContainText(`${stockName}`);
 
   await page.goto("/dashboard/treatments");
-  const treatmentForm = page.locator('form').filter({ has: page.locator('select[name="doctorId"]') });
+  const treatmentForm = page.locator('form:has(button:has-text("Tedavi Kaydet"))');
   await treatmentForm.locator('select[name="patientId"]').selectOption({ index: 1 });
   await treatmentForm.locator('select[name="doctorId"]').selectOption({ index: 1 });
   await treatmentForm.locator('input[name="treatmentType"]').fill(treatmentName);
@@ -129,14 +130,14 @@ test("completed treatments consume their material recipe and reversal returns st
   await treatmentForm.getByRole("button", { name: "Tedavi Kaydet" }).click();
 
   await page.goto("/dashboard/stocks");
-  await expect(page.getByRole("row").filter({ hasText: stockName }).last()).toContainText("3 adet");
+  await expect(stockRow()).toContainText("3 adet");
 
   await page.goto("/dashboard/treatments");
   const treatmentRow = page.getByRole("row").filter({ hasText: treatmentName });
   await treatmentRow.getByLabel(`${treatmentName} durumu`).selectOption("STARTED");
   await treatmentRow.getByRole("button", { name: "Kaydet" }).click();
   await page.goto("/dashboard/stocks");
-  await expect(page.getByRole("row").filter({ hasText: stockName }).last()).toContainText("5 adet");
+  await expect(stockRow()).toContainText("5 adet");
 });
 
 test("operational writes preserve tenant and accounting integrity", async ({ page }, testInfo) => {

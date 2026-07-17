@@ -12,7 +12,7 @@ await rm(appDir, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await mkdir(resources, { recursive: true });
 await mkdir(path.join(appDir, "mobile"), { recursive: true });
-for (const file of ["index.html", "app.css", "app.js"]) {
+for (const file of ["index.html", "app.css", "app.js", "mesh-sync.js"]) {
   await cp(path.join(root, "mobile", "assets", file), path.join(output, file));
 }
 await writeFile(
@@ -22,6 +22,7 @@ await writeFile(
 );
 await Promise.all([
   cp(path.join(root, "desktop", "main.cjs"), path.join(appDir, "main.cjs")),
+  cp(path.join(root, "desktop", "mesh-transport.cjs"), path.join(appDir, "mesh-transport.cjs")),
   cp(path.join(root, "desktop", "preload.cjs"), path.join(appDir, "preload.cjs")),
   cp(output, path.join(appDir, "mobile"), { recursive: true }),
   writeFile(path.join(appDir, "package.json"), `${JSON.stringify({ name: "clinicnova-desktop", version, private: true, description: "ClinicNova local-first desktop client", author: "ClinicNova", main: "main.cjs" }, null, 2)}\n`, "utf8"),

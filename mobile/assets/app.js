@@ -155,6 +155,11 @@
   storage.set("clinicnova.localDataMigrated", true);
   const deviceId = storage.get("clinicnova.deviceId", null) || (crypto.randomUUID?.() ?? `device-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   storage.set("clinicnova.deviceId", deviceId);
+  let meshEngine = null;
+  let meshConfig = null;
+  let meshApplying = false;
+  let meshStatus = "Yapılandırılmadı";
+  let meshLastPeer = "";
   let syncQueue = storage.get("clinicnova.syncQueue", []);
   let syncMap = storage.get("clinicnova.syncMap", {});
   let syncing = false;
@@ -251,6 +256,85 @@
   function statusLabel(status) {
     return ({ PLANNED: "Planlandı", ARRIVED: "Geldi", COMPLETED: "Tamamlandı", PENDING_CONFIRMATION: "Onay bekliyor", CANCELLED: "İptal edildi", NO_SHOW: "Gelmedi" })[status] || status;
   }
+  function nextLocalId() {
+    let deviceHash = 2166136261;
+    for (const char of deviceId) deviceHash = Math.imul(deviceHash ^ char.charCodeAt(0), 16777619) >>> 0;
+    const counter = (Number(storage.get("clinicnova.localIdCounter", 0)) + 1) % 1_000_000 || 1;
+    storage.set("clinicnova.localIdCounter", counter);
+    return (deviceHash % 4_000_000_000) * 1_000_000 + counter;
+  }
+  function meshDocument() {
+    const stockBases = stockItems.map((item) => {
+      const movements = Array.isArray(item.movements) ? item.movements : [];
+      const delta = movements.reduce((sum, movement) => movement.type === "IN" ? sum + Number(movement.quantity || 0) : movement.type === "OUT" ? sum - Number(movement.quantity || 0) : sum, 0);
+      const openingBalance = Number.isFinite(Number(item.openingBalance)) ? Number(item.openingBalance) : Math.max(0, Number(item.amount || 0) - delta);
+      const { movements: _movements, offers: _offers, amount: _amount, ...base } = item;
+      return { ...base, openingBalance };
+    });
+    return {
+      patients: state.patients, appointments: state.appointments,
+      transactions: state.transactions.map(({ paymentHistory: _paymentHistory, ...transaction }) => transaction),
+      transactionPayments: state.transactions.flatMap((transaction) => (transaction.paymentHistory || []).map((entry, index) => ({ ...entry, id: entry.id ?? `${transaction.id}:${index}:${window.ClinicNovaMeshEngine.digest(entry)}`, transactionId: transaction.id }))),
+      treatmentHistory: Object.entries(state.treatmentHistory).flatMap(([patientId, items]) => items.map((item) => ({ ...item, id: item.id, patientId }))),
+      patientMedia: Object.entries(state.patientMedia).flatMap(([patientId, items]) => items.map((item) => ({ ...item, id: item.id, patientId }))),
+      hotLeads, treatmentPlans, stockItems: stockBases,
+      stockMovements: stockItems.flatMap((item) => (item.movements || []).map((movement) => ({ ...movement, id: movement.id, itemId: item.id }))),
+      stockOffers: stockItems.flatMap((item) => (item.offers || []).map((offer) => ({ ...offer, id: offer.id, itemId: item.id }))),
+      stockRecipes, clinicDoctors,
+      clinicConfig: [{ id: "clinic", clinicName: currentClinicName() }],
+      clinicChairs: clinicChairs.map((name) => ({ id: window.ClinicNovaMeshEngine.digest(String(name).toLocaleLowerCase("tr-TR")), name })),
+      communicationLog,
+      consentRecords: consentRecords.map(({ history: _history, ...consent }) => consent),
+      consentHistory: consentRecords.flatMap((consent) => (consent.history || []).map((entry, index) => ({ ...entry, id: entry.id ?? `${consent.id}:${index}:${window.ClinicNovaMeshEngine.digest(entry)}`, consentId: consent.id }))),
+      treatments, staffRecords, surveys, surveyResponses, recalls, trashItems
+    };
+  }
+  function applyMeshDocument(document) {
+    meshApplying = true;
+    try {
+      state.patients = document.patients || []; state.appointments = document.appointments || []; state.transactions = document.transactions || [];
+      const transactionPayments = document.transactionPayments || [];
+      state.transactions.forEach((transaction) => { transaction.paymentHistory = transactionPayments.filter((entry) => String(entry.transactionId) === String(transaction.id)).map(({ transactionId: _transactionId, ...entry }) => entry); });
+      state.treatmentHistory = {};
+      for (const item of document.treatmentHistory || []) { const patientId = String(item.patientId); const { patientId: _patientId, ...record } = item; (state.treatmentHistory[patientId] ||= []).push(record); }
+      state.patientMedia = {};
+      for (const item of document.patientMedia || []) { const patientId = String(item.patientId); const { patientId: _patientId, ...record } = item; (state.patientMedia[patientId] ||= []).push(record); }
+      hotLeads = document.hotLeads || []; treatmentPlans = document.treatmentPlans || [];
+      const stockMovements = document.stockMovements || []; const stockOffers = document.stockOffers || [];
+      stockItems = (document.stockItems || []).map((base) => {
+        const movements = stockMovements.filter((entry) => String(entry.itemId) === String(base.id)).sort((a, b) => Number(a.createdAt || a.id || 0) - Number(b.createdAt || b.id || 0));
+        let amount = Number(base.openingBalance || 0);
+        for (const movement of movements) amount = movement.type === "IN" ? amount + Number(movement.quantity || 0) : movement.type === "OUT" ? amount - Number(movement.quantity || 0) : Number(movement.quantity || 0);
+        const offers = stockOffers.filter((entry) => String(entry.itemId) === String(base.id)).map(({ itemId: _itemId, ...offer }) => offer);
+        return { ...base, amount: Math.max(0, amount), movements: movements.map(({ itemId: _itemId, ...movement }) => movement), offers };
+      });
+      stockRecipes = document.stockRecipes || [];
+      clinicDoctors = document.clinicDoctors || []; communicationLog = document.communicationLog || []; consentRecords = document.consentRecords || [];
+      const consentHistory = document.consentHistory || [];
+      consentRecords.forEach((consent) => { consent.history = consentHistory.filter((entry) => String(entry.consentId) === String(consent.id)).map(({ consentId: _consentId, ...entry }) => entry); });
+      treatments = document.treatments || []; staffRecords = document.staffRecords || []; surveys = document.surveys || []; surveyResponses = document.surveyResponses || [];
+      recalls = document.recalls || []; trashItems = document.trashItems || [];
+      const clinic = document.clinicConfig?.[0];
+      if (clinic) {
+        clinicChairs = (document.clinicChairs || []).map((chair) => String(chair.name || "")).filter(Boolean);
+        const account = localAccount() || {}; if (clinic.clinicName) account.clinicName = clinic.clinicName;
+        storage.set("clinicnova.localAccount", account); applyLocalIdentity(account);
+      }
+      saveData();
+    } finally { meshApplying = false; }
+    if (!$("#appShell").hidden) renderAll();
+  }
+  function persistMesh() {
+    if (!meshEngine || !meshConfig) return;
+    const envelope = meshEngine.export();
+    storage.set("clinicnova.meshState", envelope);
+    storage.set("clinicnova.meshConflicts", meshEngine.materialize().conflicts);
+    if (typeof window.ClinicNovaNative?.meshPublish === "function") window.ClinicNovaNative.meshPublish(JSON.stringify(envelope));
+  }
+  function captureMeshState() {
+    if (!meshEngine || meshApplying || demoMode || previewMode) return;
+    if (meshEngine.capture(meshDocument()) > 0) persistMesh();
+  }
   function saveData() {
     if (previewMode) return;
     storage.set("clinicnova.patients", state.patients);
@@ -272,7 +356,56 @@
     storage.set("clinicnova.surveyResponses", surveyResponses);
     storage.set("clinicnova.recalls", recalls);
     storage.set("clinicnova.trashItems", trashItems);
+    captureMeshState();
   }
+
+  function meshPairingCode(config) {
+    const bytes = new TextEncoder().encode(JSON.stringify({ v: 1, clinicId: config.clinicId, secret: config.secret }));
+    return `CN1.${bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
+  }
+  function parseMeshPairingCode(code) {
+    const normalized = String(code || "").trim();
+    if (!normalized.startsWith("CN1.")) throw new Error("Eşleştirme kodu geçersiz.");
+    const encoded = normalized.slice(4).replaceAll("-", "+").replaceAll("_", "/");
+    const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=")), (char) => char.charCodeAt(0))));
+    if (parsed.v !== 1 || !/^[A-Za-z0-9_-]{8,128}$/.test(parsed.clinicId) || typeof parsed.secret !== "string" || Uint8Array.from(atob(parsed.secret), (char) => char.charCodeAt(0)).length !== 32) throw new Error("Eşleştirme kodu geçersiz.");
+    return { clinicId: parsed.clinicId, secret: parsed.secret };
+  }
+  function configureMesh(config) {
+    if (!window.ClinicNovaMeshEngine?.MeshEngine) throw new Error("Yerel ağ eşitleme motoru yüklenemedi.");
+    meshConfig = { ...config, deviceId, deviceName: `${mobileConfig.platformLabel || "ClinicNova"}-${deviceId.slice(-6)}` };
+    let stored = storage.get("clinicnova.meshState", null);
+    if (typeof window.ClinicNovaNative?.meshGetEnvelope === "function") {
+      try { stored = JSON.parse(window.ClinicNovaNative.meshGetEnvelope() || "null") || stored; } catch { /* Use the browser-local checkpoint. */ }
+    }
+    meshEngine = new window.ClinicNovaMeshEngine.MeshEngine({ clinicId: meshConfig.clinicId, deviceId, state: stored?.clinicId === meshConfig.clinicId ? stored : null });
+    meshEngine.capture(meshDocument()); persistMesh();
+    if (typeof window.ClinicNovaNative?.meshConfigure === "function") {
+      if (!window.ClinicNovaNative.meshConfigure(JSON.stringify(meshConfig))) throw new Error("Klinik anahtarı güvenli cihaz kasasına yazılamadı.");
+      storage.set("clinicnova.meshConfig", null);
+    } else storage.set("clinicnova.meshConfig", config);
+    meshStatus = "Yerel ağda eşler aranıyor";
+  }
+  function initializeMesh() {
+    if (demoMode) return;
+    try {
+      const nativeValue = typeof window.ClinicNovaNative?.meshGetConfig === "function" ? window.ClinicNovaNative.meshGetConfig() : null;
+      const config = nativeValue ? JSON.parse(nativeValue) : storage.get("clinicnova.meshConfig", null);
+      if (config?.clinicId && config?.secret) configureMesh(config);
+    } catch { meshStatus = "Eşitleme yapılandırması açılamadı"; }
+  }
+  window.ClinicNovaMeshEnvelope = (envelopeText, peerName) => {
+    try {
+      if (!meshEngine) return;
+      const result = meshEngine.merge(JSON.parse(envelopeText));
+      applyMeshDocument(result.document); persistMesh();
+      meshLastPeer = String(peerName || "Klinik cihazı"); meshStatus = result.conflicts.length ? `${meshLastPeer} ile eşitlendi · ${result.conflicts.length} çakışma kayıtlı` : `${meshLastPeer} ile eşitlendi`;
+      showToast(meshStatus);
+    } catch (error) { meshStatus = "Eşitleme paketi reddedildi"; showToast(error instanceof Error ? error.message : meshStatus); }
+  };
+  window.ClinicNovaMeshStatus = (status, peerName) => { meshStatus = String(status || meshStatus); if (peerName) meshLastPeer = String(peerName); updateNetworkBadge(); };
+  window.ClinicNovaNative?.onMeshEnvelope?.(window.ClinicNovaMeshEnvelope);
+  window.ClinicNovaNative?.onMeshStatus?.(window.ClinicNovaMeshStatus);
   if (!demoMode && !localDataWasMigrated) saveData();
 
   function operationId() {
@@ -408,7 +541,7 @@
       for (const usage of record.stockUsage) {
         const item = stockItems.find((entry) => Number(entry.id) === usage.itemId);
         item.amount = Number(item.amount) - usage.quantity;
-        (item.movements ||= []).unshift({ id: Date.now() + Math.random(), type: "OUT", quantity: usage.quantity, note: `${record.treatment} tamamlandı · otomatik sarf`, clinicalRecordId: record.id, automatic: true, date: "Şimdi" });
+        (item.movements ||= []).unshift({ id: nextLocalId(), type: "OUT", quantity: usage.quantity, note: `${record.treatment} tamamlandı · otomatik sarf`, clinicalRecordId: record.id, automatic: true, date: "Şimdi", createdAt: Date.now() });
       }
       return { ok: true, message: recipes.length ? `${label} tamamlandı; reçetedeki malzemeler stoktan düşüldü.` : `${label} tamamlandı. Bu işlem için malzeme reçetesi tanımlı değil.` };
     }
@@ -417,7 +550,7 @@
         const item = stockItems.find((entry) => Number(entry.id) === Number(usage.itemId));
         if (!item) continue;
         item.amount = Number(item.amount) + Number(usage.quantity);
-        (item.movements ||= []).unshift({ id: Date.now() + Math.random(), type: "IN", quantity: Number(usage.quantity), note: `${record.treatment} geri alındı · otomatik iade`, clinicalRecordId: record.id, automatic: true, date: "Şimdi" });
+        (item.movements ||= []).unshift({ id: nextLocalId(), type: "IN", quantity: Number(usage.quantity), note: `${record.treatment} geri alındı · otomatik iade`, clinicalRecordId: record.id, automatic: true, date: "Şimdi", createdAt: Date.now() });
       }
       record.stockUsage = [];
       return { ok: true, message: "Tamamlama geri alındı; kullanılan malzemeler stoğa iade edildi." };
@@ -457,7 +590,7 @@
 
   function moveToTrash(kind, label, payload) {
     const deletedAt = Date.now();
-    trashItems.unshift({ id: deletedAt + Math.random(), kind, label, payload, deletedAt, expiresAt: deletedAt + 30 * 24 * 60 * 60 * 1000 });
+    trashItems.unshift({ id: nextLocalId(), kind, label, payload, deletedAt, expiresAt: deletedAt + 30 * 24 * 60 * 60 * 1000 });
   }
 
   function purgeExpiredTrash() {
@@ -958,13 +1091,37 @@
   }
 
   function openClinicManagement() {
+    const meshConflicts = storage.get("clinicnova.meshConflicts", []).length;
     openModal("KLİNİK AYARLARI", "Klinik yönetimi", `<div class="modal-grid">
       <p class="modal-note"><strong>${escapeHtml(currentClinicName())}</strong><br/>Randevu ve tedavi formlarındaki doktor ile koltuk seçeneklerini buradan yönetin.</p>
       <button class="button button-secondary" data-action="rename-clinic">Klinik adını değiştir</button>
+      <button class="button button-secondary" data-action="mesh-sync">Cihaz eşitleme${meshConflicts ? ` · ${meshConflicts} çakışma` : ""}</button>
       <div class="section-heading"><div><span class="eyebrow">HEKİMLER</span><h3>Doktorlar</h3></div><button class="text-button" data-action="add-doctor">Doktor ekle</button></div>
       <div class="list-stack">${clinicDoctors.map((doctor) => `<article class="offline-record record-deletable"><span class="record-icon">👨‍⚕️</span><span class="patient-copy"><strong>${escapeHtml(doctor.name)}</strong><small>${escapeHtml(doctor.specialty || "Diş hekimi")} · ${escapeHtml(doctor.email || "")}</small></span><button class="delete-button" data-delete-doctor="${doctor.id}">Sil</button></article>`).join("") || `<div class="empty-state">Doktor eklenmedi.</div>`}</div>
       <div class="section-heading"><div><span class="eyebrow">PLANLAMA</span><h3>Koltuklar</h3></div><button class="text-button" data-action="add-chair">Koltuk ekle</button></div>
       <div class="list-stack">${clinicChairs.map((chair) => `<article class="offline-record record-deletable"><span class="record-icon">🪑</span><span class="patient-copy"><strong>${escapeHtml(chair)}</strong><small>Randevu planlamasında kullanılabilir</small></span><button class="delete-button" data-delete-chair="${escapeHtml(chair)}">Sil</button></article>`).join("") || `<div class="empty-state">Koltuk eklenmedi.</div>`}</div>
+    </div>`);
+  }
+
+  function openMeshSync() {
+    if (previewMode) return showToast("Cihaz eşitleme inceleme modunda kapalıdır.");
+    const conflicts = storage.get("clinicnova.meshConflicts", []);
+    if (!meshConfig) {
+      openModal("YEREL CİHAZ AĞI", "Cihaz eşitleme", `<div class="modal-grid">
+        <p class="modal-note">Merkezi sunucu kullanılmaz. Aynı klinik koduna sahip telefon ve bilgisayarlar aynı Wi‑Fi/LAN üzerinde şifreli olarak eşitlenir.</p>
+        <button class="button button-primary" data-action="mesh-create">Bu cihazda klinik ağı oluştur</button>
+        <form id="meshJoinForm" class="modal-grid"><label class="field">Diğer cihazdaki eşleştirme kodu<textarea name="code" rows="4" required placeholder="CN1..."></textarea></label><button class="button button-secondary" type="submit">Mevcut klinik ağına katıl</button></form>
+      </div>`);
+      return;
+    }
+    const code = meshPairingCode(meshConfig);
+    openModal("YEREL CİHAZ AĞI", "Cihaz eşitleme", `<div class="modal-grid">
+      <p class="modal-note"><strong>${escapeHtml(meshStatus)}</strong><br/>Cihaz: ${escapeHtml(meshConfig.deviceName)}${meshLastPeer ? `<br/>Son eş: ${escapeHtml(meshLastPeer)}` : ""}<br/>İşlem günlüğü: ${meshEngine?.export().operations.length || 0} · Çakışma: ${conflicts.length}</p>
+      <label class="field">Yeni cihazı ekleme kodu<textarea id="meshPairingCode" rows="5" readonly>${escapeHtml(code)}</textarea></label>
+      <p class="modal-note">Bu kod klinik verilerinin şifreleme anahtarını içerir. Yalnızca kliniğe ait güvenilir cihaza aktarın.</p>
+      <div class="modal-actions"><button class="button button-primary" data-action="mesh-sync-now">Şimdi eşitle</button><button class="button button-secondary" data-action="clinic-management">Geri</button></div>
+      ${conflicts.length ? `<div class="history-list">${conflicts.slice(0, 20).map((item) => `<article><i>!</i><span><strong>${escapeHtml(item.key)}</strong><small>${item.variants.length} eşzamanlı değişiklik saklandı; doğru sürümü seçin.</small>${item.variants.map((variant) => `<button class="text-button" data-action="mesh-resolve" data-conflict-key="${escapeHtml(item.key)}" data-operation-id="${escapeHtml(variant.operationId)}">${escapeHtml(variant.action === "DELETE" ? "Silinmiş sürümü seç" : `${variant.payload?.name || variant.payload?.title || variant.payload?.patient || "Kayıt"} · ${variant.deviceId.slice(-6)}`)}</button>`).join("")}</span></article>`).join("")}</div>` : ""}
+      <button class="delete-button" data-action="mesh-disable">Bu cihazı klinik ağından çıkar</button>
     </div>`);
   }
 
@@ -1168,7 +1325,7 @@
     const online = navigator.onLine;
     badge.classList.toggle("offline", !online);
     const connected = Boolean(storage.get("clinicnova.serverUrl", ""));
-    $("span", badge).textContent = syncQueue.length ? `${syncQueue.length} kayıt bekliyor` : connected && online ? "Senkronlandı" : online ? "Yerel kayıt" : "Çevrimdışı hazır";
+    $("span", badge).textContent = meshConfig ? meshStatus : syncQueue.length ? `${syncQueue.length} kayıt bekliyor` : connected && online ? "Senkronlandı" : online ? "Yerel kayıt" : "Çevrimdışı hazır";
   }
 
   function showApp() {
@@ -1414,7 +1571,7 @@
     }
     const checkedAt = String(response.checkedAt || new Date().toISOString());
     const offers = response.offers.slice(0, 50).map((offer, index) => ({
-      id: Date.now() + index, seller: String(offer.seller || "").trim(), unitPrice: Number(offer.unitPrice), shippingPrice: Number(offer.shippingPrice || 0),
+      id: nextLocalId(), seller: String(offer.seller || "").trim(), unitPrice: Number(offer.unitPrice), shippingPrice: Number(offer.shippingPrice || 0),
       productUrl: String(offer.productUrl || "").trim(), inStock: offer.inStock !== false, checkedAt, source: "online"
     })).filter((offer) => offer.seller.length >= 2 && Number.isFinite(offer.unitPrice) && offer.unitPrice > 0 && Number.isFinite(offer.shippingPrice) && offer.shippingPrice >= 0 && offer.productUrl.startsWith("https://"));
     item.offers = offers.sort((left, right) => left.unitPrice + left.shippingPrice - right.unitPrice - right.shippingPrice);
@@ -1897,6 +2054,29 @@
     if (action === "add-survey-response") return openAddSurveyResponse();
     if (action === "add-recall") return openAddRecall();
     if (action === "clinic-management") return openClinicManagement();
+    if (action === "mesh-sync") return openMeshSync();
+    if (action === "mesh-create") {
+      try {
+        const clinicId = `clinic_${(crypto.randomUUID?.() || `${Date.now()}_${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, "")}`;
+        const config = { clinicId, secret: randomSecret(32) };
+        configureMesh(config); openMeshSync(); showToast("Şifreli klinik cihaz ağı oluşturuldu.");
+      } catch (error) { showToast(error instanceof Error ? error.message : "Klinik ağı oluşturulamadı."); }
+      return;
+    }
+    if (action === "mesh-sync-now") { window.ClinicNovaNative?.meshSyncNow?.(); meshStatus = "Yerel ağ taranıyor"; openMeshSync(); return; }
+    if (action === "mesh-resolve") {
+      try {
+        const result = meshEngine?.resolveConflict(target.dataset.conflictKey, target.dataset.operationId);
+        if (!result) throw new Error("Çakışma bulunamadı.");
+        applyMeshDocument(result.document); persistMesh(); openMeshSync(); showToast("Seçilen kayıt sürümü tüm cihazlara uygulanmak üzere kaydedildi.");
+      } catch (error) { showToast(error instanceof Error ? error.message : "Çakışma çözülemedi."); }
+      return;
+    }
+    if (action === "mesh-disable") {
+      if (!window.confirm("Bu cihaz klinik eşitleme ağından çıkarılsın mı? Yerel kayıtlar silinmez.")) return;
+      window.ClinicNovaNative?.meshDisable?.(); storage.set("clinicnova.meshConfig", null); storage.set("clinicnova.meshState", null); storage.set("clinicnova.meshConflicts", []);
+      meshEngine = null; meshConfig = null; meshStatus = "Yapılandırılmadı"; openMeshSync(); return;
+    }
     if (action === "add-doctor") return openAddDoctor();
     if (action === "add-chair") return openAddChair();
     if (action === "rename-clinic") return openRenameClinic();
@@ -1923,7 +2103,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       const items = state.patientMedia[patientId] || [];
-      items.unshift({ id: Date.now(), kind: input.dataset.mediaKind || "Fotoğraf", date: "Şimdi", dataUrl: reader.result });
+      items.unshift({ id: nextLocalId(), kind: input.dataset.mediaKind || "Fotoğraf", date: "Şimdi", dataUrl: reader.result });
       state.patientMedia[patientId] = items.slice(0, 8);
       saveData();
       openPatientDetail(patientId);
@@ -1964,7 +2144,7 @@
     if (event.target.id === "treatmentForm") {
       event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId"));
       const requestedStatus = String(form.get("status") || "COMPLETED");
-      const record = { id: Date.now(), patientId: patient?.id, patient: patient?.name || "", doctor: String(form.get("doctor") || ""), tooth: String(form.get("tooth") || ""), treatment: String(form.get("treatment") || "").trim(), description: String(form.get("description") || "").trim(), fee: Number(form.get("fee")), status: requestedStatus === "COMPLETED" ? "STARTED" : requestedStatus, date: String(form.get("date") || todayIso), branch: currentClinicName() };
+      const record = { id: nextLocalId(), patientId: patient?.id, patient: patient?.name || "", doctor: String(form.get("doctor") || ""), tooth: String(form.get("tooth") || ""), treatment: String(form.get("treatment") || "").trim(), description: String(form.get("description") || "").trim(), fee: Number(form.get("fee")), status: requestedStatus === "COMPLETED" ? "STARTED" : requestedStatus, date: String(form.get("date") || todayIso), branch: currentClinicName() };
       if (!patient || record.treatment.length < 2 || !record.doctor || !Number.isFinite(record.fee) || record.fee < 0) return showToast("Tedavi bilgilerini kontrol edin.");
       const stockResult = applyLocalStockForTreatment(record, requestedStatus);
       if (!stockResult.ok) return showToast(stockResult.message);
@@ -1972,24 +2152,24 @@
       treatments.unshift(record); queueCreate("TREATMENT", record.id, treatmentPayload(record)); saveData(); openModule("Gerçekleşen tedaviler"); showToast(stockResult.message); return;
     }
     if (event.target.id === "staffForm") {
-      event.preventDefault(); const form = new FormData(event.target); const record = { id: Date.now(), fullName: String(form.get("fullName") || "").trim(), roleLabel: String(form.get("roleLabel") || "").trim(), phone: String(form.get("phone") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), workingHours: String(form.get("workingHours") || "").trim(), compensation: String(form.get("compensation") || "").trim(), active: form.get("active") === "on" };
+      event.preventDefault(); const form = new FormData(event.target); const record = { id: nextLocalId(), fullName: String(form.get("fullName") || "").trim(), roleLabel: String(form.get("roleLabel") || "").trim(), phone: String(form.get("phone") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), workingHours: String(form.get("workingHours") || "").trim(), compensation: String(form.get("compensation") || "").trim(), active: form.get("active") === "on" };
       if (record.fullName.length < 2 || record.roleLabel.length < 2 || (record.email && !record.email.includes("@"))) return showToast("Personel bilgilerini kontrol edin.");
       staffRecords.unshift(record); queueCreate("STAFF", record.id, staffPayload(record)); saveData(); openModule("Personel"); showToast("Personel kaydedildi."); return;
     }
     if (event.target.id === "surveyForm") {
-      event.preventDefault(); const form = new FormData(event.target); const record = { id: Date.now(), title: String(form.get("title") || "").trim(), description: String(form.get("description") || "").trim(), active: form.get("active") === "on" };
+      event.preventDefault(); const form = new FormData(event.target); const record = { id: nextLocalId(), title: String(form.get("title") || "").trim(), description: String(form.get("description") || "").trim(), active: form.get("active") === "on" };
       if (record.title.length < 2) return showToast("Anket başlığını kontrol edin.");
       surveys.unshift(record); queueCreate("SURVEY", record.id, surveyPayload(record)); saveData(); openModule("Anketler"); showToast("Anket oluşturuldu."); return;
     }
     if (event.target.id === "surveyResponseForm") {
       event.preventDefault(); const form = new FormData(event.target); const survey = surveys.find((item) => Number(item.id) === Number(form.get("surveyId"))); const patient = patientById(form.get("patientId"));
-      const record = { id: Date.now(), surveyId: survey?.id, patientId: patient?.id, patient: patient?.name || "", survey: survey?.title || "", score: Number(form.get("score")), comment: String(form.get("comment") || "").trim(), date: new Date().toISOString() };
+      const record = { id: nextLocalId(), surveyId: survey?.id, patientId: patient?.id, patient: patient?.name || "", survey: survey?.title || "", score: Number(form.get("score")), comment: String(form.get("comment") || "").trim(), date: new Date().toISOString() };
       if (!survey || !patient || !Number.isInteger(record.score) || record.score < 1 || record.score > 5) return showToast("Anket yanıtını kontrol edin.");
       surveyResponses.unshift(record); queueCreate("SURVEY_RESPONSE", record.id, surveyResponsePayload(record)); saveData(); openModule("Anketler"); showToast("Anket yanıtı kaydedildi."); return;
     }
     if (event.target.id === "recallForm") {
       event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId"));
-      const record = { id: Date.now(), patientId: patient?.id, patient: patient?.name || "", reason: String(form.get("reason") || "").trim(), dueDate: String(form.get("dueDate") || ""), status: String(form.get("status") || "OPEN"), notes: String(form.get("notes") || "").trim() };
+      const record = { id: nextLocalId(), patientId: patient?.id, patient: patient?.name || "", reason: String(form.get("reason") || "").trim(), dueDate: String(form.get("dueDate") || ""), status: String(form.get("status") || "OPEN"), notes: String(form.get("notes") || "").trim() };
       if (!patient || record.reason.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(record.dueDate)) return showToast("Takip bilgilerini kontrol edin.");
       recalls.unshift(record); queueCreate("RECALL", record.id, recallPayload(record)); saveData(); openModule("Recall"); showToast("Hasta takibi kaydedildi."); return;
     }
@@ -2002,7 +2182,7 @@
       const note = String(form.get("note") || "").trim();
       const date = String(form.get("date") || todayIso);
       if (!patient || treatment.length < 2 || !doctor || note.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return showToast("Tedavi, tarih, hekim ve not bilgilerini kontrol edin.");
-      const recordId = Date.now();
+      const recordId = nextLocalId();
       const record = { id: recordId, date: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), treatment, doctor, note, manual: true };
       const treatmentRecord = { id: recordId, patientId: patient.id, patient: patient.name, doctor, tooth: "", treatment, description: note, fee: 0, paymentPlan: null, status: "STARTED", date, branch: currentClinicName() };
       const stockResult = applyLocalStockForTreatment(treatmentRecord, "COMPLETED");
@@ -2016,7 +2196,7 @@
     if (event.target.id === "leadForm") {
       event.preventDefault();
       const form = new FormData(event.target);
-      const lead = { id: Date.now(), name: String(form.get("name") || "").trim(), country: String(form.get("country") || "").trim(), phone: String(form.get("phone") || "").trim(), treatment: String(form.get("treatment") || "").trim(), score: Number(form.get("score")) };
+      const lead = { id: nextLocalId(), name: String(form.get("name") || "").trim(), country: String(form.get("country") || "").trim(), phone: String(form.get("phone") || "").trim(), treatment: String(form.get("treatment") || "").trim(), score: Number(form.get("score")) };
       if (lead.name.length < 2 || lead.country.length < 2 || lead.phone.replace(/\D/g, "").length < 7 || lead.treatment.length < 2 || !Number.isInteger(lead.score) || lead.score < 0 || lead.score > 100) return showToast("Lead bilgilerini ve 0-100 arasındaki puanı kontrol edin.");
       hotLeads.unshift(lead); queueCreate("LEAD", lead.id, leadPayload(lead)); saveData(); renderDashboard(); openModule("Sağlık turizmi"); showToast("Yeni lead kaydedildi."); return;
     }
@@ -2025,7 +2205,7 @@
       const form = new FormData(event.target);
       const patientName = String(form.get("patient") || "").trim();
       const patient = state.patients.find((item) => item.name === patientName);
-      const record = { id: Date.now(), patientId: patient?.id || null, patient: patientName, channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
+      const record = { id: nextLocalId(), patientId: patient?.id || null, patient: patientName, channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
       if (record.patient.length < 2 || record.message.length < 3) return showToast("Kişi ve iletişim notunu kontrol edin.");
       communicationLog.unshift(record); queueCreate("COMMUNICATION", record.id, communicationPayload(record)); saveData(); openModule("İletişim"); showToast("İletişim kaydı eklendi."); return;
     }
@@ -2043,14 +2223,14 @@
       item.paidInstallments = Math.min(Number(item.installmentCount || 1), Number(item.paidInstallments || 0) + 1);
       item.status = item.remainingAmount > 0 ? "PENDING" : "PAID";
       item.paymentHistory = Array.isArray(item.paymentHistory) ? item.paymentHistory : [];
-      item.paymentHistory.unshift({ id: Date.now(), amount, method, note, date: "Şimdi" });
+      item.paymentHistory.unshift({ id: nextLocalId(), amount, method, note, date: "Şimdi" });
       queueUpdate("PAYMENT", item.id, paymentPayload(item));
       saveData(); renderAll(); openFinanceDetail(item.id); showToast(item.remainingAmount > 0 ? `${currency(amount)} tahsil edildi · ${currency(item.remainingAmount)} kaldı.` : "Ödeme planı tamamen tahsil edildi."); return;
     }
     if (event.target.id === "doctorForm") {
       event.preventDefault();
       const form = new FormData(event.target);
-      const doctor = { id: Date.now(), name: String(form.get("name") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), specialty: String(form.get("specialty") || "").trim() || "Diş hekimi" };
+      const doctor = { id: nextLocalId(), name: String(form.get("name") || "").trim(), email: String(form.get("email") || "").trim().toLowerCase(), specialty: String(form.get("specialty") || "").trim() || "Diş hekimi" };
       if (doctor.name.length < 2 || !doctor.email.includes("@")) return showToast("Doktor adı ve e-posta adresini kontrol edin.");
       if (clinicDoctors.some((item) => item.email.toLocaleLowerCase("tr-TR") === doctor.email)) return showToast("Bu e-posta ile bir doktor zaten kayıtlı.");
       clinicDoctors.push(doctor); queueCreate("DOCTOR", doctor.id, doctorPayload(doctor)); saveData(); openClinicManagement(); showToast("Doktor kaydedildi."); return;
@@ -2100,7 +2280,7 @@
       event.preventDefault();
       const form = new FormData(event.target);
       const patient = {
-        id: Date.now(), name: form.get("name").trim(), phone: form.get("phone").trim(), email: form.get("email").trim(),
+        id: nextLocalId(), name: form.get("name").trim(), phone: form.get("phone").trim(), email: form.get("email").trim(),
         nationalId: String(form.get("nationalId") || "").trim(), birthDate: String(form.get("birthDate") || ""), gender: String(form.get("gender") || "UNSPECIFIED"), address: String(form.get("address") || "").trim(), allergies: String(form.get("allergies") || "").trim(), chronicDiseases: String(form.get("chronicDiseases") || "").trim(), medications: String(form.get("medications") || "").trim(),
         tag: form.get("tag"), lastVisit: "Yeni kayıt", treatment: form.get("treatment").trim() || "Muayene", note: form.get("note").trim(), color: state.patients.length % palette.length
       };
@@ -2112,7 +2292,7 @@
       event.preventDefault();
       const form = new FormData(event.target);
       const appointment = {
-        id: Date.now(), patientId: Number(form.get("patientId")), date: form.get("date"), time: form.get("time"), duration: Number(form.get("duration")),
+        id: nextLocalId(), patientId: Number(form.get("patientId")), date: form.get("date"), time: form.get("time"), duration: Number(form.get("duration")),
         treatment: form.get("treatment").trim(), doctor: form.get("doctor"), room: form.get("room"), status: "PLANNED"
       };
       state.appointments.push(appointment);
@@ -2134,7 +2314,7 @@
       const paidInstallments = Math.min(installmentCount, Math.max(0, Number(form.get("paidInstallments")) || 0));
       const remainingAmount = Math.max(0, totalAmount - amount);
       const payment = {
-        id: Date.now(), patientId: patient.id, name: patient.name, detail: `${form.get("description").trim()} · ${form.get("method")}`,
+        id: nextLocalId(), patientId: patient.id, name: patient.name, detail: `${form.get("description").trim()} · ${form.get("method")}`,
         amount, totalAmount, remainingAmount, installmentCount, paidInstallments, components, isDeposit: form.get("isDeposit") === "on", type: "income", status: remainingAmount > 0 ? "PENDING" : "PAID", date: "Şimdi"
       };
       state.transactions.unshift(payment);
@@ -2151,7 +2331,7 @@
       const category = String(form.get("category") || "Diğer");
       const method = String(form.get("method") || "Belirtilmedi");
       const description = String(form.get("description") || "").trim();
-      const expense = { id: Date.now(), patientId: null, name, category, method, detail: `${category} · ${method}${description ? ` · ${description}` : ""}`, amount, type: "expense", status: "PAID", date: "Şimdi" };
+      const expense = { id: nextLocalId(), patientId: null, name, category, method, detail: `${category} · ${method}${description ? ` · ${description}` : ""}`, amount, type: "expense", status: "PAID", date: "Şimdi" };
       state.transactions.unshift(expense); queueCreate("PAYMENT", expense.id, paymentPayload(expense)); state.transactionFilter = "ALL";
       saveData(); renderAll(); closeModal(); navigate("finance"); showToast("Gider finans kaydına eklendi.");
     }
@@ -2161,7 +2341,7 @@
       const patient = patientById(form.get("patientId"));
       if (!patient) return showToast("Hasta seçimini kontrol edin.");
       const status = String(form.get("status") || "Taslak");
-      const consent = { id: Date.now(), patientId: patient.id, patient: patient.name, form: String(form.get("form") || "Genel tedavi onamı"), treatment: String(form.get("treatment") || "Genel tedavi").trim(), language: String(form.get("language") || "Türkçe"), channel: String(form.get("channel") || "Klinikte"), status, date: "Şimdi", signedAt: status === "İmzalandı" ? "Şimdi" : "", signer: status === "İmzalandı" ? patient.name : "", version: "v1", note: String(form.get("note") || "").trim(), history: [{ status, date: "Şimdi", note: "Onam kaydı oluşturuldu." }] };
+      const consent = { id: nextLocalId(), patientId: patient.id, patient: patient.name, form: String(form.get("form") || "Genel tedavi onamı"), treatment: String(form.get("treatment") || "Genel tedavi").trim(), language: String(form.get("language") || "Türkçe"), channel: String(form.get("channel") || "Klinikte"), status, date: "Şimdi", signedAt: status === "İmzalandı" ? "Şimdi" : "", signer: status === "İmzalandı" ? patient.name : "", version: "v1", note: String(form.get("note") || "").trim(), history: [{ status, date: "Şimdi", note: "Onam kaydı oluşturuldu." }] };
       consentRecords.unshift(consent); state.consentFilter = "ALL";
       queueCreate("CONSENT", consent.id, consentPayload(consent));
       saveData(); renderAll(); closeModal(); navigate("consents"); showToast(status === "İmzalandı" ? "İmzalı onam kaydedildi." : "Onam kaydı oluşturuldu.");
@@ -2189,10 +2369,10 @@
     if (event.target.id === "stockItemForm") {
       event.preventDefault();
       const form = new FormData(event.target);
-      const item = { id: Date.now(), name: String(form.get("name") || "").trim(), category: String(form.get("category") || "").trim(), amount: Number(form.get("amount")), minimum: Number(form.get("minimum")), unit: String(form.get("unit") || "").trim(), supplier: String(form.get("supplier") || "").trim(), purchasePrice: Number(form.get("purchasePrice") || 0), movements: [], offers: [] };
+      const item = { id: nextLocalId(), name: String(form.get("name") || "").trim(), category: String(form.get("category") || "").trim(), amount: Number(form.get("amount")), minimum: Number(form.get("minimum")), unit: String(form.get("unit") || "").trim(), supplier: String(form.get("supplier") || "").trim(), purchasePrice: Number(form.get("purchasePrice") || 0), movements: [], offers: [] };
       if (!item.name || !item.category || !item.unit || !Number.isFinite(item.amount) || item.amount < 0 || !Number.isFinite(item.minimum) || item.minimum < 0) return showToast("Ürün bilgilerini kontrol edin.");
       if (stockItems.some((entry) => entry.name.toLocaleLowerCase("tr-TR") === item.name.toLocaleLowerCase("tr-TR"))) return showToast("Bu ürün stokta zaten kayıtlı.");
-      if (item.amount > 0) item.movements.unshift({ id: Date.now() + 1, type: "IN", quantity: item.amount, note: "Açılış stoku", date: "Şimdi" });
+      if (item.amount > 0) item.movements.unshift({ id: nextLocalId(), type: "IN", quantity: item.amount, note: "Açılış stoku", date: "Şimdi", createdAt: Date.now() });
       stockItems.unshift(item); queueCreate("STOCK_ITEM", item.id, stockItemPayload(item)); saveData(); renderAll(); closeModal(); navigate("stocks"); showToast("Yeni stok ürünü kaydedildi.");
     }
     if (event.target.id === "treatmentPlanForm") {
@@ -2206,11 +2386,11 @@
       const status = ({ PROPOSED: "Önerildi", ACCEPTED: "Kabul edildi", STARTED: "Başladı", COMPLETED: "Tamamlandı", CANCELLED: "İptal" })[statusCode] || "Önerildi";
       const date = String(form.get("date"));
       const paymentPlan = buildLocalPaymentPlan(total, paid, form.get("installmentCount"), String(form.get("firstInstallmentDate") || todayIso), String(form.get("paymentPlanNote") || "").trim());
-      const plan = { id: Date.now(), patientId: patient.id, patient: patient.name, treatment: String(form.get("treatment") || "").trim(), tooth: String(form.get("tooth") || "").trim(), doctor: String(form.get("doctor") || "").trim(), branch: String(form.get("branch") || "").trim(), date, plannedAt: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), total, paid, paymentPlan, status, statusCode, note: String(form.get("note") || "").trim() };
+      const plan = { id: nextLocalId(), patientId: patient.id, patient: patient.name, treatment: String(form.get("treatment") || "").trim(), tooth: String(form.get("tooth") || "").trim(), doctor: String(form.get("doctor") || "").trim(), branch: String(form.get("branch") || "").trim(), date, plannedAt: new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`)), total, paid, paymentPlan, status, statusCode, note: String(form.get("note") || "").trim() };
       if (plan.treatment.length < 2 || !plan.doctor || !plan.branch) return showToast("Tedavi, hekim ve şube bilgilerini kontrol edin.");
       treatmentPlans.unshift(plan); queueCreate("TREATMENT_PLAN", plan.id, treatmentPlanPayload(plan));
       if (paid > 0) {
-        const payment = { id: Date.now() + 1, patientId: patient.id, name: patient.name, detail: `${plan.treatment} plan peşinatı · Nakit`, amount: paid, totalAmount: total, remainingAmount: Math.max(0, total - paid), installmentCount: paymentPlan.installmentCount, paidInstallments: 0, components: [{ name: plan.treatment, amount: total }], isDeposit: true, type: "income", status: total > paid ? "PENDING" : "PAID", date: "Şimdi" };
+        const payment = { id: nextLocalId(), patientId: patient.id, name: patient.name, detail: `${plan.treatment} plan peşinatı · Nakit`, amount: paid, totalAmount: total, remainingAmount: Math.max(0, total - paid), installmentCount: paymentPlan.installmentCount, paidInstallments: 0, components: [{ name: plan.treatment, amount: total }], isDeposit: true, type: "income", status: total > paid ? "PENDING" : "PAID", date: "Şimdi" };
         state.transactions.unshift(payment); queueCreate("PAYMENT", payment.id, paymentPayload(payment));
       }
       saveData(); renderAll(); closeModal(); navigate("treatment-plans"); showToast("Tedavi planı kaydedildi.");
@@ -2224,7 +2404,7 @@
       if (!item || !Number.isFinite(quantity) || quantity < 0 || (type !== "ADJUSTMENT" && quantity === 0)) return showToast("Ürün ve miktarı kontrol edin.");
       if (type === "OUT" && quantity > Number(item.amount)) return showToast(`Stok yetersiz. Mevcut: ${item.amount} ${item.unit}.`);
       item.amount = type === "IN" ? Number(item.amount) + quantity : type === "OUT" ? Number(item.amount) - quantity : quantity;
-      const movement = { id: Date.now(), itemId: item.id, type, quantity, note: String(form.get("note") || "").trim() || (type === "IN" ? "Stok girişi" : type === "OUT" ? "Stok çıkışı" : "Sayım düzeltmesi"), date: "Şimdi" };
+      const movement = { id: nextLocalId(), itemId: item.id, type, quantity, note: String(form.get("note") || "").trim() || (type === "IN" ? "Stok girişi" : type === "OUT" ? "Stok çıkışı" : "Sayım düzeltmesi"), date: "Şimdi", createdAt: Date.now() };
       (item.movements ||= []).unshift(movement);
       queueCreate("STOCK_MOVEMENT", movement.id, { itemId: String(item.id), type, quantity, note: movement.note });
       saveData(); renderAll(); closeModal(); navigate("stocks"); showToast("Stok miktarı güncellendi.");
@@ -2232,7 +2412,7 @@
     if (event.target.id === "stockRecipeForm") {
       event.preventDefault();
       const form = new FormData(event.target);
-      const recipe = { id: Date.now(), treatmentType: String(form.get("treatmentType") || "").trim(), itemId: Number(form.get("itemId")), quantity: Number(form.get("quantity")) };
+      const recipe = { id: nextLocalId(), treatmentType: String(form.get("treatmentType") || "").trim(), itemId: Number(form.get("itemId")), quantity: Number(form.get("quantity")) };
       if (recipe.treatmentType.length < 2 || !stockItems.some((item) => Number(item.id) === recipe.itemId) || !Number.isInteger(recipe.quantity) || recipe.quantity < 1) return showToast("Tedavi, malzeme ve miktarı kontrol edin.");
       const existing = stockRecipes.find((item) => treatmentKey(item.treatmentType) === treatmentKey(recipe.treatmentType) && Number(item.itemId) === recipe.itemId);
       if (existing) {
@@ -2256,10 +2436,18 @@
       const url = new FormData(event.target).get("url").trim().replace(/\/$/, "");
       connectToServer(url);
     }
+    if (event.target.id === "meshJoinForm") {
+      event.preventDefault();
+      try {
+        const config = parseMeshPairingCode(new FormData(event.target).get("code"));
+        configureMesh(config); openMeshSync(); showToast("Cihaz klinik ağına katıldı; eşler aranıyor.");
+      } catch (error) { showToast(error instanceof Error ? error.message : "Eşleştirme kodu geçersiz."); }
+    }
   });
 
   purgeExpiredTrash();
   queueExistingLocalRecords();
+  initializeMesh();
   configureEntryMode();
   if (storage.get("clinicnova.theme", "light") === "dark") document.documentElement.classList.add("dark");
   $("#notificationDot").hidden = storage.get("clinicnova.notificationsRead", false);

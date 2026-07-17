@@ -2,13 +2,15 @@ const { app, BrowserWindow, ipcMain, net, protocol, safeStorage, session, shell 
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { MeshTransport } = require("./mesh-transport.cjs");
 
 protocol.registerSchemesAsPrivileged([{ scheme: "clinicnova", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
-const allowedAssets = new Set(["index.html", "app.css", "app.js", "runtime-config.js"]);
+const allowedAssets = new Set(["index.html", "app.css", "app.js", "mesh-sync.js", "runtime-config.js"]);
 let mainWindow;
 let storePath;
 let encryptedStore = {};
+let meshTransport;
 
 function rendererAllowed(event) {
   try { return new URL(event.senderFrame.url).origin === "clinicnova://app"; } catch { return false; }
@@ -47,6 +49,30 @@ function installIpcHandlers() {
     delete encryptedStore[key];
     persistStore();
     event.returnValue = true;
+  });
+  ipcMain.on("clinicnova:mesh-get-config", event => {
+    event.returnValue = rendererAllowed(event) ? readEncryptedValue("clinicnova.meshNativeConfig") : null;
+  });
+  ipcMain.on("clinicnova:mesh-get-envelope", event => {
+    event.returnValue = rendererAllowed(event) ? readEncryptedValue("clinicnova.meshEnvelope") : null;
+  });
+  ipcMain.on("clinicnova:mesh-configure", (event, json) => {
+    event.returnValue = false;
+    if (!rendererAllowed(event) || typeof json !== "string" || Buffer.byteLength(json) > 8192 || !safeStorage.isEncryptionAvailable()) return;
+    try {
+      const config = JSON.parse(json); meshTransport.configure(config);
+      encryptedStore["clinicnova.meshNativeConfig"] = safeStorage.encryptString(json).toString("base64"); persistStore(); event.returnValue = true;
+    } catch { event.returnValue = false; }
+  });
+  ipcMain.on("clinicnova:mesh-publish", (event, envelope) => {
+    event.returnValue = false;
+    if (!rendererAllowed(event) || typeof envelope !== "string" || Buffer.byteLength(envelope) > 64 * 1024 * 1024 || !safeStorage.isEncryptionAvailable()) return;
+    encryptedStore["clinicnova.meshEnvelope"] = safeStorage.encryptString(envelope).toString("base64"); persistStore(); event.returnValue = true;
+  });
+  ipcMain.on("clinicnova:mesh-sync-now", event => { if (rendererAllowed(event)) meshTransport.syncNow(); });
+  ipcMain.on("clinicnova:mesh-disable", event => {
+    event.returnValue = false; if (!rendererAllowed(event)) return; meshTransport.stop(); meshTransport.config = null;
+    delete encryptedStore["clinicnova.meshNativeConfig"]; delete encryptedStore["clinicnova.meshEnvelope"]; persistStore(); event.returnValue = true;
   });
   ipcMain.on("clinicnova:sync", async (event, serverUrl, batchJson) => {
     if (!rendererAllowed(event)) return;
@@ -137,8 +163,15 @@ app.whenReady().then(async () => {
     callback(webContents.getURL().startsWith("clinicnova://app/") && permission === "media");
   });
   installIpcHandlers();
+  meshTransport = new MeshTransport({
+    getEnvelope: () => { try { return JSON.parse(readEncryptedValue("clinicnova.meshEnvelope")); } catch { return null; } },
+    onEnvelope: (envelope, peerName) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("clinicnova:mesh-envelope", JSON.stringify(envelope), peerName); },
+    onStatus: (status, peerName) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("clinicnova:mesh-status", status, peerName || ""); }
+  });
+  try { const config = JSON.parse(readEncryptedValue("clinicnova.meshNativeConfig")); if (config) meshTransport.configure(config); } catch { /* No local mesh configured. */ }
   createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("before-quit", () => meshTransport?.stop());
