@@ -15,10 +15,11 @@
     set(key, value) {
       try {
         const serialized = JSON.stringify(value);
-        if (window.ClinicNovaNative?.storage?.setItem) window.ClinicNovaNative.storage.setItem(key, serialized);
-        else if (window.ClinicNovaNative?.storageSet) window.ClinicNovaNative.storageSet(key, serialized);
-        else localStorage.setItem(key, serialized);
-      } catch { /* Platform storage can be unavailable when the OS keychain is locked. */ }
+        if (window.ClinicNovaNative?.storage?.setItem) return window.ClinicNovaNative.storage.setItem(key, serialized) !== false;
+        if (window.ClinicNovaNative?.storageSet) return window.ClinicNovaNative.storageSet(key, serialized) !== false;
+        localStorage.setItem(key, serialized);
+        return true;
+      } catch { return false; /* Platform storage can be unavailable when the OS keychain is locked. */ }
     }
   };
 
@@ -169,6 +170,8 @@
   let syncing = false;
   let inFlightOperationIds = new Set();
   let syncTimer = null;
+  let syncRequestTimer = null;
+  let persistenceWarningPending = false;
   let serverPermissions = storage.get("clinicnova.serverPermissions", null);
   if (demoMode) serverPermissions = null;
   let productSearchInFlight = false;
@@ -337,12 +340,28 @@
     if (!$("#appShell").hidden) renderAll();
     setTimeout(processAppointmentReminders, 0);
   }
+  function warnPersistenceFailure() {
+    if (persistenceWarningPending) return;
+    persistenceWarningPending = true;
+    setTimeout(() => {
+      persistenceWarningPending = false;
+      showToast("Cihaz depolamasına yazılamadı. Uygulamayı kapatmadan önce boş alanı ve cihaz kilidini kontrol edin.");
+    }, 0);
+  }
+  window.ClinicNovaStorageFailure = warnPersistenceFailure;
+  window.ClinicNovaMeshPersistenceFailure = () => {
+    meshEngine = null; meshConfig = null; meshStatus = "Eşitleme ayarı cihazda saklanamadı";
+    storage.set("clinicnova.meshConfig", null); storage.set("clinicnova.meshState", null); storage.set("clinicnova.meshConflicts", []);
+    window.ClinicNovaNative?.meshDisable?.(); warnPersistenceFailure(); updateNetworkBadge();
+  };
   function persistMesh() {
-    if (!meshEngine || !meshConfig) return;
+    if (!meshEngine || !meshConfig) return false;
     const envelope = meshEngine.export();
-    storage.set("clinicnova.meshState", envelope);
-    storage.set("clinicnova.meshConflicts", meshEngine.materialize().conflicts);
-    if (typeof window.ClinicNovaNative?.meshPublish === "function") window.ClinicNovaNative.meshPublish(JSON.stringify(envelope));
+    const localStateSaved = storage.set("clinicnova.meshState", envelope);
+    const conflictsSaved = storage.set("clinicnova.meshConflicts", meshEngine.materialize().conflicts);
+    const nativeSaved = typeof window.ClinicNovaNative?.meshPublish !== "function" || window.ClinicNovaNative.meshPublish(JSON.stringify(envelope)) !== false;
+    if (!localStateSaved || !conflictsSaved || !nativeSaved) warnPersistenceFailure();
+    return localStateSaved && conflictsSaved && nativeSaved;
   }
   function captureMeshState() {
     if (!meshEngine || meshApplying || demoMode || previewMode) return;
@@ -350,28 +369,19 @@
   }
   function saveData() {
     if (previewMode) return;
-    storage.set("clinicnova.patients", state.patients);
-    storage.set("clinicnova.appointments", state.appointments);
-    storage.set("clinicnova.transactions", state.transactions);
-    storage.set("clinicnova.treatmentHistory", state.treatmentHistory);
-    storage.set("clinicnova.patientMedia", state.patientMedia);
-    storage.set("clinicnova.hotLeads", hotLeads);
-    storage.set("clinicnova.treatmentPlans", treatmentPlans);
-    storage.set("clinicnova.stockItems", stockItems);
-    storage.set("clinicnova.stockRecipes", stockRecipes);
-    storage.set("clinicnova.clinicDoctors", clinicDoctors);
-    storage.set("clinicnova.clinicChairs", clinicChairs);
-    storage.set("clinicnova.communicationLog", communicationLog);
-    storage.set("clinicnova.consentRecords", consentRecords);
-    storage.set("clinicnova.treatments", treatments);
-    storage.set("clinicnova.staff", staffRecords);
-    storage.set("clinicnova.surveys", surveys);
-    storage.set("clinicnova.surveyResponses", surveyResponses);
-    storage.set("clinicnova.recalls", recalls);
-    storage.set("clinicnova.reminderSettings", reminderSettings);
-    storage.set("clinicnova.reminderDeliveries", reminderDeliveries);
-    storage.set("clinicnova.trashItems", trashItems);
+    const writes = [
+      ["clinicnova.patients", state.patients], ["clinicnova.appointments", state.appointments], ["clinicnova.transactions", state.transactions],
+      ["clinicnova.treatmentHistory", state.treatmentHistory], ["clinicnova.patientMedia", state.patientMedia], ["clinicnova.hotLeads", hotLeads],
+      ["clinicnova.treatmentPlans", treatmentPlans], ["clinicnova.stockItems", stockItems], ["clinicnova.stockRecipes", stockRecipes],
+      ["clinicnova.clinicDoctors", clinicDoctors], ["clinicnova.clinicChairs", clinicChairs], ["clinicnova.communicationLog", communicationLog],
+      ["clinicnova.consentRecords", consentRecords], ["clinicnova.treatments", treatments], ["clinicnova.staff", staffRecords],
+      ["clinicnova.surveys", surveys], ["clinicnova.surveyResponses", surveyResponses], ["clinicnova.recalls", recalls],
+      ["clinicnova.reminderSettings", reminderSettings], ["clinicnova.reminderDeliveries", reminderDeliveries], ["clinicnova.trashItems", trashItems]
+    ];
+    const saved = writes.map(([key, value]) => storage.set(key, value)).every(Boolean);
+    if (!saved) warnPersistenceFailure();
     captureMeshState();
+    return saved;
   }
 
   let reminderProcessing = false;
@@ -497,18 +507,31 @@
   }
   function configureMesh(config) {
     if (!window.ClinicNovaMeshEngine?.MeshEngine) throw new Error("Yerel ağ eşitleme motoru yüklenemedi.");
-    meshConfig = { ...config, deviceId, deviceName: `${mobileConfig.platformLabel || "ClinicNova"}-${deviceId.slice(-6)}` };
-    let stored = storage.get("clinicnova.meshState", null);
-    if (typeof window.ClinicNovaNative?.meshGetEnvelope === "function") {
-      try { stored = JSON.parse(window.ClinicNovaNative.meshGetEnvelope() || "null") || stored; } catch { /* Use the browser-local checkpoint. */ }
+    const previousConfig = meshConfig; const previousEngine = meshEngine;
+    const nextConfig = { ...config, deviceId, deviceName: `${mobileConfig.platformLabel || "ClinicNova"}-${deviceId.slice(-6)}` };
+    const nativeConfigBefore = typeof window.ClinicNovaNative?.meshGetConfig === "function" ? window.ClinicNovaNative.meshGetConfig() : "";
+    let configuredNative = false;
+    try {
+      if (typeof window.ClinicNovaNative?.meshConfigure === "function") {
+        if (!window.ClinicNovaNative.meshConfigure(JSON.stringify(nextConfig))) throw new Error("Klinik anahtarı güvenli cihaz kasasına yazılamadı.");
+        configuredNative = true;
+      }
+      meshConfig = nextConfig;
+      let stored = storage.get("clinicnova.meshState", null);
+      if (typeof window.ClinicNovaNative?.meshGetEnvelope === "function") {
+        try { stored = JSON.parse(window.ClinicNovaNative.meshGetEnvelope() || "null") || stored; } catch { /* Use the browser-local checkpoint. */ }
+      }
+      meshEngine = new window.ClinicNovaMeshEngine.MeshEngine({ clinicId: meshConfig.clinicId, deviceId, state: stored?.clinicId === meshConfig.clinicId ? stored : null });
+      meshEngine.capture(meshDocument());
+      if (!persistMesh()) throw new Error("Eşitleme durumu güvenli cihaz kasasına yazılamadı.");
+      const configSaved = configuredNative ? storage.set("clinicnova.meshConfig", null) : storage.set("clinicnova.meshConfig", config);
+      if (!configSaved) throw new Error("Eşitleme ayarı cihazda saklanamadı.");
+      meshStatus = "Yerel ağda eşler aranıyor";
+    } catch (error) {
+      if (configuredNative && !nativeConfigBefore) window.ClinicNovaNative?.meshDisable?.();
+      meshConfig = previousConfig; meshEngine = previousEngine;
+      throw error;
     }
-    meshEngine = new window.ClinicNovaMeshEngine.MeshEngine({ clinicId: meshConfig.clinicId, deviceId, state: stored?.clinicId === meshConfig.clinicId ? stored : null });
-    meshEngine.capture(meshDocument()); persistMesh();
-    if (typeof window.ClinicNovaNative?.meshConfigure === "function") {
-      if (!window.ClinicNovaNative.meshConfigure(JSON.stringify(meshConfig))) throw new Error("Klinik anahtarı güvenli cihaz kasasına yazılamadı.");
-      storage.set("clinicnova.meshConfig", null);
-    } else storage.set("clinicnova.meshConfig", config);
-    meshStatus = "Yerel ağda eşler aranıyor";
   }
   function initializeMesh() {
     if (demoMode) return;
@@ -538,8 +561,9 @@
 
   function persistSyncState() {
     if (previewMode) return updateNetworkBadge();
-    storage.set("clinicnova.syncQueue", syncQueue);
-    storage.set("clinicnova.syncMap", syncMap);
+    const queueSaved = storage.set("clinicnova.syncQueue", syncQueue);
+    const mapSaved = storage.set("clinicnova.syncMap", syncMap);
+    if (!queueSaved || !mapSaved) warnPersistenceFailure();
     updateNetworkBadge();
   }
 
@@ -1582,8 +1606,16 @@
     inFlightOperationIds = new Set(operations.map((item) => item.operationId));
     persistSyncState();
     try {
+      clearTimeout(syncRequestTimer);
+      syncRequestTimer = setTimeout(() => {
+        if (!syncing) return;
+        syncing = false; inFlightOperationIds.clear(); updateNetworkBadge();
+        showToast("Sunucu yanıt vermedi; kayıtlar cihazda korunuyor ve yeniden denenecek.");
+        scheduleSync(30_000);
+      }, 55_000);
       window.ClinicNovaNative.sync(serverUrl, JSON.stringify({ deviceId, operations }));
     } catch {
+      clearTimeout(syncRequestTimer); syncRequestTimer = null;
       syncing = false;
       inFlightOperationIds.clear();
       updateNetworkBadge();
@@ -1681,14 +1713,19 @@
   }
 
   window.ClinicNovaSyncResult = (status, responseText) => {
+    clearTimeout(syncRequestTimer); syncRequestTimer = null;
     syncing = false;
     inFlightOperationIds.clear();
     let response = {};
     try { response = JSON.parse(responseText || "{}"); } catch { response = {}; }
-    if (status === 401 || status === 403 || (status === 200 && !Array.isArray(response.results))) {
+    if (status === 401 || status === 403) {
       showToast("Sunucu oturumu gerekli. Sunucuya bağlan bölümünden giriş yapın.");
       updateNetworkBadge();
       return;
+    }
+    if (status === 200 && !Array.isArray(response.results)) {
+      showToast("Sunucudan eksik veya bozuk eşitleme yanıtı geldi; kayıtlar cihazda korunuyor.");
+      updateNetworkBadge(); scheduleSync(30_000); return;
     }
     if (status < 200 || status >= 300) {
       showToast(response.error || "Sunucuya ulaşılamadı; kayıtlar cihazda bekliyor.");

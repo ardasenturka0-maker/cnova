@@ -56,6 +56,16 @@ test("a failed mobile update keeps one local record instead of adding its server
   });
   expect(storedPatients).toHaveLength(1);
   expect(storedPatients[0].name).toBe("Yerel Düzenleme");
+
+  await page.evaluate(() => {
+    (window as typeof window & { ClinicNovaSyncResult: (status: number, body: string) => void }).ClinicNovaSyncResult(200, "{}");
+  });
+  await expect(page.locator("#toast")).toContainText("eksik veya bozuk eşitleme yanıtı");
+  const queueAfterMalformedResponse = await page.evaluate(() => {
+    const values = (window as typeof window & { __clinicNovaNativeValues: Map<string, string> }).__clinicNovaNativeValues;
+    return JSON.parse(values.get("clinicnova.syncQueue") || "[]");
+  });
+  expect(queueAfterMalformedResponse).toHaveLength(1);
 });
 
 test("a clinic can create an encrypted serverless device mesh", async ({ page }) => {
@@ -93,6 +103,61 @@ test("a clinic can create an encrypted serverless device mesh", async ({ page })
   expect(nativeState.config.clinicId).toMatch(/^clinic_/);
   expect(atob(nativeState.config.secret)).toHaveLength(32);
   expect(nativeState.envelope.operations.length).toBeGreaterThan(0);
+});
+
+test("a failed secure mesh write rolls back partial pairing", async ({ page }) => {
+  await page.addInitScript(() => {
+    const values = new Map<string, string>();
+    let disableCount = 0;
+    const native = {
+      storage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); return true; }, removeItem: (key: string) => { values.delete(key); return true; } },
+      meshGetConfig: () => values.get("native.meshConfig") || "",
+      meshGetEnvelope: () => "",
+      meshConfigure: (json: string) => { values.set("native.meshConfig", json); return true; },
+      meshPublish: () => false,
+      meshDisable: () => { disableCount += 1; values.delete("native.meshConfig"); return true; },
+      onMeshEnvelope: () => undefined,
+      onMeshStatus: () => undefined
+    };
+    Object.assign(window, { CLINICNOVA_MOBILE_CONFIG: { mode: "production", serverUrl: "", platformLabel: "Android" }, ClinicNovaNative: native, __clinicNovaNativeValues: values, __meshDisableCount: () => disableCount });
+  });
+  await page.goto(mobileUrl);
+  await page.locator("#localClinicName").fill("Rollback Kliniği");
+  await page.locator("#localAdminName").fill("Test Yönetici");
+  await page.locator("#loginEmail").fill("rollback@example.test");
+  await page.locator("#loginPassword").fill("Guvenli-Test-1234");
+  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.getByRole("button", { name: /Klinik yönetimi/ }).click();
+  await page.getByRole("button", { name: /Cihaz eşitleme/ }).click();
+  await page.getByRole("button", { name: "Bu cihazda klinik ağı oluştur" }).click();
+  await expect(page.locator("#toast")).toContainText("yazılamadı");
+  const rollback = await page.evaluate(() => {
+    const target = window as typeof window & { __clinicNovaNativeValues: Map<string, string>; __meshDisableCount: () => number };
+    return { nativeConfig: target.__clinicNovaNativeValues.get("native.meshConfig"), disableCount: target.__meshDisableCount() };
+  });
+  expect(rollback.nativeConfig).toBeUndefined();
+  expect(rollback.disableCount).toBe(1);
+  await expect(page.locator("#meshPairingCode")).toHaveCount(0);
+});
+
+test("offline storage failures warn staff instead of silently claiming durability", async ({ page }) => {
+  await page.addInitScript(() => {
+    const values = new Map<string, string>();
+    Object.assign(window, {
+      CLINICNOVA_MOBILE_CONFIG: { mode: "demo", serverUrl: "" },
+      ClinicNovaNative: { storage: { getItem: (key: string) => values.get(key) ?? null, setItem: () => false } }
+    });
+  });
+  await page.goto(mobileUrl);
+  await page.getByRole("button", { name: "Demo girişi" }).click();
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
+  await page.getByRole("button", { name: "Takip ekle" }).click();
+  await page.locator('#recallForm input[name="reason"]').fill("Depolama kontrolü");
+  await page.getByRole("button", { name: "Takibi kaydet" }).click();
+  await expect(page.locator("#toast")).toContainText("Cihaz depolamasına yazılamadı");
 });
 
 test("manual reminders survive rescheduling, refresh patient details, and disable cleanly", async ({ page }) => {

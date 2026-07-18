@@ -30,9 +30,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 import android.util.Base64;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -52,6 +52,8 @@ public class MainActivity extends Activity {
     private static final String MESH_KEY_ALIAS = "clinicnova.mesh.local.v1";
     private static final String REMINDER_CHANNEL_ID = "clinicnova_appointment_reminders";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 4103;
+    private static final int MAX_SYNC_RESPONSE_BYTES = 64 * 1024 * 1024;
+    private static final int MAX_PRODUCT_RESPONSE_BYTES = 2 * 1024 * 1024;
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraPhotoUri;
@@ -385,14 +387,7 @@ public class MainActivity extends Activity {
             try (OutputStream output = connection.getOutputStream()) { output.write(body); }
             status = connection.getResponseCode();
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            if (stream != null) {
-                StringBuilder response = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) response.append(line);
-                }
-                responseBody = response.toString();
-            }
+            if (stream != null) responseBody = readUtf8Limited(stream, MAX_PRODUCT_RESPONSE_BYTES);
         } catch (Exception error) {
             status = 0;
             responseBody = "{\"error\":" + JSONObject.quote(error.getMessage() == null ? "İnternet fiyatları alınamadı." : error.getMessage()) + "}";
@@ -433,14 +428,7 @@ public class MainActivity extends Activity {
             }
             status = connection.getResponseCode();
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            if (stream != null) {
-                StringBuilder body = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) body.append(line);
-                }
-                responseBody = body.toString();
-            }
+            if (stream != null) responseBody = readUtf8Limited(stream, MAX_SYNC_RESPONSE_BYTES);
         } catch (Exception error) {
             status = 0;
             responseBody = "{\"error\":" + JSONObject.quote(error.getMessage() == null ? "Sunucuya ulaşılamadı." : error.getMessage()) + "}";
@@ -453,6 +441,20 @@ public class MainActivity extends Activity {
             if (webView == null) return;
             webView.evaluateJavascript("window.ClinicNovaSyncResult && window.ClinicNovaSyncResult(" + callbackStatus + "," + JSONObject.quote(callbackBody) + ")", null);
         });
+    }
+
+    private String readUtf8Limited(InputStream stream, int maximumBytes) throws IOException {
+        try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maximumBytes, 8192))) {
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                total += count;
+                if (total > maximumBytes) throw new IOException("Sunucu yanıtı güvenli boyut sınırını aştı.");
+                output.write(buffer, 0, count);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
     }
 
     private String appVersion() {

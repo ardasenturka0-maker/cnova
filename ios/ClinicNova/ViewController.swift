@@ -53,11 +53,12 @@ final class ViewController: UIViewController, WKScriptMessageHandler, WKNavigati
         guard message.frameInfo.isMainFrame else { return }
         switch message.name {
         case "meshConfigure":
-            guard let value = message.body as? String, value.utf8.count <= 8192, store.write("config", value: value) else { return }
+            guard let value = message.body as? String, value.utf8.count <= 8192 else { return }
+            guard store.write("config", value: value) else { notifyPersistenceFailure(mesh: true); return }
             try? mesh.configure(value)
         case "meshPublish":
             guard let value = message.body as? String, value.utf8.count <= 64 * 1024 * 1024 else { return }
-            _ = store.write("envelope", value: value)
+            if !store.write("envelope", value: value) { notifyPersistenceFailure(mesh: true) }
         case "meshSyncNow": mesh.syncNow()
         case "meshDisable": mesh.stop(); store.clearMesh()
         case "storageSet":
@@ -65,7 +66,9 @@ final class ViewController: UIViewController, WKScriptMessageHandler, WKNavigati
                   key.range(of: "^clinicnova\\.[A-Za-z0-9._-]{1,80}$", options: .regularExpression) != nil,
                   stored.utf8.count <= 64 * 1024 * 1024 else { return }
             localRecords[key] = stored
-            if let data = try? JSONEncoder().encode(localRecords), let text = String(data: data, encoding: .utf8) { _ = store.write("records", value: text) }
+            if let data = try? JSONEncoder().encode(localRecords), let text = String(data: data, encoding: .utf8) {
+                if !store.write("records", value: text) { notifyPersistenceFailure(mesh: false) }
+            } else { notifyPersistenceFailure(mesh: false) }
         case "requestNotificationPermission":
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         case "showLocalNotification":
@@ -132,6 +135,11 @@ final class ViewController: UIViewController, WKScriptMessageHandler, WKNavigati
         DispatchQueue.main.async { [weak self] in
             self?.webView?.evaluateJavaScript("window.\(function) && window.\(function)(\(self?.jsonString(first) ?? "null"),\(self?.jsonString(second) ?? "null"))")
         }
+    }
+
+    private func notifyPersistenceFailure(mesh: Bool) {
+        let function = mesh ? "ClinicNovaMeshPersistenceFailure" : "ClinicNovaStorageFailure"
+        DispatchQueue.main.async { [weak self] in self?.webView?.evaluateJavaScript("window.\(function) && window.\(function)()") }
     }
 
     private func jsonString(_ value: String) -> String {

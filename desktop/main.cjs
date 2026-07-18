@@ -31,6 +31,26 @@ function readEncryptedValue(key) {
   try { return safeStorage.decryptString(Buffer.from(encryptedStore[key], "base64")); } catch { return null; }
 }
 
+async function readResponseLimited(response, maximumBytes) {
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (declaredLength > maximumBytes) throw new Error("Sunucu eşitleme yanıtı güvenli boyut sınırını aştı.");
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      throw new Error("Sunucu eşitleme yanıtı güvenli boyut sınırını aştı.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total).toString("utf8");
+}
+
 function installIpcHandlers() {
   ipcMain.on("clinicnova:storage-get", (event, key) => {
     event.returnValue = rendererAllowed(event) ? readEncryptedValue(key) : null;
@@ -78,23 +98,28 @@ function installIpcHandlers() {
     if (!rendererAllowed(event)) return;
     let status = 0;
     let responseText = "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45_000);
     try {
       const base = new URL(String(serverUrl));
-      if (base.protocol !== "https:" || !base.hostname) throw new Error("HTTPS sunucu adresi gerekli.");
+      if (base.protocol !== "https:" || !base.hostname || base.username || base.password || (base.port && base.port !== "443") || !["", "/"].includes(base.pathname) || base.search || base.hash) throw new Error("HTTPS sunucu adresi gerekli.");
       if (typeof batchJson !== "string" || Buffer.byteLength(batchJson) > 4 * 1024 * 1024) throw new Error("Senkronizasyon paketi çok büyük.");
       const parsed = JSON.parse(batchJson);
       if (!parsed || !Array.isArray(parsed.operations) || parsed.operations.length > 50) throw new Error("Senkronizasyon paketi geçersiz.");
       const endpoint = new URL("/api/mobile/sync", base.origin);
       const response = await event.sender.session.fetch(endpoint.href, {
         method: "POST",
+        signal: controller.signal,
         credentials: "include",
         headers: { "Content-Type": "application/json; charset=utf-8", Accept: "application/json", "User-Agent": `ClinicNovaDesktop/${app.getVersion()}` },
         body: batchJson
       });
       status = response.status;
-      responseText = (await response.text()).slice(0, 1024 * 1024);
+      responseText = await readResponseLimited(response, 64 * 1024 * 1024);
     } catch (error) {
-      responseText = JSON.stringify({ error: error instanceof Error ? error.message : "Sunucuya ulaşılamadı." });
+      responseText = JSON.stringify({ error: error?.name === "AbortError" ? "Sunucu eşitleme isteği zaman aşımına uğradı." : error instanceof Error ? error.message : "Sunucuya ulaşılamadı." });
+    } finally {
+      clearTimeout(timeout);
     }
     if (!event.sender.isDestroyed()) event.sender.send("clinicnova:sync-result", status, responseText);
   });

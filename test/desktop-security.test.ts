@@ -40,6 +40,32 @@ test("local-first clients push pending changes and pull a server snapshot", asyn
   assert.match(route, /getMobileSnapshot\(session, batch\.deviceId\)/);
 });
 
+test("online synchronization is bounded, times out, and preserves malformed responses for retry", async () => {
+  const [mobile, desktop, android] = await Promise.all([
+    readFile("mobile/assets/app.js", "utf8"),
+    readFile("desktop/main.cjs", "utf8"),
+    readFile("mobile/src/app/clinicnova/mobile/MainActivity.java", "utf8")
+  ]);
+  assert.match(mobile, /syncRequestTimer = setTimeout/);
+  assert.match(mobile, /Sunucudan eksik veya bozuk eşitleme yanıtı geldi/);
+  assert.match(desktop, /controller\.abort\(\)/);
+  assert.match(desktop, /async function readResponseLimited/);
+  assert.match(desktop, /await reader\.cancel\(\)/);
+  assert.match(desktop, /64 \* 1024 \* 1024/);
+  assert.doesNotMatch(desktop, /\.slice\(0, 1024 \* 1024\)/);
+  assert.match(android, /readUtf8Limited\(stream, MAX_SYNC_RESPONSE_BYTES\)/);
+  assert.match(android, /MAX_SYNC_RESPONSE_BYTES = 64 \* 1024 \* 1024/);
+});
+
+test("offline persistence failures are surfaced and partial mesh setup is rolled back", async () => {
+  const mobile = await readFile("mobile/assets/app.js", "utf8");
+  assert.match(mobile, /return window\.ClinicNovaNative\.storage\.setItem\(key, serialized\) !== false/);
+  assert.match(mobile, /Cihaz depolamasına yazılamadı/);
+  assert.match(mobile, /if \(!persistMesh\(\)\) throw new Error/);
+  assert.match(mobile, /configuredNative && !nativeConfigBefore/);
+  assert.match(mobile, /meshConfig = previousConfig; meshEngine = previousEngine/);
+});
+
 test("offline clinic login stores only a derived password and supports Android native PBKDF2", async () => {
   const [mobile, android] = await Promise.all([
     readFile("mobile/assets/app.js", "utf8"),
