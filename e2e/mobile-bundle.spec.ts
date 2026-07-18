@@ -95,6 +95,64 @@ test("a clinic can create an encrypted serverless device mesh", async ({ page })
   expect(nativeState.envelope.operations.length).toBeGreaterThan(0);
 });
 
+test("manual reminders survive rescheduling, refresh patient details, and disable cleanly", async ({ page }) => {
+  await page.addInitScript(() => {
+    const values = new Map<string, string>();
+    const date = new Date();
+    date.setDate(date.getDate() + 6);
+    const appointmentDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    values.set("clinicnova.localDataMigrated", JSON.stringify(true));
+    values.set("clinicnova.patients", JSON.stringify([{ id: 77, name: "Güncel Hasta", phone: "0532 555 44 33", email: "", tag: "ACTIVE", color: 0 }]));
+    values.set("clinicnova.appointments", JSON.stringify([{ id: 88, patientId: 77, date: appointmentDate, time: "10:15", duration: 30, treatment: "Kontrol", doctor: "Dr. Test", room: "Koltuk 1", status: "PLANNED" }]));
+    values.set("clinicnova.reminderSettings", JSON.stringify({ id: "clinic", enabled: true, weekEnabled: true, dayEnabled: true, template: "Merhaba {{name}}, {{date}} {{time}} kontrol randevunuzu hatırlatırız." }));
+    values.set("clinicnova.reminderDeliveries", JSON.stringify([
+      { id: "88:7", appointmentId: 88, offset: 7, patientId: 77, patient: "Eski Hasta", phone: "05000000000", appointmentDate: "2026-01-01", message: "Daha önce gönderildi", status: "DONE" },
+      { id: `88:${appointmentDate}:7`, appointmentId: 88, offset: 7, patientId: 77, patient: "Eski Hasta", phone: "05000000000", appointmentDate, message: "Eski taslak", status: "READY" },
+      { id: "88:2026-01-01:7", appointmentId: 88, offset: 7, patientId: 77, patient: "Eski Hasta", phone: "05000000000", appointmentDate: "2026-01-01", message: "Geçersiz taslak", status: "READY" }
+    ]));
+    Object.assign(window, {
+      CLINICNOVA_MOBILE_CONFIG: { mode: "demo", serverUrl: "" },
+      __clinicNovaNativeValues: values,
+      ClinicNovaNative: { storage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); return true; } } }
+    });
+  });
+  await page.goto(mobileUrl);
+  await page.getByRole("button", { name: "Demo girişi" }).click();
+  await page.evaluate(() => (window as typeof window & { ClinicNovaProcessReminders: () => Promise<void> }).ClinicNovaProcessReminders());
+
+  const deliveries = await page.evaluate(() => {
+    const values = (window as typeof window & { __clinicNovaNativeValues: Map<string, string> }).__clinicNovaNativeValues;
+    return JSON.parse(values.get("clinicnova.reminderDeliveries") || "[]");
+  });
+  expect(deliveries.filter((item: { status: string }) => item.status === "DONE")).toHaveLength(1);
+  expect(deliveries.filter((item: { status: string }) => item.status === "READY")).toHaveLength(1);
+  expect(deliveries.find((item: { status: string }) => item.status === "READY")).toMatchObject({ patient: "Güncel Hasta", phone: "0532 555 44 33" });
+
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
+  await expect(page.getByRole("link", { name: "WhatsApp'ta aç" })).toHaveAttribute("href", /https:\/\/wa\.me\/905325554433/);
+
+  await page.locator('#reminderSettingsForm input[name="weekEnabled"]').uncheck();
+  await page.locator('#reminderSettingsForm input[name="dayEnabled"]').uncheck();
+  await page.locator("#reminderSettingsForm").getByRole("button", { name: "Hatırlatma ayarlarını kaydet" }).click();
+  await expect(page.locator("#toast")).toContainText("En az bir bildirim zamanı seçin");
+  const settingsAfterRejectedSave = await page.evaluate(() => {
+    const values = (window as typeof window & { __clinicNovaNativeValues: Map<string, string> }).__clinicNovaNativeValues;
+    return JSON.parse(values.get("clinicnova.reminderSettings") || "null");
+  });
+  expect(settingsAfterRejectedSave).toMatchObject({ enabled: true, weekEnabled: true, dayEnabled: true });
+
+  await page.locator('#reminderSettingsForm input[name="enabled"]').uncheck();
+  await page.locator('#reminderSettingsForm input[name="weekEnabled"]').check();
+  await page.locator("#reminderSettingsForm").getByRole("button", { name: "Hatırlatma ayarlarını kaydet" }).click();
+  const readyAfterDisable = await page.evaluate(() => {
+    const values = (window as typeof window & { __clinicNovaNativeValues: Map<string, string> }).__clinicNovaNativeValues;
+    const items = JSON.parse(values.get("clinicnova.reminderDeliveries") || "[]");
+    return items.filter((item: { status: string }) => item.status === "READY").length;
+  });
+  expect(readyAfterDisable).toBe(0);
+});
+
 test("bundled Android interface works offline", async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = [];

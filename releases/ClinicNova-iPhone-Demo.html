@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="theme-color" content="#f8fafc" />
     <meta name="color-scheme" content="light dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-OlvGKa6nuvDFyedRFaG0eDwzhRErgFyHw1up/JMNT6Y=' 'sha256-GfPSWAVtt2efA6obLJ4EBmpxxEN+Y6icaOjbQfBjZME=' 'sha256-2gb6r4xq/QGMNg5Epalq55ZGFzhJ1vpES4TaaV66J6E='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-OlvGKa6nuvDFyedRFaG0eDwzhRErgFyHw1up/JMNT6Y=' 'sha256-GfPSWAVtt2efA6obLJ4EBmpxxEN+Y6icaOjbQfBjZME=' 'sha256-Roxho1JrKi2+AL5hrqzsH6srwk6ZJVVlRvUhi+GcryQ='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
     <title>ClinicNova</title>
     <style>:root {
   color-scheme: light;
@@ -1074,6 +1074,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       saveData();
     } finally { meshApplying = false; }
     if (!$("#appShell").hidden) renderAll();
+    setTimeout(processAppointmentReminders, 0);
   }
   function persistMesh() {
     if (!meshEngine || !meshConfig) return;
@@ -1124,20 +1125,40 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   function daysUntil(dateText) {
     const target = new Date(`${dateText}T12:00:00`);
     const current = new Date(`${localDate(new Date())}T12:00:00`);
-    return Math.round((target.getTime() - current.getTime()) / 86_400_000);
+    const difference = (target.getTime() - current.getTime()) / 86_400_000;
+    return Number.isFinite(difference) ? Math.round(difference) : Number.NaN;
+  }
+  function dueReminderOffset(appointment, offsets) {
+    const remaining = daysUntil(appointment?.date);
+    if (!Number.isInteger(remaining) || remaining < 1) return null;
+    return [...offsets].sort((left, right) => left - right).find((offset) => remaining <= offset) ?? null;
+  }
+  function reminderDeliveryId(appointment, offset) {
+    return `${appointment.id}:${appointment.date}:${offset}`;
   }
   function whatsappPhone(value) {
-    return String(value || "").replace(/\D/g, "");
+    const digits = String(value || "").replace(/\D/g, "");
+    if (digits.startsWith("00")) return digits.slice(2);
+    if (digits.length === 11 && digits.startsWith("0")) return `90${digits.slice(1)}`;
+    if (digits.length === 10 && digits.startsWith("5")) return `90${digits}`;
+    return digits;
   }
   function whatsappReminderUrl(item) {
     const phone = whatsappPhone(item?.phone);
     return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(item.message || "")}` : "";
   }
+  function reminderTimingLabel(item) {
+    const remaining = daysUntil(item?.appointmentDate);
+    if (remaining === 0) return "Randevu bugün";
+    if (remaining === 1) return "Randevuya 1 gün kaldı";
+    if (remaining > 1 && remaining < 7) return `Randevuya ${remaining} gün kaldı`;
+    return Number(item?.offset) === 7 ? "Randevuya 1 hafta kaldı" : "Randevuya 1 gün kaldı";
+  }
   function reminderActionCards(status = "READY") {
     const items = reminderDeliveries.filter((item) => item.status === status);
     return items.map((item) => {
       const whatsappUrl = whatsappReminderUrl(item);
-      return `<article class="offline-record reminder-message-card"><span class="record-icon">💬</span><span class="patient-copy"><strong>${escapeHtml(item.patient || "Hasta")}</strong><small>${Number(item.offset) === 7 ? "Randevuya 1 hafta kaldı" : "Randevuya 1 gün kaldı"} · ${escapeHtml(item.phone || "Numara yok")}</small><p>${escapeHtml(item.message || "")}</p><span class="modal-actions"><button class="mini-action" data-copy-reminder="${escapeHtml(item.id)}">Metni kopyala</button>${whatsappUrl ? `<a class="mini-action" href="${escapeHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" data-whatsapp-reminder="${escapeHtml(item.id)}">WhatsApp'ta aç</a>` : ""}<button class="mini-action" data-complete-reminder="${escapeHtml(item.id)}">Gönderildi</button></span></span></article>`;
+      return `<article class="offline-record reminder-message-card"><span class="record-icon">💬</span><span class="patient-copy"><strong>${escapeHtml(item.patient || "Hasta")}</strong><small>${escapeHtml(reminderTimingLabel(item))} · ${escapeHtml(item.phone || "Numara yok")}</small><p>${escapeHtml(item.message || "")}</p><span class="modal-actions"><button class="mini-action" data-copy-reminder="${escapeHtml(item.id)}">Metni kopyala</button>${whatsappUrl ? `<a class="mini-action" href="${escapeHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" data-whatsapp-reminder="${escapeHtml(item.id)}">WhatsApp'ta aç</a>` : ""}<button class="mini-action" data-complete-reminder="${escapeHtml(item.id)}">Gönderildi</button></span></span></article>`;
     }).join("") || `<p class="empty-inline">Gönderilmeyi bekleyen mesaj yok.</p>`;
   }
   function copyReminderMessage(id) {
@@ -1153,35 +1174,47 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     showToast("Mesaj metni kopyalandı.");
   }
   async function processAppointmentReminders() {
-    if (reminderProcessing || !reminderSettings.enabled) return;
+    if (reminderProcessing) return;
     reminderProcessing = true;
     try {
-      const offsets = [reminderSettings.weekEnabled ? 7 : null, reminderSettings.dayEnabled ? 1 : null].filter(Number.isInteger);
+      const offsets = reminderSettings.enabled ? [reminderSettings.weekEnabled ? 7 : null, reminderSettings.dayEnabled ? 1 : null].filter(Number.isInteger) : [];
       const appointmentsById = new Map(state.appointments.map((appointment) => [String(appointment.id), appointment]));
       const deliveryCountBeforeCleanup = reminderDeliveries.length;
       reminderDeliveries = reminderDeliveries.filter((item) => {
         if (item.status !== "READY") return true;
         const appointment = appointmentsById.get(String(item.appointmentId));
-        return Boolean(appointment && ["PLANNED", "PENDING_CONFIRMATION"].includes(appointment.status) && daysUntil(appointment.date) === Number(item.offset));
+        return Boolean(appointment && ["PLANNED", "PENDING_CONFIRMATION"].includes(appointment.status) && appointment.date === item.appointmentDate && dueReminderOffset(appointment, offsets) === Number(item.offset));
       });
       let created = 0;
+      let refreshed = 0;
       for (const appointment of state.appointments) {
-        if (!["PLANNED", "PENDING_CONFIRMATION"].includes(appointment.status) || !offsets.includes(daysUntil(appointment.date))) continue;
-        const offset = daysUntil(appointment.date);
-        const deliveryId = `${appointment.id}:${offset}`;
-        if (reminderDeliveries.some((item) => item.id === deliveryId)) continue;
+        if (!["PLANNED", "PENDING_CONFIRMATION"].includes(appointment.status)) continue;
+        const offset = dueReminderOffset(appointment, offsets);
+        if (!offset) continue;
+        const deliveryId = reminderDeliveryId(appointment, offset);
         const patient = patientById(appointment.patientId);
         if (!patient?.phone) continue;
+        const message = reminderText(appointment, patient);
+        const existing = reminderDeliveries.find((item) => item.id === deliveryId);
+        if (existing) {
+          if (existing.status === "READY" && (existing.patientId !== patient.id || existing.patient !== patient.name || existing.phone !== patient.phone || existing.message !== message)) {
+            Object.assign(existing, { patientId: patient.id, patient: patient.name, phone: patient.phone, message, updatedAt: new Date().toISOString() });
+            refreshed += 1;
+          }
+          continue;
+        }
         const reminderDate = new Date(`${appointment.date}T12:00:00`); reminderDate.setDate(reminderDate.getDate() - offset);
         const createdAt = `${localDate(reminderDate)}T00:00:00.000Z`;
-        reminderDeliveries.unshift({ id: deliveryId, appointmentId: appointment.id, offset, patientId: patient.id, patient: patient.name, phone: patient.phone, appointmentDate: appointment.date, message: reminderText(appointment, patient), status: "READY", createdAt, updatedAt: createdAt });
+        reminderDeliveries.unshift({ id: deliveryId, appointmentId: appointment.id, offset, patientId: patient.id, patient: patient.name, phone: patient.phone, appointmentDate: appointment.date, message, status: "READY", createdAt, updatedAt: createdAt });
         created += 1;
       }
-      if (created > 0 || reminderDeliveries.length !== deliveryCountBeforeCleanup) saveData();
+      if (created > 0 || refreshed > 0 || reminderDeliveries.length !== deliveryCountBeforeCleanup) saveData();
       if (created > 0) {
         storage.set("clinicnova.notificationsRead", false);
         if ($("#notificationDot")) $("#notificationDot").hidden = false;
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        if (typeof window.ClinicNovaNative?.showLocalNotification === "function") {
+          window.ClinicNovaNative.showLocalNotification("Randevu mesajı hazır", `${created} hasta için kopyalanabilir hatırlatma mesajı hazırlandı.`, `appointment-reminders-${localDate(new Date())}`);
+        } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           try { new Notification("Randevu mesajı hazır", { body: `${created} hasta için kopyalanabilir hatırlatma mesajı hazırlandı.` }); } catch { /* Uygulama içi bildirim her zaman kalır. */ }
         }
       }
@@ -1318,14 +1351,22 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     return new Promise((resolve, reject) => {
       const image = new Image(); const url = URL.createObjectURL(file);
       image.onload = () => {
-        URL.revokeObjectURL(url);
-        const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
-        const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-        canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
-        let result = canvas.toDataURL("image/jpeg", .82);
-        if (result.length > 1_500_000) result = canvas.toDataURL("image/jpeg", .62);
-        if (result.length > 2_000_000) return reject(new Error("Fotoğraf güvenli eşitleme boyutuna küçültülemedi."));
-        resolve(result);
+        try {
+          if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 60_000_000) throw new Error("Fotoğraf çözünürlüğü güvenli sınırı aşıyor.");
+          const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
+          const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          const context = canvas.getContext("2d", { alpha: false });
+          if (!context) throw new Error("Bu cihaz fotoğrafı işleyemedi.");
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          let result = canvas.toDataURL("image/jpeg", .82);
+          if (result.length > 1_500_000) result = canvas.toDataURL("image/jpeg", .62);
+          if (result.length > 2_000_000) throw new Error("Fotoğraf güvenli eşitleme boyutuna küçültülemedi.");
+          resolve(result);
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error("Fotoğraf işlenemedi."));
+        } finally {
+          URL.revokeObjectURL(url);
+        }
       };
       image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Fotoğraf okunamadı.")); };
       image.src = url;
@@ -2556,7 +2597,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     }
     if (target.dataset.completeReminder) {
       const item = reminderDeliveries.find((entry) => String(entry.id) === String(target.dataset.completeReminder));
-      if (!item) return;
+      if (!item || item.status !== "READY") return;
       item.status = "DONE"; item.completedAt = new Date().toISOString(); item.updatedAt = item.completedAt;
       communicationLog.unshift({ id: nextLocalId(), patientId: item.patientId, patient: item.patient, channel: "WhatsApp", status: "Personel gönderdi", message: item.message, date: "Şimdi", reminderDeliveryId: item.id });
       saveData(); openNotifications(); showToast("Mesaj gönderildi olarak işaretlendi."); return;
@@ -2875,7 +2916,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       }
       if (previousStatus === "COMPLETED" && nextStatus !== "COMPLETED") state.treatmentHistory[appointment.patientId] = (state.treatmentHistory[appointment.patientId] || []).filter((item) => Number(item.appointmentId) !== Number(appointment.id));
       queueUpdate("APPOINTMENT", appointment.id, appointmentPayload(appointment));
-      saveData(); renderAll(); closeModal(); showToast(stockResult.message); return;
+      saveData(); processAppointmentReminders(); renderAll(); closeModal(); showToast(stockResult.message); return;
     }
     if (target.hasAttribute("data-clear-local")) {
       if (!window.confirm("Bu cihazdaki tüm yerel klinik kayıtları ve bekleyen eşitleme işlemleri silinsin mi?")) return;
@@ -3008,7 +3049,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       const name = String(form.get("name") || "").trim(); const phone = String(form.get("phone") || "").trim();
       if (name.length < 2 || phone.replace(/\D/g, "").length < 7) return showToast("Hasta adı ve telefonu kontrol edin.");
       Object.assign(patient, { name, phone, email: String(form.get("email") || "").trim(), nationalId: String(form.get("nationalId") || "").trim(), birthDate: String(form.get("birthDate") || ""), gender: String(form.get("gender") || "UNSPECIFIED"), address: String(form.get("address") || "").trim(), allergies: String(form.get("allergies") || "").trim(), chronicDiseases: String(form.get("chronicDiseases") || "").trim(), medications: String(form.get("medications") || "").trim(), tag: String(form.get("tag") || "NEW"), treatment: String(form.get("treatment") || "").trim(), note: String(form.get("note") || "").trim() });
-      queueUpdate("PATIENT", patient.id, patientPayload(patient)); saveData(); renderAll(); openPatientDetail(patient.id); showToast("Hasta bilgileri güncellendi."); return;
+      queueUpdate("PATIENT", patient.id, patientPayload(patient)); saveData(); processAppointmentReminders(); renderAll(); openPatientDetail(patient.id); showToast("Hasta bilgileri güncellendi."); return;
     }
     if (event.target.id === "treatmentForm") {
       event.preventDefault(); const form = new FormData(event.target); const patient = patientById(form.get("patientId"));
@@ -3050,12 +3091,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       const enabled = form.get("enabled") === "on";
       const template = String(form.get("template") || "").trim();
       if (template.length < 10 || template.length > 1000) return showToast("Mesaj şablonu 10-1000 karakter olmalıdır.");
-      reminderSettings = { id: "clinic", enabled, weekEnabled: form.get("weekEnabled") === "on", dayEnabled: form.get("dayEnabled") === "on", template };
-      if (enabled && !reminderSettings.weekEnabled && !reminderSettings.dayEnabled) return showToast("En az bir bildirim zamanı seçin.");
+      const nextReminderSettings = { id: "clinic", enabled, weekEnabled: form.get("weekEnabled") === "on", dayEnabled: form.get("dayEnabled") === "on", template };
+      if (enabled && !nextReminderSettings.weekEnabled && !nextReminderSettings.dayEnabled) return showToast("En az bir bildirim zamanı seçin.");
+      reminderSettings = nextReminderSettings;
       if (enabled && typeof Notification !== "undefined" && Notification.permission === "default") {
         try { await Notification.requestPermission(); } catch { /* Uygulama içi bildirim kullanılmaya devam eder. */ }
       }
-      saveData(); openModule("Recall"); showToast(enabled ? "Randevu mesajı bildirimleri açıldı." : "Randevu mesajı bildirimleri kapatıldı."); processAppointmentReminders(); return;
+      if (enabled && typeof window.ClinicNovaNative?.requestNotificationPermission === "function") window.ClinicNovaNative.requestNotificationPermission();
+      saveData(); await processAppointmentReminders(); openModule("Recall"); showToast(enabled ? "Randevu mesajı bildirimleri açıldı." : "Randevu mesajı bildirimleri kapatıldı."); return;
     }
     if (event.target.id === "treatmentHistoryForm") {
       event.preventDefault();
@@ -3183,7 +3226,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
       queueCreate("APPOINTMENT", appointment.id, appointmentPayload(appointment));
       state.selectedDate = form.get("date");
       { const selected = new Date(`${state.selectedDate}T12:00:00`); state.appointmentMonth = new Date(selected.getFullYear(), selected.getMonth(), 1); }
-      saveData(); renderAll(); closeModal(); navigate("appointments"); showToast("Randevu başarıyla oluşturuldu.");
+      saveData(); processAppointmentReminders(); renderAll(); closeModal(); navigate("appointments"); showToast("Randevu başarıyla oluşturuldu.");
     }
     if (event.target.id === "paymentForm") {
       event.preventDefault();

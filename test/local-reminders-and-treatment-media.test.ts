@@ -9,7 +9,10 @@ const android = fs.readFileSync("mobile/src/app/clinicnova/mobile/MainActivity.j
 test("appointment reminders prepare idempotent local messages for manual WhatsApp sending", () => {
   assert.match(app, /weekEnabled \? 7/);
   assert.match(app, /dayEnabled \? 1/);
-  assert.match(app, /const deliveryId = `\$\{appointment\.id\}:\$\{offset\}`/);
+  assert.match(app, /return `\$\{appointment\.id\}:\$\{appointment\.date\}:\$\{offset\}`/);
+  assert.match(app, /dueReminderOffset/);
+  assert.match(app, /existing\.phone !== patient\.phone/);
+  assert.match(app, /digits\.length === 11 && digits\.startsWith\("0"\)/);
   assert.match(app, /status: "READY"/);
   assert.match(app, /data-copy-reminder/);
   assert.match(app, /https:\/\/wa\.me\//);
@@ -26,6 +29,8 @@ test("completed treatments carry compressed before and after photos in the mesh 
   assert.match(app, /name="afterPhoto"/);
   assert.match(app, /record\.beforePhoto, record\.afterPhoto/);
   assert.match(app, /canvas\.toDataURL\("image\/jpeg"/);
+  assert.match(app, /image\.naturalWidth \* image\.naturalHeight > 60_000_000/);
+  assert.match(app, /if \(!context\) throw new Error/);
   assert.match(app, /treatments, staffRecords/);
 });
 
