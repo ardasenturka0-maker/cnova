@@ -1,0 +1,4 @@
+# /etc/cron.d/clinicnova-backup örneği. Değerleri /etc/clinicnova/backup.env
+# içinden yükleyen root:root 0600 bir wrapper ile çalıştırın.
+15 2 * * * clinicnova-backup /opt/clinicnova/ops/postgres/run-backup-with-env.sh
+30 4 * * 0 clinicnova-backup /opt/clinicnova/ops/postgres/run-restore-test-with-env.sh

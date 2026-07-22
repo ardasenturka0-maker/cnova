@@ -1,0 +1,708 @@
+package app.clinicnova.mobile;
+
+import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.Manifest;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.content.ContentValues;
+import android.content.SharedPreferences;
+import android.provider.MediaStore;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.view.View;
+import android.view.Window;
+import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Toast;
+import android.util.Base64;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.util.HashSet;
+import java.util.Set;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import org.json.JSONObject;
+
+public class MainActivity extends Activity {
+    private static final String HOME_URL = "file:///android_asset/index.html";
+    private static final int FILE_CHOOSER_REQUEST = 4102;
+    private static final String MESH_KEY_ALIAS = "clinicnova.mesh.local.v1";
+    private static final String REMINDER_CHANNEL_ID = "clinicnova_appointment_reminders";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 4103;
+    private static final int LEGACY_CAMERA_STORAGE_PERMISSION_REQUEST = 4104;
+    private static final int NEARBY_WIFI_PERMISSION_REQUEST = 4105;
+    private static final int MAX_SYNC_RESPONSE_BYTES = 64 * 1024 * 1024;
+    private static final int MAX_PRODUCT_RESPONSE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_MESH_ENVELOPE_BYTES = 47 * 1024 * 1024;
+    private WebView webView;
+    private ValueCallback<Uri[]> fileCallback;
+    private Uri cameraPhotoUri;
+    private final Object cameraCaptureLock = new Object();
+    private final Set<Uri> pendingCameraPhotoUris = new HashSet<>();
+    private boolean pendingCameraCapture = false;
+    private boolean recoveringFromRemoteError = false;
+    private String trustedOrigin = null;
+    private final SyncBridge syncBridge = new SyncBridge();
+    private MeshTransport meshTransport;
+    private SharedPreferences meshPreferences;
+    private boolean nearbyPermissionRequestPending = false;
+    private volatile boolean packagedAppActive = false;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        configureWindow();
+        meshPreferences = getSharedPreferences("clinicnova_mesh", MODE_PRIVATE);
+        meshTransport = new MeshTransport(this, new MeshTransport.Listener() {
+            public String getEnvelope() { return meshRead("envelope"); }
+            public void onEnvelope(String envelope, String peerName) { runOnUiThread(() -> { if (isPackagedAppVisible()) webView.evaluateJavascript("window.ClinicNovaMeshEnvelope && window.ClinicNovaMeshEnvelope(" + JSONObject.quote(envelope) + "," + JSONObject.quote(peerName) + ")", null); }); }
+            public void onStatus(String status, String peerName) { runOnUiThread(() -> { if (isPackagedAppVisible()) webView.evaluateJavascript("window.ClinicNovaMeshStatus && window.ClinicNovaMeshStatus(" + JSONObject.quote(status) + "," + JSONObject.quote(peerName) + ")", null); }); }
+        });
+        configureWebView();
+        setContentView(webView);
+        installSystemBackHandler();
+
+        if (!handleDeepLink(getIntent())) loadPackagedApp("");
+        String meshConfig = meshRead("config");
+        if (!meshConfig.isEmpty()) try { meshTransport.configure(meshConfig); } catch (Exception ignored) {}
+    }
+
+    private void configureWindow() {
+        Window window = getWindow();
+        window.setStatusBarColor(Color.rgb(248, 250, 252));
+        window.setNavigationBarColor(Color.WHITE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            window.getDecorView().setSystemUiVisibility(
+                window.getDecorView().getSystemUiVisibility() | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            );
+        }
+    }
+
+    private void configureWebView() {
+        webView = new WebView(this);
+        webView.setBackgroundColor(Color.rgb(248, 250, 252));
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(
+                insets.getSystemWindowInsetLeft(),
+                insets.getSystemWindowInsetTop(),
+                insets.getSystemWindowInsetRight(),
+                insets.getSystemWindowInsetBottom()
+            );
+            return insets;
+        });
+        WebView.setWebContentsDebuggingEnabled(false);
+
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setSupportZoom(false);
+        settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setUserAgentString(settings.getUserAgentString() + " ClinicNovaAndroid/" + appVersion());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.setSafeBrowsingEnabled(true);
+        }
+
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, false);
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (!packagedAppActive || !isPackagedMainUrl(view.getUrl())) {
+                    callback.onReceiveValue(null);
+                    return true;
+                }
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = callback;
+                boolean cameraCapture = params != null && params.isCaptureEnabled();
+                if (cameraCapture && Build.VERSION.SDK_INT <= 28 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                    pendingCameraCapture = true;
+                    requestPermissions(new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, LEGACY_CAMERA_STORAGE_PERMISSION_REQUEST);
+                    return true;
+                }
+                return launchFileChooser(cameraCapture);
+            }
+        });
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String scheme = uri.getScheme();
+                if (isExactSyncUri(uri)) {
+                    loadPackagedApp("?sync=1");
+                    return true;
+                }
+                if ("https".equalsIgnoreCase(scheme)) {
+                    if (packagedAppActive && isPackagedMainUrl(view.getUrl())) {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                        } catch (ActivityNotFoundException ignored) {
+                            Toast.makeText(MainActivity.this, "Satın alma sayfası açılamadı.", Toast.LENGTH_SHORT).show();
+                        }
+                        return true;
+                    }
+                    if (trustedOrigin != null && trustedOrigin.equals(originOf(uri))) return false;
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    } catch (ActivityNotFoundException ignored) {
+                        Toast.makeText(MainActivity.this, "Bağlantı açılamadı.", Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
+                }
+                if ("file".equalsIgnoreCase(scheme) && isPackagedMainUrl(uri.toString())) return false;
+                if ("http".equalsIgnoreCase(scheme)) {
+                    Toast.makeText(MainActivity.this, "Güvenli bağlantı için HTTPS gerekli.", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                if ("tel".equalsIgnoreCase(scheme) || "mailto".equalsIgnoreCase(scheme) || "sms".equalsIgnoreCase(scheme)) openExternalUri(uri, "Bu bağlantı açılamadı.");
+                else Toast.makeText(MainActivity.this, "Bu bağlantı güvenli olmadığı için açılamadı.", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (isPackagedMainUrl(url)) packagedAppActive = true;
+                else {
+                    packagedAppActive = false;
+                    view.removeJavascriptInterface("ClinicNovaNative");
+                }
+                super.onPageStarted(view, url, favicon);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                recoveringFromRemoteError = false;
+                super.onPageFinished(view, url);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame() && !request.getUrl().toString().startsWith("file:") && !recoveringFromRemoteError) {
+                    recoveringFromRemoteError = true;
+                    Toast.makeText(MainActivity.this, "Canlı sisteme ulaşılamadı; çevrimdışı ekran açıldı.", Toast.LENGTH_LONG).show();
+                    loadPackagedApp("?offline=1");
+                }
+            }
+
+        });
+
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            Uri uri = Uri.parse(url == null ? "" : url);
+            boolean trustedRemoteDownload = trustedOrigin != null && trustedOrigin.equals(originOf(uri));
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || (!packagedAppActive && !trustedRemoteDownload)) {
+                Toast.makeText(this, "İndirme bağlantısı güvenli olmadığı için açılamadı.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            openExternalUri(uri, "İndirme bağlantısı açılamadı.");
+        });
+    }
+
+    private boolean launchFileChooser(boolean cameraCapture) {
+        Intent intent;
+        if (cameraCapture) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, "clinicnova-" + System.currentTimeMillis() + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) values.put(MediaStore.Images.Media.IS_PENDING, 1);
+            cameraPhotoUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (cameraPhotoUri == null) {
+                fileCallback = null;
+                Toast.makeText(this, "Fotoğraf için güvenli kayıt alanı açılamadı.", Toast.LENGTH_SHORT).show();
+                return false;
+            }
+            synchronized (cameraCaptureLock) { pendingCameraPhotoUris.add(cameraPhotoUri); }
+            intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } else {
+            cameraPhotoUri = null;
+            intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] { "image/*", "application/pdf" });
+        }
+        try {
+            startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+            return true;
+        } catch (ActivityNotFoundException error) {
+            fileCallback = null;
+            deletePendingCameraPhoto(cameraPhotoUri);
+            cameraPhotoUri = null;
+            Toast.makeText(this, cameraCapture ? "Kamera açılamadı." : "Dosya seçici açılamadı.", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+    }
+
+    private final class SyncBridge {
+        @JavascriptInterface public String storageGet(String key) { return validStorageKey(key) ? meshRead("store-" + key) : null; }
+        @JavascriptInterface public boolean storageSet(String key, String value) { return validStorageKey(key) && value != null && value.getBytes(StandardCharsets.UTF_8).length <= 64 * 1024 * 1024 && meshWrite("store-" + key, value); }
+        @JavascriptInterface public String meshGetConfig() { return meshRead("config"); }
+        @JavascriptInterface public String meshGetEnvelope() { return meshRead("envelope"); }
+        @JavascriptInterface public boolean meshConfigure(String json) {
+            if (json == null || json.getBytes(StandardCharsets.UTF_8).length > 8192) return false;
+            if (!ensureNearbyWifiPermission()) return false;
+            String previous = meshRead("config");
+            try {
+                meshTransport.configure(json);
+                if (meshWrite("config", json)) return true;
+                if (previous.isEmpty()) meshTransport.stop(); else meshTransport.configure(previous);
+                return false;
+            } catch (Exception ignored) {
+                try { if (previous.isEmpty()) meshTransport.stop(); else meshTransport.configure(previous); } catch (Exception rollbackIgnored) {}
+                return false;
+            }
+        }
+        @JavascriptInterface public boolean requestMeshPermission() { return ensureNearbyWifiPermission(); }
+        @JavascriptInterface public boolean meshPublish(String envelope) { if (envelope == null || envelope.getBytes(StandardCharsets.UTF_8).length > MAX_MESH_ENVELOPE_BYTES) return false; return meshWrite("envelope", envelope); }
+        @JavascriptInterface public void meshSyncNow() { meshTransport.announce(); }
+        @JavascriptInterface public boolean meshDisable() {
+            meshTransport.stop();
+            return meshPreferences.edit().remove("config").remove("envelope").commit();
+        }
+        @JavascriptInterface public void requestNotificationPermission() { runOnUiThread(() -> ensureNotificationPermission()); }
+        @JavascriptInterface public void showLocalNotification(String title, String body, String tag) { runOnUiThread(() -> publishLocalNotification(title, body, tag)); }
+        @JavascriptInterface public void cleanupCameraCaptures() { cleanupPendingCameraPhotos(); }
+        @JavascriptInterface
+        public void connect(String serverUrl) {
+            runOnUiThread(() -> {
+                try {
+                    URL base = validatedServerUrl(serverUrl);
+                    trustedOrigin = originOf(Uri.parse(base.toString()));
+                    loadRemote(base.toString() + "/login?next=%2Fmobile-connect&mobile=android");
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Geçerli bir HTTPS ClinicNova adresi girin.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openPortal(String serverUrl, String path) {
+            runOnUiThread(() -> {
+                try {
+                    URL base = validatedServerUrl(serverUrl);
+                    String safePath = validatedPortalPath(path);
+                    trustedOrigin = originOf(Uri.parse(base.toString()));
+                    loadRemote(base.toString() + safePath);
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Canlı panel açılamadı.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String hashSecret(String secret, String saltBase64, int iterations) {
+            if (secret == null || saltBase64 == null || secret.getBytes(StandardCharsets.UTF_8).length > 4096 || saltBase64.length() > 128 || iterations < 100_000 || iterations > 1_000_000) return "";
+            PBEKeySpec spec = null;
+            try {
+                byte[] salt = Base64.decode(saltBase64, Base64.DEFAULT);
+                if (salt.length < 8 || salt.length > 64) return "";
+                spec = new PBEKeySpec(secret.toCharArray(), salt, iterations, 256);
+                byte[] hash = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+                return Base64.encodeToString(hash, Base64.NO_WRAP);
+            } catch (Exception ignored) {
+                return "";
+            } finally {
+                if (spec != null) spec.clearPassword();
+            }
+        }
+
+        @JavascriptInterface
+        public void sync(String serverUrl, String batchJson) {
+            new Thread(() -> performSync(serverUrl, batchJson)).start();
+        }
+
+        @JavascriptInterface
+        public void productSearch(String serverUrl, String productUrl, String itemId) {
+            new Thread(() -> performProductSearch(serverUrl, productUrl, itemId)).start();
+        }
+    }
+
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
+        }
+    }
+
+    private boolean ensureNearbyWifiPermission() {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED) return true;
+        runOnUiThread(() -> {
+            if (nearbyPermissionRequestPending || checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED) return;
+            nearbyPermissionRequestPending = true;
+            requestPermissions(new String[] { Manifest.permission.NEARBY_WIFI_DEVICES }, NEARBY_WIFI_PERMISSION_REQUEST);
+        });
+        return false;
+    }
+
+    private boolean isPackagedMainUrl(String url) {
+        return HOME_URL.equals(url) || (url != null && (url.startsWith(HOME_URL + "?") || url.startsWith(HOME_URL + "#")));
+    }
+
+    private boolean isPackagedAppVisible() {
+        return packagedAppActive && webView != null && isPackagedMainUrl(webView.getUrl());
+    }
+
+    private void loadPackagedApp(String suffix) {
+        trustedOrigin = null;
+        packagedAppActive = true;
+        webView.removeJavascriptInterface("ClinicNovaNative");
+        webView.addJavascriptInterface(syncBridge, "ClinicNovaNative");
+        webView.loadUrl(HOME_URL + (suffix == null ? "" : suffix));
+    }
+
+    private void loadRemote(String url) {
+        packagedAppActive = false;
+        webView.removeJavascriptInterface("ClinicNovaNative");
+        if (fileCallback != null) fileCallback.onReceiveValue(null);
+        fileCallback = null;
+        webView.loadUrl(url);
+    }
+
+    private void openExternalUri(Uri uri, String failureMessage) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (ActivityNotFoundException ignored) {
+            Toast.makeText(this, failureMessage, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void publishLocalNotification(String title, String body, String tag) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(new NotificationChannel(REMINDER_CHANNEL_ID, "Randevu mesajı hatırlatmaları", NotificationManager.IMPORTANCE_DEFAULT));
+        String safeTitle = title == null ? "ClinicNova" : title.substring(0, Math.min(title.length(), 80));
+        String safeBody = body == null ? "" : body.substring(0, Math.min(body.length(), 240));
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, REMINDER_CHANNEL_ID) : new Notification.Builder(this);
+        builder.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(safeTitle).setContentText(safeBody).setStyle(new Notification.BigTextStyle().bigText(safeBody)).setAutoCancel(true);
+        manager.notify(tag == null ? 0 : tag.hashCode(), builder.build());
+    }
+
+    private boolean validStorageKey(String key) { return key != null && key.matches("^clinicnova\\.[A-Za-z0-9._-]{1,80}$"); }
+
+    private SecretKey meshEncryptionKey() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
+        java.security.Key existing = store.getKey(MESH_KEY_ALIAS, null);
+        if (existing instanceof SecretKey) return (SecretKey) existing;
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(MESH_KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).build());
+        return generator.generateKey();
+    }
+
+    private String meshRead(String name) {
+        try {
+            String stored = meshPreferences.getString(name, ""); if (stored.isEmpty()) return "";
+            JSONObject value = new JSONObject(stored); byte[] iv = Base64.decode(value.getString("iv"), Base64.DEFAULT); byte[] data = Base64.decode(value.getString("data"), Base64.DEFAULT);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, meshEncryptionKey(), new GCMParameterSpec(128, iv));
+            return new String(cipher.doFinal(data), StandardCharsets.UTF_8);
+        } catch (Exception ignored) { return ""; }
+    }
+
+    private boolean meshWrite(String name, String plaintext) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, meshEncryptionKey());
+            JSONObject stored = new JSONObject(); stored.put("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP)); stored.put("data", Base64.encodeToString(cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP));
+            return meshPreferences.edit().putString(name, stored.toString()).commit();
+        } catch (Exception ignored) { return false; }
+    }
+
+    private URL validatedServerUrl(String serverUrl) throws Exception {
+        String value = serverUrl == null ? "" : serverUrl.trim();
+        if (value.getBytes(StandardCharsets.UTF_8).length > 2048) throw new IllegalArgumentException("HTTPS sunucu adresi gerekli.");
+        URL base = new URL(value.replaceAll("/+$", ""));
+        int port = base.getPort();
+        if (!"https".equalsIgnoreCase(base.getProtocol()) || base.getHost() == null || base.getHost().isEmpty() || base.getUserInfo() != null || (port != -1 && port != 443) || (!base.getPath().isEmpty() && !"/".equals(base.getPath()))) {
+            throw new IllegalArgumentException("HTTPS sunucu adresi gerekli.");
+        }
+        return new URL("https", base.getHost(), -1, "");
+    }
+
+    private String originOf(Uri uri) {
+        if (uri == null || uri.getHost() == null || !"https".equalsIgnoreCase(uri.getScheme())) return "";
+        int port = uri.getPort();
+        return "https://" + uri.getHost().toLowerCase() + (port == -1 || port == 443 ? "" : ":" + port);
+    }
+
+    private String validatedPortalPath(String path) {
+        String value = path == null || path.isEmpty() ? "/dashboard" : path;
+        if (!(value.equals("/dashboard") || value.startsWith("/dashboard/")) || value.contains("?") || value.contains("#") || value.contains("\\")) {
+            throw new IllegalArgumentException("Canlı panel yolu geçersiz.");
+        }
+        for (String segment : value.split("/")) if (segment.equals(".") || segment.equals("..")) throw new IllegalArgumentException("Canlı panel yolu geçersiz.");
+        return value;
+    }
+
+    private void performProductSearch(String serverUrl, String productUrl, String itemId) {
+        HttpURLConnection connection = null;
+        int status = 0;
+        String responseBody = "";
+        try {
+            URL base = validatedServerUrl(serverUrl);
+            String normalizedProductUrl = productUrl == null ? "" : productUrl.trim();
+            if (normalizedProductUrl.getBytes(StandardCharsets.UTF_8).length > 8192) throw new IllegalArgumentException("Satın alma sayfası adresi çok uzun.");
+            URL pageUrl = new URL(normalizedProductUrl);
+            if (!"https".equalsIgnoreCase(pageUrl.getProtocol()) || pageUrl.getHost() == null || pageUrl.getHost().isEmpty() || pageUrl.getUserInfo() != null) throw new IllegalArgumentException("HTTPS satın alma sayfası gerekli.");
+            URL endpoint = new URL(base.getProtocol(), base.getHost(), -1, "/api/mobile/product-search");
+            connection = (HttpURLConnection) endpoint.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(30_000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "ClinicNovaAndroid/" + appVersion());
+            String cookies = CookieManager.getInstance().getCookie(base.toString());
+            if (cookies != null && !cookies.isEmpty()) connection.setRequestProperty("Cookie", cookies);
+            byte[] body = new JSONObject().put("productUrl", normalizedProductUrl).toString().getBytes(StandardCharsets.UTF_8);
+            try (OutputStream output = connection.getOutputStream()) { output.write(body); }
+            status = connection.getResponseCode();
+            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (stream != null) responseBody = readUtf8Limited(stream, MAX_PRODUCT_RESPONSE_BYTES);
+        } catch (Exception error) {
+            status = 0;
+            responseBody = "{\"error\":" + JSONObject.quote(error.getMessage() == null ? "İnternet fiyatları alınamadı." : error.getMessage()) + "}";
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        final int callbackStatus = status;
+        final String callbackBody = responseBody;
+        final String callbackItemId = itemId == null ? "" : itemId.substring(0, Math.min(itemId.length(), 256));
+        runOnUiThread(() -> {
+            if (!isPackagedAppVisible()) return;
+            webView.evaluateJavascript("window.ClinicNovaProductSearchResult && window.ClinicNovaProductSearchResult(" + callbackStatus + "," + JSONObject.quote(callbackBody) + "," + JSONObject.quote(callbackItemId) + ")", null);
+        });
+    }
+
+    private void performSync(String serverUrl, String batchJson) {
+        HttpURLConnection connection = null;
+        int status = 0;
+        String responseBody = "";
+        try {
+            URL base = validatedServerUrl(serverUrl);
+            if (batchJson == null || batchJson.getBytes(StandardCharsets.UTF_8).length > 4 * 1024 * 1024) {
+                throw new IllegalArgumentException("Senkronizasyon paketi çok büyük.");
+            }
+            URL endpoint = new URL(base.getProtocol(), base.getHost(), -1, "/api/mobile/sync");
+            connection = (HttpURLConnection) endpoint.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(30_000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "ClinicNovaAndroid/" + appVersion());
+            String cookies = CookieManager.getInstance().getCookie(base.toString());
+            if (cookies != null && !cookies.isEmpty()) connection.setRequestProperty("Cookie", cookies);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(batchJson.getBytes(StandardCharsets.UTF_8));
+            }
+            status = connection.getResponseCode();
+            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (stream != null) responseBody = readUtf8Limited(stream, MAX_SYNC_RESPONSE_BYTES);
+        } catch (Exception error) {
+            status = 0;
+            responseBody = "{\"error\":" + JSONObject.quote(error.getMessage() == null ? "Sunucuya ulaşılamadı." : error.getMessage()) + "}";
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        final int callbackStatus = status;
+        final String callbackBody = responseBody;
+        runOnUiThread(() -> {
+            if (!isPackagedAppVisible()) return;
+            webView.evaluateJavascript("window.ClinicNovaSyncResult && window.ClinicNovaSyncResult(" + callbackStatus + "," + JSONObject.quote(callbackBody) + ")", null);
+        });
+    }
+
+    private String readUtf8Limited(InputStream stream, int maximumBytes) throws IOException {
+        try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maximumBytes, 8192))) {
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                total += count;
+                if (total > maximumBytes) throw new IOException("Sunucu yanıtı güvenli boyut sınırını aştı.");
+                output.write(buffer, 0, count);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    private String appVersion() {
+        try {
+            String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return version == null ? "unknown" : version;
+        } catch (Exception ignored) {
+            return "unknown";
+        }
+    }
+
+    private boolean handleDeepLink(Intent intent) {
+        Uri uri = intent == null ? null : intent.getData();
+        if (!isExactSyncUri(uri)) return false;
+        if (webView != null) loadPackagedApp("?sync=1");
+        return true;
+    }
+
+    private boolean isExactSyncUri(Uri uri) {
+        if (uri == null || !"clinicnova".equalsIgnoreCase(uri.getScheme()) || !"sync".equalsIgnoreCase(uri.getHost())) return false;
+        String path = uri.getEncodedPath();
+        return (path == null || path.isEmpty() || "/".equals(path))
+            && uri.getUserInfo() == null && uri.getPort() == -1
+            && uri.getEncodedQuery() == null && uri.getEncodedFragment() == null;
+    }
+
+    private void deletePendingCameraPhoto(Uri uri) {
+        if (uri == null) return;
+        synchronized (cameraCaptureLock) { pendingCameraPhotoUris.remove(uri); }
+        try { getContentResolver().delete(uri, null, null); } catch (Exception ignored) {}
+    }
+
+    private void cleanupPendingCameraPhotos() {
+        Uri[] uris;
+        synchronized (cameraCaptureLock) {
+            uris = pendingCameraPhotoUris.toArray(new Uri[0]);
+            pendingCameraPhotoUris.clear();
+        }
+        for (Uri uri : uris) try { getContentResolver().delete(uri, null, null); } catch (Exception ignored) {}
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleDeepLink(intent);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != FILE_CHOOSER_REQUEST || fileCallback == null) return;
+        Uri selectedUri = data != null ? data.getData() : null;
+        Uri[] result = resultCode == RESULT_OK && cameraPhotoUri != null
+            ? new Uri[] { cameraPhotoUri }
+            : resultCode == RESULT_OK && selectedUri != null ? new Uri[] { selectedUri } : null;
+        if (resultCode != RESULT_OK && cameraPhotoUri != null) deletePendingCameraPhoto(cameraPhotoUri);
+        fileCallback.onReceiveValue(result);
+        fileCallback = null;
+        cameraPhotoUri = null;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == NEARBY_WIFI_PERMISSION_REQUEST) {
+            nearbyPermissionRequestPending = false;
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            Toast.makeText(this, granted ? "Yakındaki cihazlar izni verildi; eşleştirmeyi yeniden başlatın." : "Yerel ağ eşitlemesi için Yakındaki cihazlar izni gerekir.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (requestCode == LEGACY_CAMERA_STORAGE_PERMISSION_REQUEST && pendingCameraCapture) {
+            pendingCameraCapture = false;
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED && fileCallback != null) {
+                launchFileChooser(true);
+                return;
+            }
+            if (fileCallback != null) fileCallback.onReceiveValue(null);
+            fileCallback = null;
+            Toast.makeText(this, "Fotoğraf kaydetme izni verilmedi.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        webView.saveState(outState);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    public void onBackPressed() {
+        handleBackNavigation();
+    }
+
+    private void installSystemBackHandler() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            Api33Back.register(this);
+        }
+    }
+
+    private static final class Api33Back {
+        static void register(MainActivity activity) {
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                activity::handleBackNavigation
+            );
+        }
+    }
+
+    private void handleBackNavigation() {
+        if (webView == null) {
+            finishAfterTransition();
+            return;
+        }
+        webView.evaluateJavascript(
+            "Boolean(window.ClinicNovaBack && window.ClinicNovaBack())",
+            handled -> {
+                if ("true".equals(handled)) return;
+                if (webView.canGoBack()) webView.goBack();
+                else finishAfterTransition();
+            }
+        );
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (fileCallback != null) fileCallback.onReceiveValue(null);
+        fileCallback = null;
+        cleanupPendingCameraPhotos();
+        if (meshTransport != null) meshTransport.stop();
+        if (webView != null) {
+            webView.loadUrl("about:blank");
+            webView.stopLoading();
+            webView.setWebChromeClient(null);
+            webView.setWebViewClient(null);
+            webView.destroy();
+        }
+        super.onDestroy();
+    }
+}

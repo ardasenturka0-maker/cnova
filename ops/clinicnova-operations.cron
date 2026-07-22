@@ -1,0 +1,3 @@
+# Sağlık/yedek/disk alarmı her 5 dakika; audit zinciri her gece uzak immutable hedefe sabitlenir.
+*/5 * * * * clinicnova-ops cd /opt/clinicnova && /usr/bin/npm run ops:check
+45 1 * * * clinicnova-backup cd /opt/clinicnova && /usr/bin/bash ops/audit/export-anchor.sh

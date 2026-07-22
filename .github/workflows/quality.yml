@@ -1,0 +1,82 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clinicnova
+          POSTGRES_PASSWORD: clinicnova
+          POSTGRES_DB: clinicnova_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinicnova -d clinicnova_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://clinicnova:clinicnova@localhost:5432/clinicnova_test?schema=public
+      AUTH_SECRET: ci-auth-secret-at-least-48-characters-long-and-unique
+      NEXT_PUBLIC_APP_URL: https://clinicnova.example.test
+      CRON_SECRET: ci-cron-secret-at-least-32-characters-long
+      N8N_WEBHOOK_SECRET: ci-inbound-webhook-secret-at-least-32-characters
+      N8N_OUTBOUND_WEBHOOK_URL: https://automation.example.test/webhook/clinicnova
+      N8N_OUTBOUND_SECRET: ci-outbound-webhook-secret-at-least-32-characters
+      REQUIRE_LIVE_INTEGRATIONS: "true"
+      REQUIRE_PRODUCT_SEARCH: "true"
+      PRODUCT_SEARCH_API_URL: https://product-search.example.test/v1/offers
+      PRODUCT_SEARCH_API_KEY: ci-product-search-provider-key-at-least-24-characters
+      FILE_STORAGE_ROOT: /tmp/clinicnova-patient-files
+      FILE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      MFA_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+      FILE_AV_REQUIRED: "true"
+      FILE_AV_COMMAND: clamscan
+      PITR_ENABLED: "true"
+      BACKUP_REMOTE: ci-remote:clinicnova
+      RESTORE_TEST_SCHEDULED: "true"
+      AUDIT_ANCHOR_KEY: ci-audit-anchor-secret-at-least-32-characters
+      AUDIT_ANCHOR_REMOTE: ci-remote:clinicnova-audit
+      OPS_ALERT_WEBHOOK_URL: https://automation.example.test/webhook/ops
+      OPS_ALERT_WEBHOOK_SECRET: ci-ops-alert-secret-at-least-32-characters
+      MOBILE_MIN_VERSION: 1.5.1
+      MOBILE_APK_URL: https://download.example.test/ClinicNova-1.6.1.apk
+      MOBILE_APK_SHA256: 278e3a944f61e3e07570fe40db281942a0c7c5664008516f0b3600f9fed97979
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma validate
+      - run: npm run prisma:deploy
+      - run: npm run production:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build
+      - name: Validate production server bundle
+        run: |
+          cp .env.production.example .env.production
+          docker compose --env-file ops/deploy/env.deploy.example -f docker-compose.production.yml config --quiet
+          rm .env.production
+          bash -n ops/deploy/*.sh scripts/prepare-clinic-package.sh
+          docker build --target bootstrap -t clinicnova-bootstrap:ci .
+          docker build -f ops/deploy/Dockerfile.backup -t clinicnova-backup:ci .
+          docker pull caddy:2-alpine
+          docker pull clamav/clamav:stable
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

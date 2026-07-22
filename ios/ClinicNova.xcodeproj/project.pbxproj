@@ -1,0 +1,76 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* AppDelegate.swift */; };
+		A00000000000000000000002 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000002 /* ViewController.swift */; };
+		A00000000000000000000003 /* MeshTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000003 /* MeshTransport.swift */; };
+		A00000000000000000000004 /* SecureMeshStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000004 /* SecureMeshStore.swift */; };
+		B00000000000000000000001 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000011 /* index.html */; };
+		B00000000000000000000002 /* app.css in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000012 /* app.css */; };
+		B00000000000000000000003 /* app.js in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000013 /* app.js */; };
+		B00000000000000000000004 /* mesh-sync.js in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000014 /* mesh-sync.js */; };
+		B00000000000000000000005 /* runtime-config.js in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000015 /* runtime-config.js */; };
+		B00000000000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000006 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		C00000000000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C00000000000000000000002 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000003 /* MeshTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshTransport.swift; sourceTree = "<group>"; };
+		C00000000000000000000004 /* SecureMeshStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureMeshStore.swift; sourceTree = "<group>"; };
+		C00000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C00000000000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C00000000000000000000011 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
+		C00000000000000000000012 /* app.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = app.css; sourceTree = "<group>"; };
+		C00000000000000000000013 /* app.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = app.js; sourceTree = "<group>"; };
+		C00000000000000000000014 /* mesh-sync.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "mesh-sync.js"; sourceTree = "<group>"; };
+		C00000000000000000000015 /* runtime-config.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "runtime-config.js"; sourceTree = "<group>"; };
+		C00000000000000000000020 /* ClinicNova.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClinicNova.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E00000000000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D00000000000000000000000 = {isa = PBXGroup; children = (D00000000000000000000001 /* ClinicNova */, D00000000000000000000002 /* Products */); sourceTree = "<group>"; };
+		D00000000000000000000001 /* ClinicNova */ = {isa = PBXGroup; path = ClinicNova; sourceTree = "<group>"; children = (C00000000000000000000001, C00000000000000000000002, C00000000000000000000003, C00000000000000000000004, C00000000000000000000005, C00000000000000000000006, D00000000000000000000003 /* Resources */); };
+		D00000000000000000000002 /* Products */ = {isa = PBXGroup; name = Products; sourceTree = "<group>"; children = (C00000000000000000000020 /* ClinicNova.app */); };
+		D00000000000000000000003 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (C00000000000000000000011, C00000000000000000000012, C00000000000000000000013, C00000000000000000000014, C00000000000000000000015); };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000002 /* ClinicNova */ = {isa = PBXNativeTarget; buildConfigurationList = H00000000000000000000002; buildPhases = (E00000000000000000000001 /* Sources */, E00000000000000000000003 /* Frameworks */, E00000000000000000000002 /* Resources */); buildRules = (); dependencies = (); name = ClinicNova; productName = ClinicNova; productReference = C00000000000000000000020 /* ClinicNova.app */; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = {000000000000000000000002 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = H00000000000000000000001; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = D00000000000000000000000; productRefGroup = D00000000000000000000002 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002 /* ClinicNova */); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E00000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, B00000000000000000000006); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E00000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		F00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
+		F00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 5.0; }; name = Release; };
+		G00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 11507; DEVELOPMENT_TEAM = ""; INFOPLIST_FILE = ClinicNova/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); MARKETING_VERSION = 1.15.7; PRODUCT_BUNDLE_IDENTIFIER = app.clinicnova.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		G00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 11507; DEVELOPMENT_TEAM = ""; INFOPLIST_FILE = ClinicNova/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); MARKETING_VERSION = 1.15.7; PRODUCT_BUNDLE_IDENTIFIER = app.clinicnova.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; VALIDATE_PRODUCT = YES; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		H00000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (F00000000000000000000001, F00000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		H00000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (G00000000000000000000001, G00000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}

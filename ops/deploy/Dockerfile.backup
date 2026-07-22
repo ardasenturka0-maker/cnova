@@ -1,0 +1,8 @@
+FROM postgres:16.14-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates rclone && rm -rf /var/lib/apt/lists/*
+COPY ops/postgres/backup.sh /usr/local/bin/clinicnova-backup
+COPY ops/postgres/restore-test.sh /usr/local/bin/clinicnova-restore-test
+COPY ops/deploy/backup-entrypoint.sh /usr/local/bin/clinicnova-backup-entrypoint
+RUN chmod 0755 /usr/local/bin/clinicnova-backup /usr/local/bin/clinicnova-restore-test /usr/local/bin/clinicnova-backup-entrypoint
+ENTRYPOINT ["/usr/local/bin/clinicnova-backup-entrypoint"]
+CMD ["/usr/local/bin/clinicnova-backup"]

@@ -1,0 +1,182 @@
+name: clinicnova
+
+services:
+  db:
+    image: postgres:16.14-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      - -c
+      - max_wal_senders=5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - postgres-wal:/wal-archive
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+
+  antivirus:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 3 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    networks: [backend]
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    profiles: [tools]
+
+  bootstrap:
+    build:
+      context: .
+      target: bootstrap
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    profiles: [tools]
+
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN}
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      antivirus:
+        condition: service_healthy
+    volumes:
+      - patient-files:/var/lib/clinicnova/patient-files
+      - clamav-db:/var/lib/clamav:ro
+    expose: ["3000"]
+    networks: [backend, frontend]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./ops/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [app]
+    networks: [frontend]
+    security_opt: ["no-new-privileges:true"]
+
+  backup:
+    build:
+      context: .
+      dockerfile: ops/deploy/Dockerfile.backup
+    env_file: .env.production
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      WAL_ARCHIVE_ROOT: /var/lib/postgresql/wal-archive
+      RCLONE_CONFIG: /var/lib/postgresql/.config/rclone/rclone.conf
+    command: ["/usr/local/bin/clinicnova-backup"]
+    volumes:
+      - backup-data:/var/backups/clinicnova
+      - postgres-wal:/var/lib/postgresql/wal-archive:ro
+      - ./ops/deploy/secrets/rclone.conf:/run/secrets/rclone.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    profiles: [tools]
+
+  restore-test:
+    build:
+      context: .
+      dockerfile: ops/deploy/Dockerfile.backup
+    env_file: .env.production
+    environment:
+      WAL_ARCHIVE_ROOT: /var/lib/postgresql/wal-archive
+      RESTORE_TEST_DATABASE: ${POSTGRES_DB}
+    command: ["/usr/local/bin/clinicnova-restore-test"]
+    volumes:
+      - backup-data:/var/backups/clinicnova:ro
+      - postgres-wal:/var/lib/postgresql/wal-archive:ro
+    profiles: [tools]
+
+  ops-check:
+    build:
+      context: .
+      target: ops
+    env_file: .env.production
+    volumes:
+      - backup-data:/var/backups/clinicnova:ro
+      - patient-files:/var/lib/clinicnova/patient-files:ro
+      - ops-state:/var/lib/clinicnova
+    networks: [frontend]
+    profiles: [tools]
+
+  audit-anchor:
+    build:
+      context: .
+      target: ops
+    env_file: .env.production
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AUDIT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    command: ["bash", "ops/audit/export-anchor.sh"]
+    volumes:
+      - ./ops/deploy/secrets/rclone.conf:/root/.config/rclone/rclone.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    profiles: [tools]
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  postgres-data:
+  postgres-wal:
+  patient-files:
+  clamav-db:
+  caddy-data:
+  caddy-config:
+  backup-data:
+  ops-state:
