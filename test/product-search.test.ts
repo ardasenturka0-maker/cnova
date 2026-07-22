@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectProductPage, searchProductOffers } from "../src/lib/services/productSearchService";
-import { parseProductPage } from "../src/lib/services/productPageInspectorService";
+import { isPublicIp, parseProductPage } from "../src/lib/services/productPageInspectorService";
+
+test("product page SSRF policy rejects special IPv4 and IPv6 ranges", () => {
+  for (const address of [
+    "127.0.0.1", "10.0.0.1", "198.51.100.2", "203.0.113.3",
+    "::1", "::127.0.0.1", "::ffff:127.0.0.1", "fc00::1", "fe80::1", "fec0::1",
+    "ff02::1", "64:ff9b::7f00:1", "2002:7f00:1::"
+  ]) assert.equal(isPublicIp(address), false, address);
+  assert.equal(isPublicIp("8.8.8.8"), true);
+  assert.equal(isPublicIp("2606:4700:4700::1111"), true);
+});
 
 test("internet product offers are validated, filtered and sorted by delivered total", async () => {
   const previousUrl = process.env.PRODUCT_SEARCH_API_URL;
@@ -62,6 +72,25 @@ test("a dentist can paste a purchase page and receive its live price", async () 
     assert.equal(offer.unitPrice, 249.9);
     assert.equal(offer.productUrl, productUrl);
     await assert.rejects(() => inspectProductPage("http://shop.example/urun"));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousUrl === undefined) delete process.env.PRODUCT_SEARCH_API_URL; else process.env.PRODUCT_SEARCH_API_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.PRODUCT_SEARCH_API_KEY; else process.env.PRODUCT_SEARCH_API_KEY = previousKey;
+  }
+});
+
+test("product provider responses are size-bounded before JSON parsing", async () => {
+  const previousUrl = process.env.PRODUCT_SEARCH_API_URL;
+  const previousKey = process.env.PRODUCT_SEARCH_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.PRODUCT_SEARCH_API_URL = "https://search.example.test/products";
+  process.env.PRODUCT_SEARCH_API_KEY = "test-product-search-key-123456789";
+  globalThis.fetch = async () => new Response("{}", {
+    status: 200,
+    headers: { "content-type": "application/json", "content-length": String(600 * 1024) }
+  });
+  try {
+    await assert.rejects(() => searchProductOffers("Anestezi kartuşu"), /yanıtı çok büyük/);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousUrl === undefined) delete process.env.PRODUCT_SEARCH_API_URL; else process.env.PRODUCT_SEARCH_API_URL = previousUrl;

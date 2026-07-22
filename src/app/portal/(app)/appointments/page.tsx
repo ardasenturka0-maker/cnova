@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { clinicDateKey } from "@/lib/clinic-time";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { requirePatientSession } from "@/lib/patient-auth";
@@ -70,10 +71,6 @@ const timeSlots = Array.from({ length: 18 }).map((_, index) => {
   return `${String(hour).padStart(2, "0")}:${minute}`;
 });
 
-function localDateString(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 export default async function PortalAppointmentsPage(
   props: {
     searchParams: Promise<{ success?: string; cancelled?: string; error?: string }>;
@@ -84,12 +81,12 @@ export default async function PortalAppointmentsPage(
   const locale = await getLocale();
   const [{ upcoming, past }, doctors] = await Promise.all([
     getPatientAppointments(session),
-    getPortalDoctors(session.organizationId)
+    getPortalDoctors(session.organizationId, session.branchId)
   ]);
 
   const messageKey = searchParams.success ? "success" : searchParams.cancelled ? "cancelled" : searchParams.error;
   const message = messageKey ? messages[messageKey] : null;
-  const today = localDateString(new Date());
+  const today = clinicDateKey(new Date());
 
   return (
     <div className="space-y-4">

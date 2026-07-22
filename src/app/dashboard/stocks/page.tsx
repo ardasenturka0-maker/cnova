@@ -13,6 +13,7 @@ import { requireModuleAccess } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { takeRateLimit } from "@/lib/rate-limit";
+import { publicErrorMessage } from "@/lib/public-error";
 import { createStockItem, createStockMovement, createStockRecipe, deleteStockRecipe, getStockRecipes, getStocks } from "@/lib/services/stockService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { refreshProductOffers } from "@/lib/services/productSearchService";
@@ -24,7 +25,7 @@ function resultUrl(type: "success" | "error", message: string) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : "İşlem tamamlanamadı.";
+  return publicErrorMessage(error, "İşlem tamamlanamadı.");
 }
 
 async function createStockAction(formData: FormData) {

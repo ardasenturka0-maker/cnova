@@ -13,6 +13,7 @@ import { createPayment, getFinanceOverview } from "@/lib/services/financeService
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { paymentSchema } from "@/lib/validations/finance";
 import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
+import { isClinicDateOverdue } from "@/lib/clinic-time";
 
 async function createPaymentAction(formData: FormData) {
   "use server";
@@ -70,7 +71,7 @@ export default async function PaymentsPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold">{formatCurrency(payment.amount, locale)}</p>
-                    {payment.dueDate && new Date(payment.dueDate) < new Date() ? <Badge variant="danger">Gecikti</Badge> : null}
+                    {payment.dueDate && isClinicDateOverdue(payment.dueDate) ? <Badge variant="danger">Gecikti</Badge> : null}
                   </div>
                 </div>
               ))

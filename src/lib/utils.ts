@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { intlLocale, type Locale } from "@/lib/i18n";
+import { clinicTimeZone } from "@/lib/clinic-time";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,7 +23,8 @@ export function formatDate(date: Date | string, locale: Locale = "tr") {
   }
 
   return new Intl.DateTimeFormat(intlLocale(locale), {
-    dateStyle: "medium"
+    dateStyle: "medium",
+    timeZone: clinicTimeZone
   }).format(parsedDate);
 }
 
@@ -34,7 +36,8 @@ export function formatDateTime(date: Date | string, locale: Locale = "tr") {
 
   return new Intl.DateTimeFormat(intlLocale(locale), {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
+    timeZone: clinicTimeZone
   }).format(parsedDate);
 }
 

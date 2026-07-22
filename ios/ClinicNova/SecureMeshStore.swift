@@ -35,9 +35,17 @@ final class SecureMeshStore {
         } catch { return false }
     }
 
-    func clearMesh() {
-        try? FileManager.default.removeItem(at: file("config"))
-        try? FileManager.default.removeItem(at: file("envelope"))
+    @discardableResult
+    func clearMesh() -> Bool {
+        let previousConfig = read("config")
+        let previousEnvelope = read("envelope")
+        guard write("config", value: "") else { return false }
+        guard write("envelope", value: "") else {
+            _ = write("config", value: previousConfig)
+            _ = write("envelope", value: previousEnvelope)
+            return false
+        }
+        return true
     }
 
     private func file(_ name: String) -> URL {

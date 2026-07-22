@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireSession } from "@/lib/auth";
+import { clinicTimeZone } from "@/lib/clinic-time";
 import { intlLocale, statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { getAiAssistantSuggestion } from "@/lib/services/aiAssistantService";
@@ -27,7 +28,7 @@ export default async function DashboardPage() {
   const metrics = await getDashboardMetrics(session.organizationId);
   const assistant = await getAiAssistantSuggestion({ topic: "general" });
 
-  const timeFormatter = new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
+  const timeFormatter = new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: clinicTimeZone });
 
   const quickActions = [
     { label: "Yeni hasta", href: "/dashboard/patients/new", icon: UserPlus },

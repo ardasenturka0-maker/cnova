@@ -2,6 +2,13 @@ import { PaymentMethod, PaymentStatus, PaymentType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import type { PaymentInput } from "@/lib/validations/finance";
+import { parseClinicDateTime } from "@/lib/clinic-time";
+
+function clinicCalendarDate(value: string) {
+  const parsed = parseClinicDateTime(`${value}T12:00`);
+  if (!parsed) throw new Error("Ödeme tarihi geçersiz.");
+  return parsed;
+}
 
 export async function getFinanceOverview(organizationId: string) {
   const [payments, invoices, patients, treatments] = await Promise.all([
@@ -65,7 +72,12 @@ export async function createPayment(organizationId: string, fallbackBranchId: st
   if (patient && treatment && patient.id !== treatment.patientId) throw new Error("Seçilen tedavi bu hastaya ait değil.");
   if (input.isDeposit && input.type !== "INCOME") throw new Error("Gider kaydı peşinat olarak işaretlenemez.");
   if (input.isDeposit && !patient && !treatment) throw new Error("Peşinat için hasta veya tedavi seçilmelidir.");
+  if (discountAmount !== null && listAmount === null) throw new Error("İndirim için liste fiyatı veya tedavi seçilmelidir.");
   if (listAmount !== null && discountAmount !== null && discountAmount > listAmount) throw new Error("İndirim liste fiyatından büyük olamaz.");
+  const finalAmount = listAmount === null ? null : Math.max(0, listAmount - (discountAmount ?? 0));
+  if (input.type === "INCOME" && finalAmount !== null && input.amount > finalAmount) {
+    throw new Error("Tahsilat tutarı indirim sonrası son tutardan büyük olamaz.");
+  }
 
   return prisma.payment.create({
     data: {
@@ -80,8 +92,8 @@ export async function createPayment(organizationId: string, fallbackBranchId: st
       method: input.method as PaymentMethod,
       description: input.description || null,
       status: input.status as PaymentStatus,
-      paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      paidAt: input.paidAt ? clinicCalendarDate(input.paidAt) : new Date(),
+      dueDate: input.dueDate ? clinicCalendarDate(input.dueDate) : null,
       organizationId,
       branchId: patient?.branchId ?? treatment?.branchId ?? fallbackBranchId
     }

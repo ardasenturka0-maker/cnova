@@ -13,10 +13,12 @@ final class MeshTransport: NSObject, NetServiceDelegate, NetServiceBrowserDelega
 
     private let protocolVersion = 1
     private let maximumFrame = 64 * 1024 * 1024
+    private let maximumInboundConnections = 4
     private let queue = DispatchQueue(label: "app.clinicnova.mesh.control")
     private let workers = DispatchQueue(label: "app.clinicnova.mesh.workers", attributes: .concurrent)
     private let peerLock = NSLock()
     private var activePeers = Set<String>()
+    private var activeInboundSockets = Set<Int32>()
     private var configuration: Configuration?
     private var clinicKey: SymmetricKey?
     private var tcpSocket: Int32 = -1
@@ -42,11 +44,18 @@ final class MeshTransport: NSObject, NetServiceDelegate, NetServiceBrowserDelega
         guard value.clinicId.range(of: "^[A-Za-z0-9_-]{8,128}$", options: .regularExpression) != nil,
               value.deviceId.range(of: "^[A-Za-z0-9._:-]{8,128}$", options: .regularExpression) != nil,
               let secret = Data(base64Encoded: value.secret), secret.count == 32 else { throw MeshError.invalidConfiguration }
-        queue.sync {
+        try queue.sync {
             stopLocked()
             configuration = value
             clinicKey = SymmetricKey(data: secret)
-            do { try startLocked() } catch { onStatus("Yerel ağ başlatılamadı: \(error.localizedDescription)", "") }
+            do {
+                try startLocked()
+            } catch {
+                stopLocked()
+                configuration = nil
+                clinicKey = nil
+                throw error
+            }
         }
     }
 
@@ -93,6 +102,9 @@ final class MeshTransport: NSObject, NetServiceDelegate, NetServiceBrowserDelega
             self?.resolvingServices.removeAll()
         }
         tcpPort = 0
+        peerLock.lock()
+        for socket in activeInboundSockets { Darwin.shutdown(socket, SHUT_RDWR) }
+        peerLock.unlock()
         peerLock.lock(); activePeers.removeAll(); peerLock.unlock()
     }
 
@@ -148,7 +160,18 @@ final class MeshTransport: NSObject, NetServiceDelegate, NetServiceBrowserDelega
     private func acceptLocked() {
         let client = Darwin.accept(tcpSocket, nil, nil)
         guard client >= 0 else { return }
-        workers.async { [weak self] in self?.serve(client) }
+        peerLock.lock()
+        let accepted = activeInboundSockets.count < maximumInboundConnections
+        if accepted { activeInboundSockets.insert(client) }
+        peerLock.unlock()
+        guard accepted else { Darwin.close(client); return }
+        workers.async { [weak self] in
+            guard let self = self else { Darwin.close(client); return }
+            defer {
+                self.peerLock.lock(); self.activeInboundSockets.remove(client); self.peerLock.unlock()
+            }
+            self.serve(client)
+        }
     }
 
     private func connect(host: String, port: UInt16, peerName: String) {

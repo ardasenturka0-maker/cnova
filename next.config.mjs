@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+process.env.TZ ??= "Europe/Istanbul";
+
 const isProduction = process.env.NODE_ENV === "production";
 const contentSecurityPolicy = [
   "default-src 'self'",

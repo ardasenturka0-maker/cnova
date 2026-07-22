@@ -26,6 +26,8 @@ export default async function PortalHomePage() {
   const session = await requirePatientSession();
   const locale = await getLocale();
   const overview = await getPortalOverview(session);
+  const chronicDiseases = overview.patient?.chronicDiseases?.split(",").map((item) => item.trim()).filter(Boolean) ?? [];
+  const knownConditions = new Set(["Kalp hastalığı", "Astım", "Diyabet", "Hipertansiyon"]);
 
   return (
     <div className="space-y-4">
@@ -128,19 +130,19 @@ export default async function PortalHomePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {overview.patient.chronicDiseases || overview.patient.allergies || overview.patient.medications ? (
-              <div className="space-y-1 text-sm">
-                <p><span className="text-muted-foreground">Rahatsızlıklar:</span> {overview.patient.chronicDiseases ?? "Yok"}</p>
-                <p><span className="text-muted-foreground">Alerjiler:</span> {overview.patient.allergies ?? "Yok"}</p>
-                <p><span className="text-muted-foreground">Kullanılan ilaçlar:</span> {overview.patient.medications ?? "Yok"}</p>
-              </div>
-            ) : (
-              <form action={saveHealthInfoAction} className="space-y-4">
-                <p className="text-sm text-muted-foreground">Güvenli tedavi için sağlık bilgilerinizi doldurun. Bu bilgiler hesabınızda saklanır ve kliniğinizle paylaşılır.</p>
-                <HealthQuestions />
-                <Button className="w-full" type="submit">Sağlık Bilgilerimi Kaydet</Button>
-              </form>
-            )}
+            <form action={saveHealthInfoAction} className="space-y-4">
+              <p className="text-sm text-muted-foreground">Sağlık durumunuz veya kullandığınız ilaçlar değiştiğinde bu alanı güncelleyin. Bilgiler kliniğinizle paylaşılır.</p>
+              <HealthQuestions defaults={{
+                heartDisease: chronicDiseases.includes("Kalp hastalığı"),
+                asthma: chronicDiseases.includes("Astım"),
+                diabetes: chronicDiseases.includes("Diyabet"),
+                hypertension: chronicDiseases.includes("Hipertansiyon"),
+                otherConditions: chronicDiseases.filter((condition) => !knownConditions.has(condition)).join(", "),
+                allergies: overview.patient.allergies,
+                medications: overview.patient.medications
+              }} />
+              <Button className="w-full" type="submit">Sağlık Bilgilerimi Güncelle</Button>
+            </form>
           </CardContent>
         </Card>
       ) : null}

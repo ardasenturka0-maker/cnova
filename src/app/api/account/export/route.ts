@@ -1,11 +1,12 @@
 import { Role } from "@prisma/client";
-import { requireSession } from "@/lib/auth";
+import { getCurrentSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const exportRoles: Role[] = [Role.SUPER_ADMIN, Role.CLINIC_OWNER, Role.MANAGER];
 
 export async function GET() {
-  const session = await requireSession();
+  const session = await getCurrentSession();
+  if (!session) return Response.json({ error: "Yetkisiz." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   if (!exportRoles.includes(session.role)) {
     return Response.json({ error: "Bu işlem için yönetici yetkisi gerekli." }, { status: 403 });
   }

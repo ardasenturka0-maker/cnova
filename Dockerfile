@@ -1,6 +1,7 @@
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV TZ=Europe/Istanbul
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates clamav && rm -rf /var/lib/apt/lists/*
 
 FROM base AS dependencies

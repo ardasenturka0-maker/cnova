@@ -9,6 +9,7 @@ on:
       - "desktop/**"
       - "mobile/assets/**"
       - "scripts/build-desktop-assets.mjs"
+      - "scripts/desktop-after-pack.cjs"
       - "electron-builder.yml"
       - "package.json"
       - "package-lock.json"

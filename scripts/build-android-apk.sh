@@ -7,7 +7,9 @@ BUILD_DIR="$MOBILE_DIR/build"
 CACHE_DIR="$MOBILE_DIR/.cache"
 RELEASE_DIR="$ROOT_DIR/releases"
 SIGNING_DIR="$ROOT_DIR/.android-signing"
-ANDROID_JAR="${ANDROID_JAR:-/usr/lib/android-sdk/platforms/android-34/android.jar}"
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/lib/android-sdk}}"
+ANDROID_API="${ANDROID_API:-36}"
+ANDROID_JAR="${ANDROID_JAR:-$ANDROID_SDK_ROOT/platforms/android-$ANDROID_API/android.jar}"
 R8_VERSION="9.1.31"
 R8_JAR="$CACHE_DIR/r8-$R8_VERSION.jar"
 R8_URL="https://dl.google.com/dl/android/maven2/com/android/tools/r8/$R8_VERSION/r8-$R8_VERSION.jar"
@@ -28,7 +30,7 @@ for command in node aapt2 javac jar java zip zipalign apksigner keytool curl; do
 done
 
 if [[ ! -f "$ANDROID_JAR" ]]; then
-  echo "Android API 34 platformu bulunamadı: $ANDROID_JAR" >&2
+  echo "Android API $ANDROID_API platformu bulunamadı: $ANDROID_JAR" >&2
   exit 1
 fi
 
@@ -51,8 +53,8 @@ aapt2 link \
   -I "$ANDROID_JAR" \
   --manifest "$MOBILE_DIR/AndroidManifest.xml" \
   --java "$BUILD_DIR/generated" \
-  --min-sdk-version 24 \
-  --target-sdk-version 34 \
+  --min-sdk-version 26 \
+  --target-sdk-version 36 \
   --version-code "$VERSION_CODE" \
   --version-name "$VERSION_NAME" \
   -A "$PACKAGE_ASSETS" \
@@ -64,7 +66,7 @@ javac --release 8 -classpath "$ANDROID_JAR" -d "$BUILD_DIR/classes" @"$BUILD_DIR
 jar --create --file "$BUILD_DIR/classes.jar" -C "$BUILD_DIR/classes" .
 java -cp "$R8_JAR" com.android.tools.r8.D8 \
   --release \
-  --min-api 24 \
+  --min-api 26 \
   --lib "$ANDROID_JAR" \
   --output "$BUILD_DIR/dex" \
   "$BUILD_DIR/classes.jar"
@@ -77,16 +79,13 @@ cp "$BUILD_DIR/resources.apk" "$BUILD_DIR/unsigned.apk"
 zipalign -f -p 4 "$BUILD_DIR/unsigned.apk" "$BUILD_DIR/aligned.apk"
 
 PROPERTIES_FILE="$SIGNING_DIR/keystore.properties"
-if [[ ! -f "$PROPERTIES_FILE" ]]; then
-  echo "İmzalama ayarları bulunamadı: $PROPERTIES_FILE" >&2
-  exit 1
+if [[ -f "$PROPERTIES_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$PROPERTIES_FILE"
 fi
-
-# shellcheck disable=SC1090
-source "$PROPERTIES_FILE"
-: "${STORE_PASSWORD:?STORE_PASSWORD ayarlanmalı}"
+: "${STORE_PASSWORD:?STORE_PASSWORD ortam değişkeni veya $PROPERTIES_FILE içinde ayarlanmalı}"
 : "${KEY_ALIAS:=clinicnova}"
-KEYSTORE_FILE="$SIGNING_DIR/clinicnova-release.jks"
+KEYSTORE_FILE="${ANDROID_KEYSTORE_FILE:-$SIGNING_DIR/clinicnova-release.jks}"
 
 if [[ ! -f "$KEYSTORE_FILE" ]]; then
   echo "ClinicNova imzalama anahtarı oluşturuluyor..."

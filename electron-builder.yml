@@ -2,15 +2,34 @@ appId: app.clinicnova.desktop
 productName: ClinicNova
 electronVersion: 43.1.1
 asar: true
+npmRebuild: false
+afterPack: desktop/app/desktop-after-pack.cjs
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+  resetAdHocDarwinSignature: true
 directories:
   output: ../../releases/desktop
   buildResources: ../build-resources
 files:
   - "**/*"
+  - "!desktop-after-pack.cjs"
 mac:
   category: public.app-category.medical
   icon: ../build-resources/icon.png
+  hardenedRuntime: true
+  signIgnore:
+    - "\\.(?:asar|bin|icns|pak)$"
   extendInfo:
+    NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: false
+      NSAllowsLocalNetworking: true
+    NSCameraUsageDescription: Hasta dosyasına yalnız kullanıcı isteğiyle fotoğraf eklemek için kamera erişimi kullanılır.
     NSLocalNetworkUsageDescription: Aynı kliniğe ait Android, iPhone, Windows ve Mac cihazlarla şifreli yerel eşitleme için kullanılır.
     NSBonjourServices:
       - _clinicnova._tcp

@@ -8,24 +8,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { hashPassword, requireModuleAccess } from "@/lib/auth";
+import { requireModuleAccess } from "@/lib/auth";
+import { hashPassword } from "@/lib/password";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { getDashboardMetrics } from "@/lib/services/reportService";
 import { formatCurrency } from "@/lib/utils";
+import { doctorSchema } from "@/lib/validations/staff";
+import { idSchema } from "@/lib/validations/common";
 
 async function createDoctorAction(formData: FormData) {
   "use server";
   const session = await requireModuleAccess("staff");
-  const name = String(formData.get("name") || "").trim();
-  const email = String(formData.get("email") || "").trim().toLowerCase();
-  const branchId = String(formData.get("branchId") || "");
-  if (name.length < 2 || !email.includes("@")) throw new Error("Doktor adı ve e-posta adresi geçersiz.");
+  const parsed = doctorSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) throw new Error("Doktor adı, e-posta adresi veya şube geçersiz.");
+  const { name, email, branchId } = parsed.data;
   const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId: session.organizationId }, select: { id: true } });
   if (!branch) throw new Error("Şube bulunamadı.");
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing && existing.organizationId !== session.organizationId) throw new Error("Bu e-posta başka bir klinikte kayıtlı.");
-  if (existing) await prisma.user.update({ where: { id: existing.id }, data: { name, role: Role.DOCTOR, active: true, branchId } });
+  if (existing && existing.role !== Role.DOCTOR) throw new Error("Bu e-posta başka bir personel rolü tarafından kullanılıyor.");
+  if (existing) await prisma.user.update({ where: { id: existing.id }, data: { name, active: true, branchId } });
   else await prisma.user.create({ data: { name, email, passwordHash: await hashPassword(crypto.randomUUID()), role: Role.DOCTOR, active: true, organizationId: session.organizationId, branchId } });
   revalidatePath("/dashboard/doctors");
 }
@@ -33,7 +36,9 @@ async function createDoctorAction(formData: FormData) {
 async function deactivateDoctorAction(id: string) {
   "use server";
   const session = await requireModuleAccess("staff");
-  await prisma.user.updateMany({ where: { id, organizationId: session.organizationId, role: Role.DOCTOR }, data: { active: false } });
+  const parsedId = idSchema.safeParse(id);
+  if (!parsedId.success) throw new Error("Doktor kimliği geçersiz.");
+  await prisma.user.updateMany({ where: { id: parsedId.data, organizationId: session.organizationId, role: Role.DOCTOR }, data: { active: false } });
   revalidatePath("/dashboard/doctors");
 }
 

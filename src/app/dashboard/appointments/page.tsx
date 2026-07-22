@@ -12,9 +12,11 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireModuleAccess } from "@/lib/auth";
+import { addClinicDateKey, clinicDateKey, clinicStartOfDay, clinicTimeZone, shiftClinicMonth } from "@/lib/clinic-time";
 import { intlLocale, statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
+import { publicErrorMessage } from "@/lib/public-error";
 import { createAppointment, getAppointmentFormOptions, getAppointments } from "@/lib/services/appointmentService";
 import { getPortalAppointmentRequests, resolvePortalAppointmentRequest } from "@/lib/services/portalService";
 import { sendMessage } from "@/lib/services/notificationService";
@@ -29,7 +31,7 @@ function resultUrl(type: "success" | "error", message: string) {
 }
 
 function actionErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
+  return publicErrorMessage(error, fallback);
 }
 
 async function createAppointmentAction(formData: FormData) {
@@ -104,30 +106,23 @@ async function sendReminderAction(patientId: string, phone: string) {
   redirect(resultUrl("success", "Randevu hatırlatması sağlayıcıya teslim edildi."));
 }
 
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
 export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string; month?: string }> }) {
   const searchParams = await props.searchParams;
   const session = await requireModuleAccess("appointments");
   const locale = await getLocale();
-  const today = startOfDay(new Date());
+  const todayKey = clinicDateKey(new Date());
   const requestedMonth = /^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(searchParams.month ?? "") ? searchParams.month! : null;
-  const monthMatch = requestedMonth ?? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-  const [viewYear, viewMonth] = monthMatch.split("-").map(Number);
-  const monthStart = new Date(viewYear, viewMonth - 1, 1);
-  const calendarStart = new Date(monthStart);
-  calendarStart.setDate(calendarStart.getDate() - ((calendarStart.getDay() + 6) % 7));
-  const calendarDays = Array.from({ length: 42 }).map((_, index) => {
-    const day = new Date(calendarStart);
-    day.setDate(day.getDate() + index);
-    return day;
+  const monthMatch = requestedMonth ?? todayKey.slice(0, 7);
+  const monthStartKey = `${monthMatch}-01`;
+  const monthStart = clinicStartOfDay(monthStartKey);
+  const firstWeekday = new Date(`${monthStartKey}T12:00:00Z`).getUTCDay();
+  const calendarStartKey = addClinicDateKey(monthStartKey, -((firstWeekday + 6) % 7));
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const key = addClinicDateKey(calendarStartKey, index);
+    return { key, date: clinicStartOfDay(key) };
   });
-  const calendarEnd = new Date(calendarStart);
-  calendarEnd.setDate(calendarEnd.getDate() + 42);
+  const calendarStart = clinicStartOfDay(calendarStartKey);
+  const calendarEnd = clinicStartOfDay(addClinicDateKey(calendarStartKey, 42));
   const [appointments, options, portalRequests, organization] = await Promise.all([
     getAppointments(session.organizationId, { from: calendarStart, to: calendarEnd }),
     getAppointmentFormOptions(session.organizationId),
@@ -136,9 +131,8 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
   ]);
   const settings = organization?.clinicSettings as { chairs?: unknown } | null;
   const configuredChairs = Array.isArray(settings?.chairs) ? settings.chairs.filter((item): item is string => typeof item === "string") : [];
-  const previousMonth = new Date(viewYear, viewMonth - 2, 1);
-  const nextMonth = new Date(viewYear, viewMonth, 1);
-  const monthParam = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const previousMonth = shiftClinicMonth(monthStartKey, -1).slice(0, 7);
+  const nextMonth = shiftClinicMonth(monthStartKey, 1).slice(0, 7);
 
   return (
     <div className="space-y-6">
@@ -261,27 +255,27 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
 
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3">
-          <Link aria-label="Önceki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${monthParam(previousMonth)}`}><ChevronLeft className="h-4 w-4" /></Link>
-          <CardTitle>{new Intl.DateTimeFormat(intlLocale(locale), { month: "long", year: "numeric" }).format(monthStart)}</CardTitle>
-          <Link aria-label="Sonraki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${monthParam(nextMonth)}`}><ChevronRight className="h-4 w-4" /></Link>
+          <Link aria-label="Önceki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${previousMonth}`}><ChevronLeft className="h-4 w-4" /></Link>
+          <CardTitle>{new Intl.DateTimeFormat(intlLocale(locale), { month: "long", year: "numeric", timeZone: clinicTimeZone }).format(monthStart)}</CardTitle>
+          <Link aria-label="Sonraki ay" className="rounded-md border p-2" href={`/dashboard/appointments?month=${nextMonth}`}><ChevronRight className="h-4 w-4" /></Link>
         </CardHeader>
         <CardContent className="p-0">
       <div className="grid grid-cols-7 border-l border-t">
         {Array.from({ length: 7 }, (_, index) => {
-          const day = new Date(2024, 0, 1 + index);
-          return <div key={index} className="border-b border-r bg-muted/50 p-2 text-center text-xs font-medium">{new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short" }).format(day)}</div>;
+          const day = clinicStartOfDay(addClinicDateKey("2024-01-01", index));
+          return <div key={index} className="border-b border-r bg-muted/50 p-2 text-center text-xs font-medium">{new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short", timeZone: clinicTimeZone }).format(day)}</div>;
         })}
         {calendarDays.map((day) => {
-          const dayAppointments = appointments.filter((appointment) => startOfDay(appointment.startsAt).getTime() === day.getTime());
-          const inMonth = day.getMonth() === monthStart.getMonth();
-          const isToday = day.getTime() === today.getTime();
+          const dayAppointments = appointments.filter((appointment) => clinicDateKey(appointment.startsAt) === day.key);
+          const inMonth = day.key.startsWith(monthMatch);
+          const isToday = day.key === todayKey;
           return (
-            <div key={day.toISOString()} data-calendar-day className={`min-h-28 border-b border-r p-2 ${inMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
-                <div className={`mb-2 text-xs font-medium ${isToday ? "inline-grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</div>
+            <div key={day.key} data-calendar-day className={`min-h-28 border-b border-r p-2 ${inMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
+                <div className={`mb-2 text-xs font-medium ${isToday ? "inline-grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground" : ""}`}>{Number(day.key.slice(-2))}</div>
                 <div className="space-y-1">{dayAppointments.map((appointment) => (
                   <div key={appointment.id} className="rounded-md border bg-background p-2 text-xs">
                     <div className="truncate font-medium">{appointment.patient.firstName} {appointment.patient.lastName}</div>
-                    <div className="text-muted-foreground">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }).format(appointment.startsAt)} · {appointment.doctor.name}</div>
+                    <div className="text-muted-foreground">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: clinicTimeZone }).format(appointment.startsAt)} · {appointment.doctor.name}</div>
                   </div>
                 ))}
                 {dayAppointments.length === 0 ? <p className="text-xs text-muted-foreground">Boş</p> : null}

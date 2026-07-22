@@ -99,11 +99,13 @@ enum CommunicationChannel {
   SMS
   EMAIL
   PHONE
+  IN_APP
 }
 
 enum CommunicationStatus {
   QUEUED
   SENT
+  DELIVERED
   FAILED
 }
 

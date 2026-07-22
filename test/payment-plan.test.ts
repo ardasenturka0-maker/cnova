@@ -25,6 +25,18 @@ test("payment plan clamps unsafe values", () => {
   assert.equal(plan.installments.every((installment) => installment.amount === 0), true);
 });
 
+test("payment plan uses Istanbul's current day before UTC midnight and clamps month ends", () => {
+  const defaulted = buildPaymentPlan({ total: 300, installmentCount: 1 }, new Date("2026-07-19T22:30:00.000Z"));
+  const monthEnd = buildPaymentPlan({ total: 300, installmentCount: 3, firstInstallmentDate: "2027-01-31" });
+
+  assert.equal(defaulted.firstInstallmentDate, "2026-07-20");
+  assert.deepEqual(monthEnd.installments.map((installment) => installment.dueDate), ["2027-01-31", "2027-02-28", "2027-03-31"]);
+});
+
+test("payment plan rejects invalid calendar dates", () => {
+  assert.throws(() => buildPaymentPlan({ total: 100, firstInstallmentDate: "2026-02-30" }), /geçersiz/i);
+});
+
 test("invalid serialized payment plan is rejected", () => {
   assert.equal(parsePaymentPlan(null), null);
   assert.equal(parsePaymentPlan({ installments: "invalid" }), null);

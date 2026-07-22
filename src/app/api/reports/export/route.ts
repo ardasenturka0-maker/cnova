@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { getCurrentSession } from "@/lib/auth";
 import { getReports } from "@/lib/services/reportService";
 import { canAccess } from "@/lib/rbac";
 
 export async function GET() {
-  const session = await requireSession();
+  const session = await getCurrentSession();
+  if (!session) return NextResponse.json({ error: "Yetkisiz." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   if (!canAccess(session.role, "reports")) return NextResponse.json({ error: "Yetkiniz yok." }, { status: 403 });
   const reports = await getReports(session.organizationId);
   const rows = [
@@ -24,7 +25,9 @@ export async function GET() {
 
   return new NextResponse(csv, {
     headers: {
+      "cache-control": "private, no-store",
       "content-type": "text/csv; charset=utf-8",
+      "x-content-type-options": "nosniff",
       "content-disposition": "attachment; filename=clinicnova-reports.csv"
     }
   });

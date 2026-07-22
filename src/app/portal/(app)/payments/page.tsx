@@ -6,6 +6,7 @@ import { getLocale } from "@/lib/i18n-server";
 import { requirePatientSession } from "@/lib/patient-auth";
 import { getPatientPayments } from "@/lib/services/portalService";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { isClinicDateOverdue } from "@/lib/clinic-time";
 
 export default async function PortalPaymentsPage() {
   const session = await requirePatientSession();
@@ -50,7 +51,7 @@ export default async function PortalPaymentsPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold">{formatCurrency(payment.amount, locale)}</p>
-                  {payment.dueDate && new Date(payment.dueDate) < new Date() ? <Badge variant="danger">Gecikti</Badge> : null}
+                  {payment.dueDate && isClinicDateOverdue(payment.dueDate) ? <Badge variant="danger">Gecikti</Badge> : null}
                 </div>
               </div>
             ))}

@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Database, Download, KeyRound, Languages, Plus, ShieldCheck, Settings, Trash2 } from "lucide-react";
 import { ModuleHeader } from "@/components/dashboard/module-header";
@@ -17,11 +18,36 @@ import { getProductionReadiness } from "@/lib/production-readiness";
 import { roleLabel } from "@/lib/rbac";
 import { cn, formatDateTime } from "@/lib/utils";
 import { isDemoMode } from "@/lib/demo-mode";
+import { withSerializableTransaction } from "@/lib/services/appointmentAvailability";
 
 function clinicChairs(value: unknown): string[] {
   if (!value || typeof value !== "object" || !("chairs" in value)) return [];
   const chairs = (value as { chairs?: unknown }).chairs;
   return Array.isArray(chairs) ? chairs.filter((item): item is string => typeof item === "string") : [];
+}
+
+function clinicSettings(value: unknown): Record<string, Prisma.InputJsonValue> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return { ...(value as Record<string, Prisma.InputJsonValue>) };
+}
+
+function normalizeChairName(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr-TR");
+}
+
+async function updateClinicChairs(
+  organizationId: string,
+  update: (chairs: string[]) => string[]
+) {
+  return withSerializableTransaction(async (transaction) => {
+    const organization = await transaction.organization.findUnique({ where: { id: organizationId }, select: { clinicSettings: true } });
+    if (!organization) throw new Error("Klinik bulunamadı.");
+    const chairs = update(clinicChairs(organization.clinicSettings));
+    await transaction.organization.update({
+      where: { id: organizationId },
+      data: { clinicSettings: { ...clinicSettings(organization.clinicSettings), chairs } }
+    });
+  }, "Koltuk listesi aynı anda değiştirildi. Lütfen yeniden deneyin.");
 }
 
 async function renameClinicAction(formData: FormData) {
@@ -37,21 +63,22 @@ async function renameClinicAction(formData: FormData) {
 async function addChairAction(formData: FormData) {
   "use server";
   const session = await requireModuleAccess("settings");
-  const name = String(formData.get("name") || "").trim();
+  const name = String(formData.get("name") || "").normalize("NFKC").trim().replace(/\s+/g, " ");
   if (name.length < 2 || name.length > 80) throw new Error("Koltuk adı 2-80 karakter olmalıdır.");
-  const organization = await prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } });
-  const chairs = clinicChairs(organization?.clinicSettings);
-  if (!chairs.some((chair) => chair.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR"))) chairs.push(name);
-  await prisma.organization.update({ where: { id: session.organizationId }, data: { clinicSettings: { chairs } } });
+  await updateClinicChairs(session.organizationId, (chairs) => {
+    if (chairs.some((chair) => normalizeChairName(chair) === normalizeChairName(name))) return chairs;
+    if (chairs.length >= 100) throw new Error("En fazla 100 koltuk tanımlanabilir.");
+    return [...chairs, name];
+  });
   revalidatePath("/dashboard/settings");
 }
 
 async function deleteChairAction(name: string) {
   "use server";
   const session = await requireModuleAccess("settings");
-  const organization = await prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } });
-  const chairs = clinicChairs(organization?.clinicSettings).filter((chair) => chair !== name);
-  await prisma.organization.update({ where: { id: session.organizationId }, data: { clinicSettings: { chairs } } });
+  const normalizedName = normalizeChairName(name);
+  if (name.length < 2 || name.length > 80 || !normalizedName) throw new Error("Koltuk adı geçersiz.");
+  await updateClinicChairs(session.organizationId, (chairs) => chairs.filter((chair) => normalizeChairName(chair) !== normalizedName));
   revalidatePath("/dashboard/settings");
 }
 

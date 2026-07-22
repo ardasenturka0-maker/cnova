@@ -1,4 +1,4 @@
-import { StockMovementType } from "@prisma/client";
+import { Prisma, StockMovementType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { stockItemSchema, stockMovementSchema, stockOfferSchema, stockRecipeSchema } from "@/lib/validations/stock";
 import { normalizeTreatmentKey } from "@/lib/services/treatmentStockService";
@@ -8,6 +8,32 @@ type StockItemInput = z.infer<typeof stockItemSchema>;
 type StockMovementInput = z.infer<typeof stockMovementSchema>;
 type StockOfferInput = z.infer<typeof stockOfferSchema>;
 type StockRecipeInput = z.infer<typeof stockRecipeSchema>;
+
+export async function applyStockQuantityChange(
+  tx: Pick<Prisma.TransactionClient, "stockItem">,
+  input: { organizationId: string; itemId: string; branchId?: string; type: StockMovementType; quantity: number }
+) {
+  const scope = { id: input.itemId, organizationId: input.organizationId, ...(input.branchId ? { branchId: input.branchId } : {}) };
+  const item = await tx.stockItem.findFirst({ where: scope });
+  if (!item) throw new Error("Stok kalemi bulunamadi.");
+
+  if (input.type === StockMovementType.OUT) {
+    const updated = await tx.stockItem.updateMany({
+      where: { ...scope, currentQuantity: { gte: input.quantity } },
+      data: { currentQuantity: { decrement: input.quantity } }
+    });
+    if (updated.count !== 1) {
+      const current = await tx.stockItem.findFirst({ where: scope, select: { currentQuantity: true } });
+      if (!current) throw new Error("Stok kalemi bulunamadi.");
+      throw new Error(`Stok yetersiz. Mevcut miktar: ${current.currentQuantity}.`);
+    }
+  } else if (input.type === StockMovementType.IN) {
+    await tx.stockItem.update({ where: { id: item.id }, data: { currentQuantity: { increment: input.quantity } } });
+  } else {
+    await tx.stockItem.update({ where: { id: item.id }, data: { currentQuantity: input.quantity } });
+  }
+  return item;
+}
 
 export async function getStocks(organizationId: string) {
   const items = await prisma.stockItem.findMany({
@@ -94,26 +120,8 @@ export async function createStockItem(organizationId: string, branchId: string, 
 
 export async function createStockMovement(organizationId: string, branchId: string, input: StockMovementInput) {
   return prisma.$transaction(async (tx) => {
-    const item = await tx.stockItem.findFirst({ where: { id: input.itemId, organizationId } });
-    if (!item) {
-      throw new Error("Stok kalemi bulunamadi.");
-    }
-
     const type = input.type as StockMovementType;
-    if (type === StockMovementType.OUT && input.quantity > item.currentQuantity) {
-      throw new Error(`Stok yetersiz. Mevcut miktar: ${item.currentQuantity}.`);
-    }
-    const nextQuantity =
-      type === StockMovementType.IN
-        ? item.currentQuantity + input.quantity
-        : type === StockMovementType.OUT
-          ? item.currentQuantity - input.quantity
-          : input.quantity;
-
-    await tx.stockItem.update({
-      where: { id: item.id },
-      data: { currentQuantity: nextQuantity }
-    });
+    const item = await applyStockQuantityChange(tx, { organizationId, itemId: input.itemId, type, quantity: input.quantity });
 
     return tx.stockMovement.create({
       data: {

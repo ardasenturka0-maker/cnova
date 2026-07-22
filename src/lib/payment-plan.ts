@@ -1,3 +1,4 @@
+import { addClinicMonths, clinicDateKey, parseClinicDateKey } from "@/lib/clinic-time";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export type Installment = {
@@ -15,27 +16,18 @@ export type TreatmentPaymentPlan = {
   note?: string | null;
 };
 
-function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
-}
-
-function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
 export function buildPaymentPlan(input: {
   total: number;
   downPayment?: number;
   installmentCount?: number;
   firstInstallmentDate?: string | null;
   note?: string | null;
-}): TreatmentPaymentPlan {
+}, now = new Date()): TreatmentPaymentPlan {
   const total = Math.max(0, Math.round(input.total * 100) / 100);
   const downPayment = Math.max(0, Math.round((input.downPayment ?? 0) * 100) / 100);
   const installmentCount = Math.max(1, Math.min(24, Math.trunc(input.installmentCount ?? 1)));
-  const startDate = input.firstInstallmentDate ? new Date(input.firstInstallmentDate) : new Date();
+  const startDate = input.firstInstallmentDate ? parseClinicDateKey(input.firstInstallmentDate) : clinicDateKey(now);
+  if (!startDate) throw new Error("İlk ödeme tarihi geçersiz.");
   const remaining = Math.max(0, Math.round((total - downPayment) * 100) / 100);
   const baseAmount = Math.floor((remaining / installmentCount) * 100) / 100;
 
@@ -46,7 +38,7 @@ export function buildPaymentPlan(input: {
     allocated += amount;
     return {
       number: index + 1,
-      dueDate: isoDate(addMonths(startDate, index)),
+      dueDate: addClinicMonths(startDate, index),
       amount
     };
   });
@@ -55,7 +47,7 @@ export function buildPaymentPlan(input: {
     total,
     downPayment,
     installmentCount,
-    firstInstallmentDate: isoDate(startDate),
+    firstInstallmentDate: startDate,
     installments,
     note: input.note || null
   };

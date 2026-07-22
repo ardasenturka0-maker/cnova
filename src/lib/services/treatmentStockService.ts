@@ -1,5 +1,6 @@
-import { AppointmentStatus, Prisma, StockMovementType, TreatmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertAppointmentAvailability, isActiveSchedulingStatus, withSerializableAppointmentTransaction, withSerializableTransaction } from "@/lib/services/appointmentAvailability";
 
 type StockSource = { treatmentId: string; appointmentId?: never } | { appointmentId: string; treatmentId?: never };
 
@@ -95,8 +96,8 @@ export async function releaseTreatmentRecipe(
 }
 
 export async function setTreatmentStatus(organizationId: string, treatmentId: string, status: TreatmentStatus) {
-  return prisma.$transaction(async (tx) => {
-    const treatment = await tx.treatment.findFirst({ where: { id: treatmentId, organizationId } });
+  return withSerializableTransaction(async (tx) => {
+    const treatment = await tx.treatment.findFirst({ where: { id: treatmentId, organizationId, patient: { deletedAt: null } } });
     if (!treatment) throw new Error("Tedavi kaydı bulunamadı.");
     if (treatment.status === status) return treatment;
 
@@ -105,21 +106,54 @@ export async function setTreatmentStatus(organizationId: string, treatmentId: st
     } else if (treatment.status === TreatmentStatus.COMPLETED) {
       await releaseTreatmentRecipe(tx, organizationId, treatment.branchId, treatment.treatmentType, { treatmentId: treatment.id });
     }
-    return tx.treatment.update({ where: { id: treatment.id }, data: { status } });
-  });
+    const updated = await tx.treatment.updateMany({
+      where: { id: treatment.id, organizationId, status: treatment.status, patient: { deletedAt: null } },
+      data: { status }
+    });
+    if (updated.count !== 1) throw new Error("Tedavi durumu aynı anda değiştirildi. Lütfen yeniden deneyin.");
+    return tx.treatment.findUniqueOrThrow({ where: { id: treatment.id } });
+  }, "Tedavi aynı anda değiştirildi. Lütfen yeniden deneyin.");
 }
 
 export async function setAppointmentStatus(organizationId: string, appointmentId: string, status: AppointmentStatus) {
-  return prisma.$transaction(async (tx) => {
-    const appointment = await tx.appointment.findFirst({ where: { id: appointmentId, organizationId } });
+  return withSerializableAppointmentTransaction(async (tx) => {
+    const appointment = await tx.appointment.findFirst({ where: { id: appointmentId, organizationId, patient: { deletedAt: null } } });
     if (!appointment) throw new Error("Randevu bulunamadı.");
     if (appointment.status === status) return appointment;
+
+    if (!isActiveSchedulingStatus(appointment.status) && isActiveSchedulingStatus(status)) {
+      const doctor = await tx.user.findFirst({
+        where: {
+          id: appointment.doctorId,
+          organizationId,
+          active: true,
+          role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] },
+          OR: [{ branchId: appointment.branchId }, { branchId: null }]
+        },
+        select: { id: true }
+      });
+      if (!doctor) throw new Error("Randevunun doktoru artık aktif değil veya bu şubede çalışmıyor.");
+      await assertAppointmentAvailability(tx, {
+        organizationId,
+        branchId: appointment.branchId,
+        doctorId: appointment.doctorId,
+        startsAt: appointment.startsAt,
+        durationMinutes: appointment.durationMinutes,
+        room: appointment.room,
+        excludeAppointmentId: appointment.id
+      });
+    }
 
     if (status === AppointmentStatus.COMPLETED) {
       await consumeTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
     } else if (appointment.status === AppointmentStatus.COMPLETED) {
       await releaseTreatmentRecipe(tx, organizationId, appointment.branchId, appointment.treatmentType, { appointmentId: appointment.id });
     }
-    return tx.appointment.update({ where: { id: appointment.id }, data: { status } });
+    const updated = await tx.appointment.updateMany({
+      where: { id: appointment.id, organizationId, status: appointment.status, patient: { deletedAt: null } },
+      data: { status }
+    });
+    if (updated.count !== 1) throw new Error("Randevu durumu aynı anda değiştirildi. Lütfen yeniden deneyin.");
+    return tx.appointment.findUniqueOrThrow({ where: { id: appointment.id } });
   });
 }

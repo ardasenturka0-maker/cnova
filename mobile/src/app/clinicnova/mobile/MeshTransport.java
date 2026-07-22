@@ -15,6 +15,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.Timer;
@@ -22,6 +23,7 @@ import java.util.TimerTask;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -39,10 +41,13 @@ final class MeshTransport {
     private static final int VERSION = 1;
     private static final int DISCOVERY_PORT = 45872;
     private static final int MAX_FRAME = 64 * 1024 * 1024;
+    private static final int MAX_INBOUND_CONNECTIONS = 4;
     private final Context context;
     private final Listener listener;
     private final SecureRandom random = new SecureRandom();
     private final Set<String> connecting = new HashSet<>();
+    private final Set<Socket> inboundSockets = new HashSet<>();
+    private final Semaphore inboundSlots = new Semaphore(MAX_INBOUND_CONNECTIONS, true);
     private JSONObject config;
     private byte[] secret;
     private volatile boolean running;
@@ -54,33 +59,63 @@ final class MeshTransport {
     private NsdManager.DiscoveryListener discoveryListener;
     private NsdManager.RegistrationListener registrationListener;
     private ExecutorService nsdResolver;
+    private ExecutorService inboundExecutor;
 
     MeshTransport(Context context, Listener listener) { this.context = context; this.listener = listener; }
 
     synchronized void configure(String json) throws Exception {
         JSONObject next = new JSONObject(json);
         byte[] key = Base64.decode(next.optString("secret"), Base64.DEFAULT);
-        if (key.length != 32 || next.optString("clinicId").isEmpty() || next.optString("deviceId").isEmpty()) throw new IllegalArgumentException("Geçersiz klinik ağı yapılandırması.");
+        String clinicId = next.optString("clinicId");
+        String deviceId = next.optString("deviceId");
+        String deviceName = next.optString("deviceName");
+        if (key.length != 32 || !clinicId.matches("^[A-Za-z0-9_-]{8,128}$") || !deviceId.matches("^[A-Za-z0-9._:-]{8,128}$") || deviceName.isEmpty() || deviceName.length() > 80) {
+            throw new IllegalArgumentException("Geçersiz klinik ağı yapılandırması.");
+        }
         stop(); config = next; secret = key; start();
     }
 
     synchronized void start() throws Exception {
         if (config == null || running) return;
         running = true;
-        WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        if (wifi != null) { multicastLock = wifi.createMulticastLock("ClinicNovaMesh"); multicastLock.setReferenceCounted(false); multicastLock.acquire(); }
-        server = new ServerSocket(0);
-        new Thread(this::acceptLoop, "clinicnova-mesh-tcp").start();
-        startBonjour();
-        udp = new DatagramSocket(null); udp.setReuseAddress(true); udp.setBroadcast(true); udp.bind(new java.net.InetSocketAddress(DISCOVERY_PORT));
-        new Thread(this::discoveryLoop, "clinicnova-mesh-udp").start();
-        timer = new Timer("clinicnova-mesh-announce", true);
-        timer.scheduleAtFixedRate(new TimerTask() { @Override public void run() { announce(); } }, 100, 8000);
-        listener.onStatus("Yerel ağda eşler aranıyor", "");
+        try {
+            WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi != null) { multicastLock = wifi.createMulticastLock("ClinicNovaMesh"); multicastLock.setReferenceCounted(false); multicastLock.acquire(); }
+            server = new ServerSocket(0);
+            inboundExecutor = Executors.newFixedThreadPool(MAX_INBOUND_CONNECTIONS);
+            new Thread(this::acceptLoop, "clinicnova-mesh-tcp").start();
+            startBonjour();
+            udp = new DatagramSocket(null); udp.setReuseAddress(true); udp.setBroadcast(true); udp.bind(new java.net.InetSocketAddress(DISCOVERY_PORT));
+            new Thread(this::discoveryLoop, "clinicnova-mesh-udp").start();
+            timer = new Timer("clinicnova-mesh-announce", true);
+            timer.scheduleAtFixedRate(new TimerTask() { @Override public void run() { announce(); } }, 100, 8000);
+            listener.onStatus("Yerel ağda eşler aranıyor", "");
+        } catch (Exception error) {
+            stop();
+            throw error;
+        }
     }
 
     private void acceptLoop() {
-        while (running) try { Socket socket = server.accept(); new Thread(() -> accept(socket), "clinicnova-mesh-peer").start(); } catch (Exception error) { if (running) listener.onStatus("Yerel ağ dinleyicisi: " + message(error), ""); }
+        while (running) try {
+            Socket socket = server.accept();
+            ExecutorService executor = inboundExecutor;
+            if (!running || executor == null || !inboundSlots.tryAcquire()) { socket.close(); continue; }
+            synchronized (inboundSockets) { inboundSockets.add(socket); }
+            try {
+                executor.execute(() -> {
+                    try { accept(socket); }
+                    finally {
+                        synchronized (inboundSockets) { inboundSockets.remove(socket); }
+                        inboundSlots.release();
+                    }
+                });
+            } catch (RuntimeException rejected) {
+                synchronized (inboundSockets) { inboundSockets.remove(socket); }
+                inboundSlots.release();
+                try { socket.close(); } catch (Exception ignored) {}
+            }
+        } catch (Exception error) { if (running) listener.onStatus("Yerel ağ dinleyicisi: " + message(error), ""); }
     }
 
     private void discoveryLoop() {
@@ -219,9 +254,17 @@ final class MeshTransport {
         try { if (nsdManager != null && registrationListener != null) nsdManager.unregisterService(registrationListener); } catch (Exception ignored) {}
         discoveryListener = null; registrationListener = null; nsdManager = null;
         if (nsdResolver != null) nsdResolver.shutdownNow(); nsdResolver = null;
+        if (inboundExecutor != null) inboundExecutor.shutdownNow(); inboundExecutor = null;
+        synchronized (inboundSockets) {
+            for (Socket socket : inboundSockets) try { socket.close(); } catch (Exception ignored) {}
+            inboundSockets.clear();
+        }
         try { if (udp != null) udp.close(); } catch (Exception ignored) {} try { if (server != null) server.close(); } catch (Exception ignored) {}
         udp = null; server = null; synchronized (connecting) { connecting.clear(); }
         if (multicastLock != null && multicastLock.isHeld()) multicastLock.release(); multicastLock = null;
+        config = null;
+        if (secret != null) Arrays.fill(secret, (byte) 0);
+        secret = null;
     }
 
     private static String message(Exception error) { return error.getMessage() == null ? "bilinmeyen hata" : error.getMessage(); }

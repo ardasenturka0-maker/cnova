@@ -1,6 +1,7 @@
-import { AppointmentStatus, PatientTag, PaymentStatus, PaymentType, Role } from "@prisma/client";
+import { AppointmentStatus, PatientTag, PaymentStatus, PaymentType, Prisma, Role } from "@prisma/client";
 import type { PatientSession } from "@/lib/patient-auth";
 import { prisma } from "@/lib/prisma";
+import { assertAppointmentAvailability, createAppointment, withSerializableAppointmentTransaction } from "@/lib/services/appointmentService";
 import { toNumber } from "@/lib/utils";
 import type { PortalAppointmentInput, PortalHealthInput, PortalRegisterInput } from "@/lib/validations/portal";
 import { normalizePhone } from "@/lib/phone";
@@ -25,36 +26,46 @@ export function buildChronicDiseases(input: PortalHealthInput) {
 }
 
 export async function registerPortalPatient(input: PortalRegisterInput) {
-  const organization = await prisma.organization.findFirst({ where: { slug: input.organizationSlug } });
-  if (!organization) throw new Error("Klinik bulunamadı.");
-  const { findPatientByPhoneInOrganization } = await import("@/lib/patient-auth");
-  const existing = await findPatientByPhoneInOrganization(organization.id, input.phone);
-  if (existing) {
-    return { conflict: true as const, patient: existing };
-  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (transaction) => {
+        const organization = await transaction.organization.findFirst({ where: { slug: input.organizationSlug } });
+        if (!organization) throw new Error("Klinik bulunamadı.");
+        const phoneNormalized = normalizePhone(input.phone);
+        const existing = await transaction.patient.findFirst({
+          where: { organizationId: organization.id, phoneNormalized, deletedAt: null }
+        });
+        if (existing) return { conflict: true as const, patient: existing };
 
-  const branch = await prisma.branch.findFirst({ where: { organizationId: organization.id }, orderBy: { createdAt: "asc" } });
-  if (!branch) throw new Error("Şube bulunamadı.");
+        const branch = await transaction.branch.findFirst({ where: { organizationId: organization.id }, orderBy: { createdAt: "asc" } });
+        if (!branch) throw new Error("Şube bulunamadı.");
 
-  const patient = await prisma.patient.create({
-    data: {
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      phone: input.phone.trim(),
-      phoneNormalized: normalizePhone(input.phone),
-      email: input.email?.trim() || null,
-      birthDate: input.birthDate ? new Date(input.birthDate) : null,
-      allergies: input.allergies?.trim() || null,
-      chronicDiseases: buildChronicDiseases(input),
-      medications: input.medications?.trim() || null,
-      notes: "Hasta portalından kayıt oldu.",
-      tag: PatientTag.NEW,
-      organizationId: organization.id,
-      branchId: branch.id
+        const patient = await transaction.patient.create({
+          data: {
+            firstName: input.firstName,
+            lastName: input.lastName,
+            phone: input.phone,
+            phoneNormalized,
+            email: input.email || null,
+            birthDate: input.birthDate ? new Date(input.birthDate) : null,
+            allergies: input.allergies || null,
+            chronicDiseases: buildChronicDiseases(input),
+            medications: input.medications || null,
+            notes: "Hasta portalından kayıt oldu.",
+            tag: PatientTag.NEW,
+            organizationId: organization.id,
+            branchId: branch.id
+          }
+        });
+        return { conflict: false as const, patient };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      const retryable = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+      if (!retryable) throw error;
+      if (attempt === 2) break;
     }
-  });
-
-  return { conflict: false as const, patient };
+  }
+  throw new Error("Hasta kaydı aynı anda değiştirildi. Lütfen yeniden deneyin.");
 }
 
 export async function updatePatientHealthInfo(session: PatientSession, input: PortalHealthInput) {
@@ -117,9 +128,14 @@ export async function getPatientAppointments(session: PatientSession) {
   return { upcoming, past };
 }
 
-export async function getPortalDoctors(organizationId: string) {
+export async function getPortalDoctors(organizationId: string, branchId: string) {
   return prisma.user.findMany({
-    where: { organizationId, role: Role.DOCTOR, active: true },
+    where: {
+      organizationId,
+      role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] },
+      active: true,
+      OR: [{ branchId }, { branchId: null }]
+    },
     select: { id: true, name: true },
     orderBy: { name: "asc" }
   });
@@ -127,46 +143,51 @@ export async function getPortalDoctors(organizationId: string) {
 
 export async function bookAppointment(session: PatientSession, input: PortalAppointmentInput) {
   await requireActivePortalPatient(session);
-  const doctor = await prisma.user.findFirst({
-    where: { id: input.doctorId, organizationId: session.organizationId, role: Role.DOCTOR, active: true },
-    select: { id: true }
-  });
-  if (!doctor) {
-    throw new Error("Doktor bulunamadı.");
-  }
-
-  const startsAt = new Date(`${input.date}T${input.time}`);
+  const startsAt = new Date(`${input.date}T${input.time}:00+03:00`);
   if (Number.isNaN(startsAt.getTime()) || startsAt < new Date()) {
     throw new Error("Geçmiş bir tarih seçilemez.");
   }
-
-  return prisma.appointment.create({
-    data: {
-      patientId: session.patientId,
-      doctorId: doctor.id,
-      startsAt,
-      durationMinutes: 30,
-      treatmentType: input.treatmentType,
-      status: AppointmentStatus.PENDING_CONFIRMATION,
-      notes: input.notes ? `Hasta portalından: ${input.notes}` : "Hasta portalından alındı.",
-      organizationId: session.organizationId,
-      branchId: session.branchId
-    }
+  return createAppointment(session.organizationId, {
+    patientId: session.patientId,
+    doctorId: input.doctorId,
+    startsAt: `${input.date}T${input.time}`,
+    durationMinutes: 30,
+    room: "",
+    treatmentType: input.treatmentType,
+    status: "PENDING_CONFIRMATION",
+    notes: input.notes ? `Hasta portalından: ${input.notes}` : "Hasta portalından alındı."
   });
 }
 
 export async function cancelAppointment(session: PatientSession, appointmentId: string) {
   const cancellableStatuses: AppointmentStatus[] = [AppointmentStatus.PLANNED, AppointmentStatus.PENDING_CONFIRMATION];
-  const appointment = await prisma.appointment.findFirst({
-    where: { id: appointmentId, patientId: session.patientId, organizationId: session.organizationId }
-  });
-  if (!appointment || !cancellableStatuses.includes(appointment.status) || new Date(appointment.startsAt) < new Date()) {
-    throw new Error("Bu randevu iptal edilemez.");
-  }
+  return withSerializableAppointmentTransaction(async (transaction) => {
+    const now = new Date();
+    const appointment = await transaction.appointment.findFirst({
+      where: {
+        id: appointmentId,
+        patientId: session.patientId,
+        organizationId: session.organizationId,
+        status: { in: cancellableStatuses },
+        startsAt: { gte: now },
+        patient: { deletedAt: null }
+      }
+    });
+    if (!appointment) throw new Error("Bu randevu iptal edilemez.");
 
-  return prisma.appointment.updateMany({
-    where: { id: appointment.id, patientId: session.patientId },
-    data: { status: AppointmentStatus.CANCELLED }
+    const updated = await transaction.appointment.updateMany({
+      where: {
+        id: appointment.id,
+        patientId: session.patientId,
+        organizationId: session.organizationId,
+        status: { in: cancellableStatuses },
+        startsAt: { gte: now },
+        patient: { deletedAt: null }
+      },
+      data: { status: AppointmentStatus.CANCELLED }
+    });
+    if (updated.count !== 1) throw new Error("Randevu aynı anda değiştirildi. Lütfen yeniden deneyin.");
+    return updated;
   });
 }
 
@@ -184,16 +205,30 @@ export async function getPortalAppointmentRequests(organizationId: string) {
 }
 
 export async function resolvePortalAppointmentRequest(organizationId: string, appointmentId: string, decision: "approve" | "reject") {
-  const appointment = await prisma.appointment.findFirst({
-    where: { id: appointmentId, organizationId, status: AppointmentStatus.PENDING_CONFIRMATION, patient: { deletedAt: null } }
-  });
-  if (!appointment) {
-    throw new Error("Onay bekleyen randevu bulunamadı.");
-  }
+  return withSerializableAppointmentTransaction(async (transaction) => {
+    const appointment = await transaction.appointment.findFirst({
+      where: { id: appointmentId, organizationId, status: AppointmentStatus.PENDING_CONFIRMATION, patient: { deletedAt: null } }
+    });
+    if (!appointment) throw new Error("Onay bekleyen randevu bulunamadı.");
 
-  return prisma.appointment.updateMany({
-    where: { id: appointment.id, organizationId },
-    data: { status: decision === "approve" ? AppointmentStatus.PLANNED : AppointmentStatus.CANCELLED }
+    if (decision === "approve") {
+      await assertAppointmentAvailability(transaction, {
+        organizationId,
+        branchId: appointment.branchId,
+        doctorId: appointment.doctorId,
+        startsAt: appointment.startsAt,
+        durationMinutes: appointment.durationMinutes,
+        room: appointment.room,
+        excludeAppointmentId: appointment.id
+      });
+    }
+
+    const updated = await transaction.appointment.updateMany({
+      where: { id: appointment.id, organizationId, status: AppointmentStatus.PENDING_CONFIRMATION },
+      data: { status: decision === "approve" ? AppointmentStatus.PLANNED : AppointmentStatus.CANCELLED }
+    });
+    if (updated.count !== 1) throw new Error("Randevu talebi aynı anda değiştirildi. Lütfen yeniden deneyin.");
+    return updated;
   });
 }
 

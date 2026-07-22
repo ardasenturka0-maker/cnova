@@ -4,6 +4,7 @@ import { Stethoscope } from "lucide-react";
 import { Role, TreatmentStatus } from "@prisma/client";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { TreatmentStatusBadge } from "@/components/dashboard/treatment-status-badge";
+import { PatientDoctorFields } from "@/components/dashboard/patient-doctor-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { requireModuleAccess } from "@/lib/auth";
 import { getLocale } from "@/lib/i18n-server";
 import { buildPaymentPlan, paymentPlanLines, summarizePaymentPlan } from "@/lib/payment-plan";
 import { prisma } from "@/lib/prisma";
+import { publicErrorMessage } from "@/lib/public-error";
 import { consumeTreatmentRecipe, setTreatmentStatus } from "@/lib/services/treatmentStockService";
 import { treatmentSchema } from "@/lib/validations/treatment";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -39,10 +41,19 @@ async function createTreatmentAction(formData: FormData) {
     redirect(resultUrl("error", "Seçilen hasta bulunamadı veya bu kliniğe ait değil."));
   }
 
-  const doctor = await prisma.user.findFirst({ where: { id: payload.doctorId, organizationId: session.organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, select: { id: true } });
+  const doctor = await prisma.user.findFirst({
+    where: {
+      id: payload.doctorId,
+      organizationId: session.organizationId,
+      active: true,
+      role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] },
+      OR: [{ branchId: patient.branchId }, { branchId: null }]
+    },
+    select: { id: true }
+  });
 
   if (!doctor) {
-    redirect(resultUrl("error", "Seçilen doktor bulunamadı veya aktif değil."));
+    redirect(resultUrl("error", "Seçilen doktor aktif değil veya hastanın şubesinde çalışmıyor."));
   }
 
   try {
@@ -74,7 +85,7 @@ async function createTreatmentAction(formData: FormData) {
       return treatment;
     });
   } catch (error) {
-    redirect(resultUrl("error", error instanceof Error ? error.message : "Tedavi kaydedilemedi. Lütfen bilgileri kontrol edip tekrar deneyin."));
+    redirect(resultUrl("error", publicErrorMessage(error, "Tedavi kaydedilemedi. Lütfen bilgileri kontrol edip tekrar deneyin.")));
   }
 
   revalidatePath("/dashboard/treatments");
@@ -91,7 +102,7 @@ async function updateTreatmentStatusAction(treatmentId: string, formData: FormDa
   try {
     await setTreatmentStatus(session.organizationId, treatmentId, status as TreatmentStatus);
   } catch (error) {
-    redirect(resultUrl("error", error instanceof Error ? error.message : "Tedavi durumu güncellenemedi."));
+    redirect(resultUrl("error", publicErrorMessage(error, "Tedavi durumu güncellenemedi.")));
   }
   revalidatePath("/dashboard/treatments");
   revalidatePath("/dashboard/stocks");
@@ -109,8 +120,8 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
       orderBy: { performedAt: "desc" },
       take: 100
     }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
-    prisma.user.findMany({ where: { organizationId: session.organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { name: "asc" } })
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, select: { id: true, firstName: true, lastName: true, branchId: true }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.user.findMany({ where: { organizationId: session.organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true }, select: { id: true, name: true, branchId: true }, orderBy: { name: "asc" } })
   ]);
 
   return (
@@ -126,8 +137,7 @@ export default async function TreatmentsPage(props: { searchParams: Promise<{ su
         <CardHeader><CardTitle>Tedavi ekle</CardTitle></CardHeader>
         <CardContent>
           <form action={createTreatmentAction} className="grid gap-4 lg:grid-cols-4">
-            <div className="space-y-2"><Label>Hasta</Label><Select name="patientId" required><option value="">Seçin</option>{patients.map((p) => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}</Select></div>
-            <div className="space-y-2"><Label>Doktor</Label><Select name="doctorId" required><option value="">Seçin</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></div>
+            <PatientDoctorFields patients={patients} doctors={doctors} />
             <div className="space-y-2"><Label>Diş no</Label><Input name="toothNumber" /></div>
             <div className="space-y-2"><Label>Tedavi türü</Label><Input name="treatmentType" placeholder="Dolgu" required /></div>
             <div className="space-y-2"><Label>Ücret</Label><Input name="fee" type="number" min="0" step="0.01" defaultValue="0" /></div>

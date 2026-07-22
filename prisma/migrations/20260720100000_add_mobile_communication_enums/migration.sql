@@ -1,0 +1,2 @@
+ALTER TYPE "CommunicationChannel" ADD VALUE IF NOT EXISTS 'IN_APP';
+ALTER TYPE "CommunicationStatus" ADD VALUE IF NOT EXISTS 'DELIVERED';

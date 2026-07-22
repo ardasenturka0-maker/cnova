@@ -4,6 +4,47 @@
   const PROTOCOL = 1;
   const MAX_OPERATIONS = 50000;
   const MAX_DEVICES = 64;
+  // A 47 MiB plaintext envelope remains below the 64 MiB transport frame after AES-GCM and base64 wrapping.
+  const MAX_ENVELOPE_BYTES = 47 * 1024 * 1024;
+  const MAX_OPERATION_BYTES = 4 * 1024 * 1024;
+  const MAX_PAYLOAD_DEPTH = 16;
+  const MAX_PAYLOAD_NODES = 20000;
+  const RESERVED_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+  const COLLECTIONS = new Set([
+    "patients", "appointments", "transactions", "transactionPayments", "treatmentHistory", "patientMedia",
+    "treatmentPlans", "stockItems", "stockMovements", "stockOffers", "stockRecipes", "clinicDoctors",
+    "clinicConfig", "clinicChairs", "communicationLog", "consentRecords", "consentHistory", "treatments",
+    "staffRecords", "surveys", "surveyResponses", "recalls", "reminderSettings", "reminderDeliveries", "trashItems"
+  ]);
+
+  function utf8Length(value) {
+    if (typeof TextEncoder === "function") return new TextEncoder().encode(value).byteLength;
+    let length = 0;
+    for (const character of value) {
+      const point = character.codePointAt(0);
+      length += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    }
+    return length;
+  }
+  function boundedData(value, maximumBytes, maximumDepth = MAX_PAYLOAD_DEPTH, maximumNodes = MAX_PAYLOAD_NODES) {
+    let serialized;
+    try { serialized = JSON.stringify(value); } catch { return false; }
+    if (typeof serialized !== "string" || utf8Length(serialized) > maximumBytes) return false;
+    const stack = [[value, 0]];
+    const seen = new WeakSet();
+    let nodes = 0;
+    while (stack.length) {
+      const [current, depth] = stack.pop();
+      if (!current || typeof current !== "object") continue;
+      if (depth > maximumDepth || seen.has(current)) return false;
+      seen.add(current);
+      const keys = Object.keys(current);
+      nodes += keys.length;
+      if (nodes > maximumNodes || keys.some((key) => RESERVED_KEYS.has(key))) return false;
+      for (const key of keys) stack.push([current[key], depth + 1]);
+    }
+    return true;
+  }
 
   function stable(value) {
     if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -39,10 +80,12 @@
   function recordMap(document) {
     const records = new Map();
     for (const [collection, items] of Object.entries(document || {})) {
-      if (!Array.isArray(items)) continue;
+      if (!COLLECTIONS.has(collection) || !Array.isArray(items)) continue;
       for (const item of items) {
         if (!item || typeof item !== "object" || item.id === undefined || item.id === null) continue;
-        records.set(`${collection}:${String(item.id)}`, { collection, entityId: String(item.id), payload: clone(item) });
+        const entityId = String(item.id);
+        if (entityId.length < 1 || entityId.length > 160 || RESERVED_KEYS.has(entityId) || !boundedData(item, MAX_OPERATION_BYTES)) continue;
+        records.set(`${collection}:${entityId}`, { collection, entityId, payload: clone(item) });
       }
     }
     return records;
@@ -51,11 +94,11 @@
   class MeshEngine {
     constructor({ clinicId, deviceId, state }) {
       if (!/^[A-Za-z0-9_-]{8,128}$/.test(String(clinicId || ""))) throw new Error("Klinik ağ kimliği geçersiz.");
-      if (!/^[A-Za-z0-9._:-]{8,128}$/.test(String(deviceId || ""))) throw new Error("Cihaz kimliği geçersiz.");
+      if (!/^[A-Za-z0-9._:-]{8,128}$/.test(String(deviceId || "")) || RESERVED_KEYS.has(String(deviceId))) throw new Error("Cihaz kimliği geçersiz.");
       this.clinicId = String(clinicId);
       this.deviceId = String(deviceId);
       this.operations = new Map();
-      this.vector = {};
+      this.vector = Object.create(null);
       this.conflicts = [];
       if (state) this.importState(state);
     }
@@ -67,19 +110,22 @@
 
     validateOperation(operation) {
       if (!operation || operation.clinicId !== this.clinicId || typeof operation.opId !== "string" || typeof operation.deviceId !== "string") return false;
-      if (!/^[A-Za-z0-9._:-]{8,128}$/.test(operation.deviceId) || operation.opId !== `${operation.deviceId}:${operation.seq}`) return false;
+      if (!/^[A-Za-z0-9._:-]{8,128}$/.test(operation.deviceId) || RESERVED_KEYS.has(operation.deviceId) || operation.opId !== `${operation.deviceId}:${operation.seq}`) return false;
       if (!Number.isSafeInteger(operation.seq) || operation.seq < 1 || !Number.isSafeInteger(operation.timestamp) || operation.timestamp < 1) return false;
-      if (typeof operation.collection !== "string" || operation.collection.length > 80 || typeof operation.entityId !== "string" || operation.entityId.length > 160) return false;
+      if (!COLLECTIONS.has(operation.collection) || typeof operation.entityId !== "string" || operation.entityId.length < 1 || operation.entityId.length > 160 || RESERVED_KEYS.has(operation.entityId)) return false;
       if (!['UPSERT', 'DELETE'].includes(operation.action) || !operation.vector || typeof operation.vector !== "object" || Object.keys(operation.vector).length > MAX_DEVICES) return false;
+      if (Object.keys(operation.vector).some((device) => RESERVED_KEYS.has(device) || !/^[A-Za-z0-9._:-]{8,128}$/.test(device))) return false;
       if (Number(operation.vector[operation.deviceId]) !== operation.seq || Object.values(operation.vector).some((value) => !Number.isSafeInteger(value) || value < 0)) return false;
-      if (operation.action === "UPSERT" && (!operation.payload || typeof operation.payload !== "object" || Array.isArray(operation.payload))) return false;
+      if (operation.action === "UPSERT" && (!operation.payload || typeof operation.payload !== "object" || Array.isArray(operation.payload) || String(operation.payload.id) !== operation.entityId || !boundedData(operation.payload, MAX_OPERATION_BYTES))) return false;
       if (operation.action === "DELETE" && operation.payload !== null) return false;
+      if (typeof operation.prevHash !== "string" || (operation.prevHash !== "" && !/^[a-f0-9]{16}$/.test(operation.prevHash)) || !/^[a-f0-9]{16}$/.test(String(operation.hash || ""))) return false;
+      if (!boundedData(operation, MAX_OPERATION_BYTES, MAX_PAYLOAD_DEPTH + 2, MAX_PAYLOAD_NODES + MAX_DEVICES)) return false;
       const body = { ...operation }; delete body.hash;
       return operation.hash === digest(body);
     }
 
     merge(envelope) {
-      if (!envelope || envelope.protocol !== PROTOCOL || envelope.clinicId !== this.clinicId || !Array.isArray(envelope.operations) || envelope.operations.length > MAX_OPERATIONS) throw new Error("Cihaz eşitleme paketi geçersiz.");
+      if (!envelope || envelope.protocol !== PROTOCOL || envelope.clinicId !== this.clinicId || !Array.isArray(envelope.operations) || envelope.operations.length > MAX_OPERATIONS || !boundedData(envelope, MAX_ENVELOPE_BYTES, MAX_PAYLOAD_DEPTH + 4, MAX_OPERATIONS * 40)) throw new Error("Cihaz eşitleme paketi geçersiz.");
       if (envelope.digest !== digest(envelope.operations)) throw new Error("Cihaz eşitleme bütünlük özeti uyuşmuyor.");
       const incomingByDevice = new Map();
       for (const operation of envelope.operations) {
@@ -107,10 +153,13 @@
     }
 
     append(collection, entityId, action, payload) {
+      const normalizedEntityID = String(entityId);
+      if (!COLLECTIONS.has(collection) || normalizedEntityID.length < 1 || normalizedEntityID.length > 160 || RESERVED_KEYS.has(normalizedEntityID) || !["UPSERT", "DELETE"].includes(action)) throw new Error("Eşitleme kaydı güvenli sınırların dışında.");
+      if (action === "UPSERT" && (!payload || typeof payload !== "object" || Array.isArray(payload) || String(payload.id) !== normalizedEntityID || !boundedData(payload, MAX_OPERATION_BYTES))) throw new Error("Eşitleme kaydı güvenli sınırların dışında.");
       const seq = Number(this.vector[this.deviceId] || 0) + 1;
       const vector = { ...this.vector, [this.deviceId]: seq };
       const previous = [...this.operations.values()].filter((item) => item.deviceId === this.deviceId).sort((a, b) => b.seq - a.seq)[0];
-      const body = { protocol: PROTOCOL, clinicId: this.clinicId, opId: `${this.deviceId}:${seq}`, deviceId: this.deviceId, seq, collection, entityId: String(entityId), action, payload: action === "UPSERT" ? clone(payload) : null, vector, timestamp: Date.now(), prevHash: previous?.hash || "" };
+      const body = { protocol: PROTOCOL, clinicId: this.clinicId, opId: `${this.deviceId}:${seq}`, deviceId: this.deviceId, seq, collection, entityId: normalizedEntityID, action, payload: action === "UPSERT" ? clone(payload) : null, vector, timestamp: Date.now(), prevHash: previous?.hash || "" };
       const operation = { ...body, hash: digest(body) };
       this.operations.set(operation.opId, operation);
       this.vector = { ...vector };
@@ -145,7 +194,7 @@
         const key = `${operation.collection}:${operation.entityId}`;
         const list = grouped.get(key) || []; list.push(operation); grouped.set(key, list);
       }
-      const document = {};
+      const document = Object.create(null);
       const conflicts = [];
       for (const [key, operations] of grouped) {
         const maxima = operations.filter((candidate) => !operations.some((other) => other.opId !== candidate.opId && dominates(other.vector, candidate.vector)));

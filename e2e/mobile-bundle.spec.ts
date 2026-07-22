@@ -88,7 +88,7 @@ test("a clinic can create an encrypted serverless device mesh", async ({ page })
   await page.locator('#localAdminName').fill("Test Yönetici");
   await page.locator('#loginEmail').fill("mesh@example.test");
   await page.locator('#loginPassword').fill("Guvenli-Test-1234");
-  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kaydol ve başla" }).click();
   await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
@@ -126,7 +126,7 @@ test("a failed secure mesh write rolls back partial pairing", async ({ page }) =
   await page.locator("#localAdminName").fill("Test Yönetici");
   await page.locator("#loginEmail").fill("rollback@example.test");
   await page.locator("#loginPassword").fill("Guvenli-Test-1234");
-  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kaydol ve başla" }).click();
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
   await page.getByRole("button", { name: /Klinik yönetimi/ }).click();
@@ -178,7 +178,7 @@ test("production account creation stops when secure storage rejects the write", 
   await page.getByLabel("Yönetici adı").fill("Tuna Akın");
   await page.getByLabel("E-posta").fill("tuna@kasa.test");
   await page.getByLabel("Parola").fill("GuvenliYerelParola!2026");
-  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kaydol ve başla" }).click();
   await expect(page.getByRole("status")).toContainText("Yerel hesap cihazda saklanamadı");
   await expect(page.getByRole("heading", { name: "Yerel yönetici hesabını oluşturun." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Kurtarma kodunuzu kaydedin" })).toHaveCount(0);
@@ -297,6 +297,7 @@ test("bundled Android interface works offline", async ({ page }) => {
   await expect(page.getByText(/Before · Şimdi/)).toHaveCount(0);
   await page.getByRole("button", { name: "Yeni randevu oluştur" }).click();
   await expect(page.getByRole("combobox", { name: "Hasta", exact: true }).locator("option:checked")).toHaveText("Tuna Akın");
+  await page.locator('#appointmentForm input[name="time"]').fill("13:00");
   await page.getByRole("button", { name: "Randevuyu kaydet" }).click();
   await expect(page.locator("#appointmentList").getByText("Tuna Akın", { exact: true })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
@@ -473,7 +474,7 @@ test("production Android starts with an empty persistent local workspace", async
   await page.getByLabel("Yönetici adı").fill("Tuna Akın");
   await page.getByLabel("E-posta").fill("tuna@nova.test");
   await page.getByLabel("Parola").fill("GuvenliYerelParola!2026");
-  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kaydol ve başla" }).click();
   await expect(page.getByRole("heading", { name: /Günaydın, Tuna/ })).toBeVisible();
   const recoveryCode = (await page.locator("#modalBody strong").textContent())!.trim();
   await page.getByRole("button", { name: "Anladım, kaydettim" }).click();
@@ -482,10 +483,10 @@ test("production Android starts with an empty persistent local workspace", async
   await page.reload();
   await expect(page.getByRole("heading", { name: "Nova Diş Kliniği hesabına giriş" })).toBeVisible();
   await page.getByLabel("Parola").fill("yanlis-parola");
-  await page.getByRole("button", { name: "Çevrimdışı giriş yap" }).click();
+  await page.getByRole("button", { name: "Giriş yap" }).click();
   await expect(page.getByRole("status")).toContainText("E-posta veya parola yanlış");
   await page.getByLabel("Parola").fill("GuvenliYerelParola!2026");
-  await page.getByRole("button", { name: "Çevrimdışı giriş yap" }).click();
+  await page.getByRole("button", { name: "Giriş yap" }).click();
   await expect(page.getByRole("heading", { name: /Günaydın, Tuna/ })).toBeVisible();
   const account = await page.evaluate(() => JSON.parse(localStorage.getItem("clinicnova.localAccount") || "{}"));
   expect(account).not.toHaveProperty("password");
@@ -517,7 +518,7 @@ test("production Android starts with an empty persistent local workspace", async
   await expect(page.getByRole("heading", { name: "Parola yenilendi" })).toBeVisible();
   await page.getByRole("button", { name: "Kaydettim" }).click();
   await page.getByLabel("Parola", { exact: true }).fill("YeniGuvenliParola!2026");
-  await page.getByRole("button", { name: "Çevrimdışı giriş yap" }).click();
+  await page.getByRole("button", { name: "Giriş yap" }).click();
   await page.getByRole("button", { name: "Ana Sayfa", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Günaydın, Tuna/ })).toBeVisible();
 });
@@ -631,7 +632,7 @@ test("local Android records queue once and acknowledge server synchronization", 
   await page.getByLabel("Yönetici adı").fill("Sync Yönetici");
   await page.getByLabel("E-posta").fill("sync@clinic.test");
   await page.getByLabel("Parola").fill("GuvenliSyncParola!2026");
-  await page.getByRole("button", { name: "Hesabı oluştur ve başla" }).click();
+  await page.getByRole("button", { name: "Kaydol ve başla" }).click();
   await page.getByRole("button", { name: "Anladım, kaydettim" }).click();
   await page.getByRole("button", { name: "Hasta ekle" }).first().click();
   await page.locator('#patientForm input[name="name"]').fill("Yerel Hasta");
@@ -641,7 +642,7 @@ test("local Android records queue once and acknowledge server synchronization", 
   await page.evaluate(() => localStorage.setItem("clinicnova.serverUrl", JSON.stringify("https://clinic.example.test")));
   await page.reload();
   await page.getByLabel("Parola").fill("GuvenliSyncParola!2026");
-  await page.getByRole("button", { name: "Çevrimdışı giriş yap" }).click();
+  await page.getByRole("button", { name: "Giriş yap" }).click();
   await expect.poll(() => page.evaluate(() => (window as typeof window & { capturedSync?: { operations?: unknown[] } }).capturedSync?.operations?.length ?? 0)).toBe(1);
   await expect(page.getByText("Senkronlandı", { exact: true })).toBeVisible();
   const operation = await page.evaluate(() => (window as typeof window & { capturedSync?: { operations: Array<{ entityType: string; action: string; payload: { name: string } }> } }).capturedSync!.operations[0]);

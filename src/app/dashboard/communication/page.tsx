@@ -16,6 +16,7 @@ import { requireModuleAccess } from "@/lib/auth";
 import { statusLabel, translateText, type Locale } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
+import { publicErrorMessage } from "@/lib/public-error";
 import { sendMessage } from "@/lib/services/notificationService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { communicationSchema, incomingCommunicationSchema } from "@/lib/validations/engagement";
@@ -103,7 +104,7 @@ async function sendMessageAction(formData: FormData) {
       channel: payload.channel as CommunicationChannel
     });
   } catch (error) {
-    redirect(resultUrl("error", error instanceof Error ? error.message : "Mesaj sağlayıcıya teslim edilemedi."));
+    redirect(resultUrl("error", publicErrorMessage(error, "Mesaj sağlayıcıya teslim edilemedi.")));
   }
 
   revalidatePath("/dashboard/communication");

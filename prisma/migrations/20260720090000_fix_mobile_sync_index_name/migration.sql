@@ -1,0 +1,2 @@
+ALTER INDEX "MobileSyncRecord_organizationId_deviceId_entityType_clientId_id"
+  RENAME TO "MobileSyncRecord_organizationId_deviceId_entityType_clientI_idx";

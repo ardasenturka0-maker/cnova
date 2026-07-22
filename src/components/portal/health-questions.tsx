@@ -12,7 +12,15 @@ const conditionQuestions = [
 export function HealthQuestions({
   defaults
 }: {
-  defaults?: { allergies?: string | null; medications?: string | null; otherConditions?: string | null };
+  defaults?: {
+    heartDisease?: boolean;
+    asthma?: boolean;
+    diabetes?: boolean;
+    hypertension?: boolean;
+    allergies?: string | null;
+    medications?: string | null;
+    otherConditions?: string | null;
+  };
 }) {
   return (
     <div className="space-y-4">
@@ -20,7 +28,12 @@ export function HealthQuestions({
         {conditionQuestions.map((question) => (
           <label key={question.name} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
             <span>{question.label}</span>
-            <input className="h-5 w-5 accent-primary" type="checkbox" name={question.name} />
+            <input
+              className="h-5 w-5 accent-primary"
+              type="checkbox"
+              name={question.name}
+              defaultChecked={Boolean(defaults?.[question.name as "heartDisease" | "asthma" | "diabetes" | "hypertension"])}
+            />
           </label>
         ))}
       </div>

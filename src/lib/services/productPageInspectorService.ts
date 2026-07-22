@@ -14,12 +14,14 @@ function isPublicIpv4(address: string) {
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 0 || b === 168)) ||
-    (a === 198 && (b === 18 || b === 19))
+    (a === 192 && (b === 0 || b === 88 || b === 168)) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && octets[2] === 100) ||
+    (a === 203 && b === 0 && octets[2] === 113)
   );
 }
 
-function isPublicIp(address: string) {
+export function isPublicIp(address: string) {
   const family = isIP(address);
   if (family === 4) return isPublicIpv4(address);
   if (family !== 6) return false;
@@ -27,8 +29,11 @@ function isPublicIp(address: string) {
   if (normalized.startsWith("::ffff:")) return isPublicIpv4(normalized.slice(7));
   return !(
     normalized === "::" || normalized === "::1" ||
+    normalized.startsWith("::") ||
     normalized.startsWith("fc") || normalized.startsWith("fd") ||
-    /^fe[89ab]/.test(normalized) || normalized.startsWith("2001:db8:")
+    /^fe[89a-f]/.test(normalized) || normalized.startsWith("ff") ||
+    normalized.startsWith("64:ff9b:") || normalized.startsWith("2002:") ||
+    /^2001:(?:0*:){1,3}/.test(normalized) || normalized.startsWith("2001:db8:")
   );
 }
 
@@ -40,6 +45,7 @@ async function resolvePublicAddress(hostname: string, requestedFamily?: number) 
 }
 
 function validateProductUrl(value: string) {
+  if (value.length < 1 || value.length > 2048) throw new Error("Geçerli bir HTTPS satın alma sayfası girin.");
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password || !url.hostname || (url.port && url.port !== "443")) {
     throw new Error("Geçerli bir HTTPS satın alma sayfası girin.");
@@ -103,7 +109,7 @@ function decodeHtml(value: string) {
 }
 
 function numberFrom(value: unknown) {
-  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : null;
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 && value <= 100_000_000 ? value : null;
   if (typeof value !== "string") return null;
   const compact = value.trim().replace(/[^\d,.-]/g, "");
   if (!compact) return null;
@@ -111,7 +117,7 @@ function numberFrom(value: unknown) {
     ? compact.replace(/\./g, "").replace(",", ".")
     : compact.replace(/,(?=\d{3}(?:\D|$))/g, "");
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 100_000_000 ? parsed : null;
 }
 
 function productObjects(value: unknown): Record<string, unknown>[] {
@@ -151,13 +157,13 @@ export function parseProductPage(html: string, productUrl: string) {
       if (!price || availability.includes("outofstock") || availability.includes("soldout")) continue;
       const sellerValue = offer.seller ?? product.brand;
       const seller = typeof sellerValue === "object" && sellerValue ? String((sellerValue as Record<string, unknown>).name || "") : String(sellerValue || "");
-      return { seller: seller.trim() || new URL(productUrl).hostname.replace(/^www\./, ""), unitPrice: price, shippingPrice: 0, productUrl, inStock: true };
+      return { seller: (seller.trim() || new URL(productUrl).hostname.replace(/^www\./, "")).slice(0, 200), unitPrice: price, shippingPrice: 0, productUrl, inStock: true };
     }
   }
   const price = numberFrom(metaContent(html, ["product:price:amount", "og:price:amount", "price"]));
   if (!price) throw new Error("Bu sayfada okunabilir bir ürün fiyatı bulunamadı.");
   const seller = metaContent(html, ["og:site_name", "application-name"]);
-  return { seller: seller || new URL(productUrl).hostname.replace(/^www\./, ""), unitPrice: price, shippingPrice: 0, productUrl, inStock: true };
+  return { seller: (seller || new URL(productUrl).hostname.replace(/^www\./, "")).slice(0, 200), unitPrice: price, shippingPrice: 0, productUrl, inStock: true };
 }
 
 export async function inspectPublicProductPage(productUrl: string) {

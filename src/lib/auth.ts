@@ -1,6 +1,6 @@
 import "server-only";
 
-import bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -9,6 +9,7 @@ import { authAudience, authCookieName, authIssuer, getAuthSecret } from "@/lib/a
 import { isDemoMode } from "@/lib/demo-mode";
 import { prisma } from "@/lib/prisma";
 import { canAccess, type ModuleKey } from "@/lib/rbac";
+import { verifyPassword } from "@/lib/password";
 
 export { authCookieName };
 
@@ -20,14 +21,11 @@ export type AuthSession = {
   role: Role;
   organizationId: string;
   branchId: string | null;
+  credentialVersion: string;
 };
 
-export async function hashPassword(password: string) {
-  return bcrypt.hash(password, 12);
-}
-
-export async function verifyPassword(password: string, hash: string) {
-  return bcrypt.compare(password, hash);
+function credentialVersion(passwordHash: string) {
+  return createHash("sha256").update(passwordHash).digest("base64url");
 }
 
 export async function createSessionToken(session: AuthSession) {
@@ -46,8 +44,27 @@ export async function verifySessionToken(token: string): Promise<AuthSession | n
       issuer: authIssuer,
       audience: authAudience
     });
-    if (payload.kind !== "staff") return null;
-    return payload as AuthSession;
+    const validRole = typeof payload.role === "string" && (Object.values(Role) as string[]).includes(payload.role);
+    if (
+      payload.kind !== "staff"
+      || typeof payload.userId !== "string"
+      || typeof payload.name !== "string"
+      || typeof payload.email !== "string"
+      || !validRole
+      || typeof payload.organizationId !== "string"
+      || (payload.branchId !== null && typeof payload.branchId !== "string")
+      || typeof payload.credentialVersion !== "string"
+    ) return null;
+    return {
+      kind: "staff",
+      userId: payload.userId,
+      name: payload.name,
+      email: payload.email,
+      role: payload.role as Role,
+      organizationId: payload.organizationId,
+      branchId: payload.branchId,
+      credentialVersion: payload.credentialVersion
+    };
   } catch {
     return null;
   }
@@ -63,7 +80,8 @@ export async function loginWithPassword(email: string, password: string) {
         email: "owner@clinicnova.test",
         role: Role.CLINIC_OWNER,
         organizationId: "org_demo",
-        branchId: "branch_01"
+        branchId: "branch_01",
+        credentialVersion: "demo"
       },
       "doctor@clinicnova.test": {
         kind: "staff",
@@ -72,7 +90,8 @@ export async function loginWithPassword(email: string, password: string) {
         email: "doctor@clinicnova.test",
         role: Role.DOCTOR,
         organizationId: "org_demo",
-        branchId: "branch_01"
+        branchId: "branch_01",
+        credentialVersion: "demo"
       },
       "receptionist@clinicnova.test": {
         kind: "staff",
@@ -81,7 +100,8 @@ export async function loginWithPassword(email: string, password: string) {
         email: "receptionist@clinicnova.test",
         role: Role.RECEPTIONIST,
         organizationId: "org_demo",
-        branchId: "branch_01"
+        branchId: "branch_01",
+        credentialVersion: "demo"
       }
     };
     return demoUsers[email.toLowerCase()] ?? null;
@@ -108,7 +128,8 @@ export async function loginWithPassword(email: string, password: string) {
     email: user.email,
     role: user.role,
     organizationId: user.organizationId,
-    branchId: user.branchId
+    branchId: user.branchId,
+    credentialVersion: credentialVersion(user.passwordHash)
   } satisfies AuthSession;
 }
 
@@ -118,7 +139,21 @@ export async function getCurrentSession() {
   if (!token) {
     return null;
   }
-  return verifySessionToken(token);
+  const session = await verifySessionToken(token);
+  if (!session || isDemoMode()) return session;
+
+  const user = await prisma.user.findFirst({
+    where: { id: session.userId, organizationId: session.organizationId, active: true },
+    select: { name: true, email: true, role: true, branchId: true, passwordHash: true }
+  });
+  if (!user || credentialVersion(user.passwordHash) !== session.credentialVersion) return null;
+  return {
+    ...session,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    branchId: user.branchId
+  } satisfies AuthSession;
 }
 
 export async function requireSession() {
@@ -126,13 +161,7 @@ export async function requireSession() {
   if (!session) {
     redirect("/login");
   }
-  if (isDemoMode()) return session;
-  const user = await prisma.user.findFirst({
-    where: { id: session.userId, organizationId: session.organizationId, active: true },
-    select: { name: true, email: true, role: true, branchId: true }
-  });
-  if (!user) redirect("/login?error=inactive");
-  return { ...session, name: user.name, email: user.email, role: user.role, branchId: user.branchId } satisfies AuthSession;
+  return session;
 }
 
 export async function requireModuleAccess(module: ModuleKey) {

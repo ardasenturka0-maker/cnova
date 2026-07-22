@@ -1,13 +1,15 @@
 import QRCode from "qrcode";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { getCurrentSession, verifyPassword } from "@/lib/auth";
+import { getCurrentSession } from "@/lib/auth";
 import { isDemoMode } from "@/lib/demo-mode";
 import { buildOtpauthUri, createMfaSecret, createRecoveryCodes, decryptMfaSecret, encryptMfaSecret, hashRecoveryCode, verifyTotp } from "@/lib/mfa";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/services/auditLogService";
 import { isTrustedMutationRequest } from "@/lib/request-security";
 import { requestClientId, takeRateLimit } from "@/lib/rate-limit";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
+import { verifyPassword } from "@/lib/password";
 
 function mutationError(request: Request, userId: string) {
   if (!isTrustedMutationRequest(request)) return NextResponse.json({ error: "Çapraz site isteği reddedildi." }, { status: 403 });
@@ -30,7 +32,7 @@ async function currentUser() {
 export async function GET() {
   const current = await currentUser();
   if (!current) return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
-  return NextResponse.json({ enabled: Boolean(current.user.mfaEnabledAt) });
+  return NextResponse.json({ enabled: Boolean(current.user.mfaEnabledAt) }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(request: Request) {
@@ -38,7 +40,13 @@ export async function POST(request: Request) {
   if (!current) return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
   const blocked = mutationError(request, current.user.id); if (blocked) return blocked;
   if (current.user.mfaEnabledAt) return NextResponse.json({ error: "2FA zaten etkin. Önce mevcut 2FA’yı doğrulayarak kapatın." }, { status: 409 });
-  const body = await request.json().catch(() => ({})) as { password?: unknown };
+  let body: { password?: unknown };
+  try {
+    body = await readJsonBody(request, 8 * 1024) as { password?: unknown };
+  } catch (error) {
+    return requestBodyErrorResponse(error) ?? NextResponse.json({ error: "İstek okunamadı." }, { status: 400 });
+  }
+  if (typeof body.password !== "string" || body.password.length > 128) return NextResponse.json({ error: "Şifre geçersiz." }, { status: 400 });
   if (!await verifyPassword(String(body.password ?? ""), current.user.passwordHash)) return NextResponse.json({ error: "Şifre hatalı." }, { status: 401 });
   const secret = createMfaSecret();
   const uri = buildOtpauthUri(secret, current.user.email, current.user.organization.name);
@@ -49,14 +57,23 @@ export async function POST(request: Request) {
       mfaPendingExpiresAt: new Date(Date.now() + 10 * 60 * 1000)
     }
   });
-  return NextResponse.json({ secret, qrCode: await QRCode.toDataURL(uri, { width: 240, margin: 1, errorCorrectionLevel: "M" }) });
+  return NextResponse.json(
+    { secret, qrCode: await QRCode.toDataURL(uri, { width: 240, margin: 1, errorCorrectionLevel: "M" }) },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
 }
 
 export async function PUT(request: Request) {
   const current = await currentUser();
   if (!current) return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
   const blocked = mutationError(request, current.user.id); if (blocked) return blocked;
-  const code = String((await request.json() as { code?: unknown }).code ?? "");
+  let body: { code?: unknown };
+  try {
+    body = await readJsonBody(request, 4 * 1024) as { code?: unknown };
+  } catch (error) {
+    return requestBodyErrorResponse(error) ?? NextResponse.json({ error: "İstek okunamadı." }, { status: 400 });
+  }
+  const code = typeof body.code === "string" && body.code.length <= 20 ? body.code : "";
   if (!current.user.mfaPendingSecretEncrypted || !current.user.mfaPendingExpiresAt || current.user.mfaPendingExpiresAt <= new Date()) {
     return NextResponse.json({ error: "Kurulum süresi doldu. Yeniden başlatın." }, { status: 400 });
   }
@@ -64,8 +81,13 @@ export async function PUT(request: Request) {
   const counter = verifyTotp(decryptMfaSecret(encrypted), code);
   if (counter === null) return NextResponse.json({ error: "Doğrulama kodu geçersiz." }, { status: 400 });
   const recoveryCodes = createRecoveryCodes();
-  await prisma.user.update({
-    where: { id: current.user.id },
+  const enabled = await prisma.user.updateMany({
+    where: {
+      id: current.user.id,
+      mfaEnabledAt: null,
+      mfaPendingSecretEncrypted: encrypted,
+      mfaPendingExpiresAt: { gt: new Date() }
+    },
     data: {
       mfaSecretEncrypted: encrypted,
       mfaEnabledAt: new Date(),
@@ -75,8 +97,9 @@ export async function PUT(request: Request) {
       mfaPendingExpiresAt: null
     }
   });
+  if (enabled.count !== 1) return NextResponse.json({ error: "2FA kurulumu aynı anda değiştirildi. Yeniden başlatın." }, { status: 409 });
   await writeAuditLog({ userId: current.user.id, action: "ENABLE_MFA", module: "auth", organizationId: current.session.organizationId, branchId: current.session.branchId });
-  return NextResponse.json({ recoveryCodes });
+  return NextResponse.json({ recoveryCodes }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function DELETE(request: Request) {
@@ -84,7 +107,15 @@ export async function DELETE(request: Request) {
   if (!current) return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
   const blocked = mutationError(request, current.user.id); if (blocked) return blocked;
   if (!current.user.mfaEnabledAt || !current.user.mfaSecretEncrypted) return NextResponse.json({ error: "2FA etkin değil." }, { status: 400 });
-  const body = await request.json() as { password?: unknown; code?: unknown };
+  let body: { password?: unknown; code?: unknown };
+  try {
+    body = await readJsonBody(request, 8 * 1024) as { password?: unknown; code?: unknown };
+  } catch (error) {
+    return requestBodyErrorResponse(error) ?? NextResponse.json({ error: "İstek okunamadı." }, { status: 400 });
+  }
+  if (typeof body.password !== "string" || body.password.length > 128 || typeof body.code !== "string" || body.code.length > 20) {
+    return NextResponse.json({ error: "Doğrulama bilgileri geçersiz." }, { status: 400 });
+  }
   if (!await verifyPassword(String(body.password ?? ""), current.user.passwordHash)) return NextResponse.json({ error: "Şifre hatalı." }, { status: 401 });
   const counter = verifyTotp(decryptMfaSecret(current.user.mfaSecretEncrypted), String(body.code ?? ""));
   if (counter === null || counter <= current.user.mfaLastUsedCounter) return NextResponse.json({ error: "Doğrulama kodu geçersiz veya daha önce kullanılmış." }, { status: 401 });
@@ -95,5 +126,5 @@ export async function DELETE(request: Request) {
     data: { mfaSecretEncrypted: null, mfaEnabledAt: null, mfaRecoveryCodeHashes: Prisma.JsonNull, mfaLastUsedCounter: -1 }
   });
   await writeAuditLog({ userId: current.user.id, action: "DISABLE_MFA", module: "auth", organizationId: current.session.organizationId, branchId: current.session.branchId });
-  return NextResponse.json({ enabled: false });
+  return NextResponse.json({ enabled: false }, { headers: { "Cache-Control": "private, no-store" } });
 }

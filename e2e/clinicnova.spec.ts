@@ -43,10 +43,10 @@ test("outdated signed Android clients receive the secure update notice", async (
   await page.goto("/login");
   const update = page.getByRole("link", { name: "İmzalı APK’yı güncelle" });
   await expect(update).toBeVisible();
-  await expect(update).toHaveAttribute("href", "https://download.example.test/ClinicNova-1.4.0.apk");
+  await expect(update).toHaveAttribute("href", `https://download.example.test/ClinicNova-${currentVersion}.apk`);
   const manifest = await page.request.get("/api/mobile/version");
   expect(manifest.status()).toBe(200);
-  expect(await manifest.json()).toMatchObject({ currentVersion, minimumVersion: "1.4.0", sha256: "a".repeat(64) });
+  expect(await manifest.json()).toMatchObject({ currentVersion, minimumVersion: currentVersion, sha256: "a".repeat(64) });
 });
 
 test("staff login never exposes validation or internal error details", async ({ page }) => {

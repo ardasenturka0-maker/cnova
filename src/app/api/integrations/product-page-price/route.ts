@@ -2,8 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inspectPublicProductPage } from "@/lib/services/productPageInspectorService";
+import { publicErrorMessage } from "@/lib/public-error";
+import { secureHttpsUrlSchema } from "@/lib/validations/common";
 
-const requestSchema = z.object({ url: z.string().url().refine((value) => value.startsWith("https://")) });
+const requestSchema = z.object({ url: secureHttpsUrlSchema });
 
 function authorized(request: Request) {
   const expected = process.env.PRODUCT_SEARCH_API_KEY || "";
@@ -22,6 +24,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ offers: [offer] }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Geçerli bir HTTPS ürün sayfası girin." }, { status: 400 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Ürün sayfası okunamadı." }, { status: 422 });
+    return NextResponse.json({ error: publicErrorMessage(error, "Ürün sayfası okunamadı.") }, { status: 422 });
   }
 }

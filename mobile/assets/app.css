@@ -75,7 +75,12 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .brand-large strong { font-size: 19px; }
 .brand-large small { font-size: 11px; }
 .pulse-line { font-size: 28px; font-weight: 800; line-height: 1; transform: rotate(-8deg); }
-.login-copy { margin: 38px 0 26px; }
+.auth-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 28px; padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--bg) 82%, transparent); }
+.auth-mode-tabs button { min-height: 44px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; font-size: 14px; font-weight: 800; cursor: pointer; transition: color .2s, background .2s, box-shadow .2s, transform .15s; }
+.auth-mode-tabs button.active { color: var(--primary-2); background: var(--surface); box-shadow: 0 5px 16px rgba(15, 118, 110, .12); }
+.auth-mode-tabs button:active { transform: scale(.98); }
+.auth-mode-tabs button:disabled { cursor: not-allowed; opacity: .45; }
+.login-copy { margin: 24px 0 26px; }
 .eyebrow { display: block; color: var(--primary); font-size: 10px; line-height: 1.4; font-weight: 800; letter-spacing: .13em; }
 h1, h2, h3, p { margin: 0; }
 .login-copy h1 { margin-top: 8px; font-size: clamp(31px, 9vw, 42px); line-height: 1.04; letter-spacing: -.045em; }

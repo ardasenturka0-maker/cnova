@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { emailProvider } from "@/lib/integrations/emailProvider";
-import { hashPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
 function tokenHash(token: string) {
@@ -66,6 +66,10 @@ export async function resetPassword(token: string, password: string) {
       data: { usedAt: new Date() }
     });
     if (consumed.count !== 1) return false;
+    await transaction.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() }
+    });
     await transaction.user.update({ where: { id: user.id }, data: { passwordHash } });
     await transaction.auditLog.create({
       data: {

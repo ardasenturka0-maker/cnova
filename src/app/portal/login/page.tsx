@@ -1,4 +1,5 @@
 import { Activity } from "lucide-react";
+import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -15,6 +16,7 @@ import {
   patientCookieName
 } from "@/lib/patient-auth";
 import { allowServerAction } from "@/lib/server-action-rate-limit";
+import { takeRateLimit } from "@/lib/rate-limit";
 import { portalLoginSchema } from "@/lib/validations/portal";
 
 async function patientLoginAction(formData: FormData) {
@@ -27,7 +29,11 @@ async function patientLoginAction(formData: FormData) {
   // The limiter still includes the request IP internally, while this discriminator
   // gives each clinic-scoped identity an independent attempt budget.
   const loginIdentity = `${parsed.data.organizationSlug}:${normalizePhone(parsed.data.phone)}`;
-  if (!await allowServerAction(`portal-login:${loginIdentity}`, 5, 15 * 60 * 1000)) redirect("/portal/login?error=rate");
+  const loginIdentityHash = createHash("sha256").update(loginIdentity).digest("base64url");
+  // Keep an identity-only budget as well as the IP budget. Otherwise rotating or
+  // spoofing forwarded IP headers could bypass protection for low-entropy DOB auth.
+  const identityLimit = takeRateLimit({ key: `portal-login-account:${loginIdentityHash}`, limit: 5, windowMs: 15 * 60 * 1000 });
+  if (!identityLimit.allowed || !await allowServerAction(`portal-login:${loginIdentityHash}`, 5, 15 * 60 * 1000)) redirect("/portal/login?error=rate");
 
   const patient = await findPatientForPortal(parsed.data.organizationSlug, parsed.data.phone, parsed.data.birthDate);
   if (!patient) {

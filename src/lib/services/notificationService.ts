@@ -15,6 +15,13 @@ type SendMessageInput = {
 };
 
 export async function sendMessage(input: SendMessageInput) {
+  if (input.patientId) {
+    const patient = await prisma.patient.findFirst({
+      where: { id: input.patientId, organizationId: input.organizationId, deletedAt: null },
+      select: { id: true }
+    });
+    if (!patient) throw new Error("Hasta bulunamadı veya bu kliniğe ait değil.");
+  }
   const provider =
     input.channel === CommunicationChannel.WHATSAPP
       ? whatsappProvider

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { PaymentMethod, PaymentStatus, PaymentType, Role, TreatmentStatus } from "@prisma/client";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { TreatmentStatusBadge } from "@/components/dashboard/treatment-status-badge";
+import { PatientDoctorFields } from "@/components/dashboard/patient-doctor-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,12 +30,19 @@ async function createPlanAction(formData: FormData) {
   const parsed = treatmentPlanSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) redirect(resultUrl("error", parsed.error.issues[0]?.message ?? "Tedavi planı formu geçersiz."));
   const payload = parsed.data;
-  const [patient, doctor] = await Promise.all([
-    prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId, deletedAt: null }, select: { branchId: true } }),
-    prisma.user.findFirst({ where: { id: payload.doctorId, organizationId: session.organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, select: { id: true } })
-  ]);
+  const patient = await prisma.patient.findFirst({ where: { id: payload.patientId, organizationId: session.organizationId, deletedAt: null }, select: { branchId: true } });
   if (!patient) redirect(resultUrl("error", "Hasta bulunamadı veya bu kliniğe ait değil."));
-  if (!doctor) redirect(resultUrl("error", "Doktor bulunamadı veya bu kliniğe ait değil."));
+  const doctor = await prisma.user.findFirst({
+    where: {
+      id: payload.doctorId,
+      organizationId: session.organizationId,
+      active: true,
+      role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] },
+      OR: [{ branchId: patient.branchId }, { branchId: null }]
+    },
+    select: { id: true }
+  });
+  if (!doctor) redirect(resultUrl("error", "Doktor bulunamadı, aktif değil veya hastanın şubesinde çalışmıyor."));
   const paymentPlan = buildPaymentPlan({
     total: payload.estimatedFee,
     downPayment: payload.downPayment,
@@ -73,8 +81,8 @@ export default async function TreatmentPlansPage({ searchParams }: { searchParam
   const locale = await getLocale();
   const [plans, patients, doctors] = await Promise.all([
     prisma.treatmentPlan.findMany({ where: { organizationId: session.organizationId, patient: { deletedAt: null } }, include: { patient: true, doctor: { select: { name: true } } }, orderBy: { plannedAt: "desc" }, take: 100 }),
-    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, orderBy: { firstName: "asc" }, take: 200 }),
-    prisma.user.findMany({ where: { organizationId: session.organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, orderBy: { name: "asc" } })
+    prisma.patient.findMany({ where: { organizationId: session.organizationId, deletedAt: null }, select: { id: true, firstName: true, lastName: true, branchId: true }, orderBy: { firstName: "asc" }, take: 200 }),
+    prisma.user.findMany({ where: { organizationId: session.organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true }, select: { id: true, name: true, branchId: true }, orderBy: { name: "asc" } })
   ]);
 
   return (
@@ -86,8 +94,7 @@ export default async function TreatmentPlansPage({ searchParams }: { searchParam
         <CardHeader><CardTitle>Plan ekle</CardTitle></CardHeader>
         <CardContent>
           <form action={createPlanAction} className="grid gap-4 lg:grid-cols-4">
-            <div className="space-y-2"><Label>Hasta</Label><Select name="patientId" required><option value="">Seçin</option>{patients.map((p) => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}</Select></div>
-            <div className="space-y-2"><Label>Doktor</Label><Select name="doctorId" required><option value="">Seçin</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></div>
+            <PatientDoctorFields patients={patients} doctors={doctors} />
             <div className="space-y-2"><Label>Diş no</Label><Input name="toothNumber" /></div>
             <div className="space-y-2"><Label>Tedavi türü</Label><Input name="treatmentType" placeholder="İmplant" required /></div>
             <div className="space-y-2"><Label>Tahmini ücret</Label><Input name="estimatedFee" type="number" min="0" defaultValue="0" /></div>

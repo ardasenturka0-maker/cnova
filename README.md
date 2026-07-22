@@ -1,16 +1,16 @@
-# ClinicNova 1.6
+# ClinicNova 1.15.6
 
-ClinicNova; diş klinikleri ve sağlık turizmi ekipleri için çok kiracılı hasta, randevu, finans, iletişim ve satış operasyonu platformudur. Next.js 15, TypeScript, Prisma ve PostgreSQL üzerinde çalışır; web ile Android istemcisi aynı canlı sistemi kullanır.
+ClinicNova; diş klinikleri için çok kiracılı hasta, randevu, tedavi, finans, iletişim ve stok yönetimi platformudur. Next.js 15, TypeScript, Prisma ve PostgreSQL üzerinde çalışır; web, Android, iOS, Windows ve macOS istemcileri aynı klinik verisini kullanır.
 
 ## Başlıca yetenekler
 
 - Klinik ve şube bazlı kullanıcı/rol ayrımı, güvenli oturum ve audit log
 - Hasta, randevu, tedavi, tahsilat, stok, personel, rapor ve hasta portalı
-- Lead, teklif paketi, otel/transfer, takip, bakım, yorum, onam ve yayın galerisi
+- Takip/recall, hasta iletişimi, dijital onam ve memnuniyet anketleri
 - CSV/veri dışa aktarma, yazdırılabilir raporlar ve zaman damgalı elektronik onam
 - İmzalı n8n çıkışı ile WhatsApp, SMS, e-posta, ödeme ve e-belge sağlayıcı adaptörleri
 - Üretim hazırlık kontrolü, health/readiness uçları, migration, Docker ve GitHub Actions
-- Ayrı üretim/demo Android paketleri; üretim paketi yerel örnek hasta verisi içermez
+- Ayrı üretim/demo mobil paketleri; üretim paketi yerel örnek hasta verisi içermez
 
 Canlı sağlayıcı yapılandırılmamışsa dış işlem başarı gibi gösterilmez. İlgili kayıt `FAILED` veya `DRAFT` kalır ve kullanıcı açık hata görür.
 
@@ -60,6 +60,7 @@ npm run start:production
 - Android kılavuzu: [`mobile/README.md`](mobile/README.md)
 - Windows/macOS kılavuzu: [`desktop/README.md`](desktop/README.md)
 - Klinik kurulum kontrol listesi: [`docs/CLINIC-INSTALL.md`](docs/CLINIC-INSTALL.md)
+- 1.15.6 platform denetim raporu: [`docs/PLATFORM-AUDIT-1.15.6.md`](docs/PLATFORM-AUDIT-1.15.6.md)
 - Tek sunuculuk kurulum otomasyonu: [`ops/deploy/README.md`](ops/deploy/README.md)
 
 ## Android

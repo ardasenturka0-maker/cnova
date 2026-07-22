@@ -32,10 +32,6 @@ export async function GET() {
   return NextResponse.json(
     {
       status: ready ? "ready" : "not_ready",
-      mode: readiness.mode,
-      database: databaseReady ? "ok" : "unavailable",
-      fileSecurity: fileSecurityReady ? "ok" : "unavailable",
-      checks: readiness.checks.map(({ key, label, state, detail }) => ({ key, label, state, detail })),
       timestamp: new Date().toISOString()
     },
     { status: ready ? 200 : 503, headers: { "Cache-Control": "no-store" } }

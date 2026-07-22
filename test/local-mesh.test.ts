@@ -105,3 +105,32 @@ test("tampered envelopes and broken device chains are rejected", () => {
   forgedVector.operations[0].vector[forgedVector.operations[0].deviceId] = 99;
   assert.throws(() => engine("target-four").merge(forgedVector), /bütünlük|bozuk/);
 });
+
+test("authenticated-looking mesh logs reject unknown collections, prototype keys and resource exhaustion payloads", () => {
+  const api = meshApi();
+  const sourceEngine = engine("bounded-source-device");
+  sourceEngine.capture({ patients: [{ id: "safe-patient", name: "Hasta" }] });
+
+  const forged = (mutate: (operation: Record<string, unknown>) => void) => {
+    const envelope = JSON.parse(JSON.stringify(sourceEngine.export())) as { operations: Array<Record<string, unknown>>; digest: string };
+    const operation = envelope.operations[0];
+    mutate(operation);
+    const body = { ...operation }; delete body.hash;
+    operation.hash = api.digest(body);
+    envelope.digest = api.digest(envelope.operations);
+    return envelope;
+  };
+
+  assert.throws(() => engine("bounded-target-one").merge(forged((operation) => { operation.collection = "unknownRecords"; })), /bozuk/);
+  assert.throws(() => engine("bounded-target-two").merge(forged((operation) => {
+    operation.payload = JSON.parse('{"id":"safe-patient","__proto__":{"polluted":true}}');
+  })), /geçersiz|bozuk/);
+  assert.throws(() => engine("bounded-target-three").merge(forged((operation) => {
+    let nested: Record<string, unknown> = { value: "bottom" };
+    for (let depth = 0; depth < 20; depth += 1) nested = { nested };
+    operation.payload = { id: "safe-patient", nested };
+  })), /geçersiz|bozuk/);
+  assert.throws(() => engine("bounded-target-four").merge(forged((operation) => {
+    operation.payload = { id: "safe-patient", note: "x".repeat(4 * 1024 * 1024 + 1) };
+  })), /geçersiz|bozuk/);
+});

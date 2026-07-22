@@ -1,7 +1,12 @@
 import { AppointmentStatus, Role } from "@prisma/client";
+import { parseClinicDateTime } from "@/lib/clinic-time";
 import { prisma } from "@/lib/prisma";
 import { consumeTreatmentRecipe } from "@/lib/services/treatmentStockService";
+import { assertAppointmentAvailability, isActiveSchedulingStatus, withSerializableAppointmentTransaction } from "@/lib/services/appointmentAvailability";
 import type { AppointmentInput } from "@/lib/validations/appointment";
+
+export { assertAppointmentAvailability, withSerializableAppointmentTransaction } from "@/lib/services/appointmentAvailability";
+export type { AppointmentAvailabilityInput } from "@/lib/services/appointmentAvailability";
 
 export async function getAppointments(organizationId: string, range?: { from: Date; to: Date }) {
   return prisma.appointment.findMany({
@@ -24,61 +29,56 @@ export async function getAppointmentFormOptions(organizationId: string) {
   return { patients, doctors };
 }
 
-async function assertDoctorAvailability(organizationId: string, doctorId: string, startsAt: Date, durationMinutes: number) {
-  const endAt = new Date(startsAt.getTime() + durationMinutes * 60 * 1000);
-  const dayStart = new Date(startsAt);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(startsAt);
-  dayEnd.setHours(23, 59, 59, 999);
-
-  const sameDayAppointments = await prisma.appointment.findMany({
-    where: {
-      organizationId,
-      doctorId,
-      status: { not: AppointmentStatus.CANCELLED },
-      startsAt: { gte: dayStart, lte: dayEnd }
-    }
-  });
-
-  const conflict = sameDayAppointments.find((appointment) => {
-    const existingEnd = new Date(appointment.startsAt.getTime() + appointment.durationMinutes * 60 * 1000);
-    return startsAt < existingEnd && endAt > appointment.startsAt;
-  });
-
-  if (conflict) {
-    throw new Error("Secilen doktorun bu saat araliginda randevusu var.");
-  }
-}
-
 export async function createAppointment(organizationId: string, input: AppointmentInput) {
-  const [patient, doctor] = await Promise.all([
-    prisma.patient.findFirst({ where: { id: input.patientId, organizationId, deletedAt: null }, select: { branchId: true } }),
-    prisma.user.findFirst({ where: { id: input.doctorId, organizationId, active: true, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] } }, select: { id: true } })
-  ]);
+  const startsAt = parseClinicDateTime(input.startsAt);
+  if (!startsAt) throw new Error("Geçerli bir randevu tarihi ve saati seçin.");
 
-  if (!patient) {
-    throw new Error("Hasta bulunamadi.");
-  }
-  if (!doctor) throw new Error("Seçilen doktor bulunamadı veya bu kliniğe ait değil.");
+  return withSerializableAppointmentTransaction(async (transaction) => {
+    const patient = await transaction.patient.findFirst({
+      where: { id: input.patientId, organizationId, deletedAt: null },
+      select: { branchId: true }
+    });
+    if (!patient) throw new Error("Hasta bulunamadı.");
 
-  const startsAt = new Date(input.startsAt);
-  await assertDoctorAvailability(organizationId, input.doctorId, startsAt, input.durationMinutes);
+    const doctor = await transaction.user.findFirst({
+      where: {
+        id: input.doctorId,
+        organizationId,
+        active: true,
+        role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] },
+        OR: [{ branchId: patient.branchId }, { branchId: null }]
+      },
+      select: { id: true }
+    });
+    if (!doctor) throw new Error("Seçilen doktor aktif değil, bu kliniğe ait değil veya hastanın şubesinde çalışmıyor.");
 
-  return prisma.$transaction(async (tx) => {
-    const appointment = await tx.appointment.create({ data: {
-      patientId: input.patientId,
-      doctorId: input.doctorId,
-      startsAt,
-      durationMinutes: input.durationMinutes,
-      room: input.room || null,
-      treatmentType: input.treatmentType,
-      status: input.status as AppointmentStatus,
-      notes: input.notes || null,
-      organizationId,
-      branchId: patient.branchId
-    } });
+    if (isActiveSchedulingStatus(input.status as AppointmentStatus)) {
+      await assertAppointmentAvailability(transaction, {
+        organizationId,
+        branchId: patient.branchId,
+        doctorId: doctor.id,
+        startsAt,
+        durationMinutes: input.durationMinutes,
+        room: input.room
+      });
+    }
+
+    const appointment = await transaction.appointment.create({
+      data: {
+        patientId: input.patientId,
+        doctorId: doctor.id,
+        startsAt,
+        durationMinutes: input.durationMinutes,
+        room: input.room || null,
+        treatmentType: input.treatmentType,
+        status: input.status as AppointmentStatus,
+        notes: input.notes || null,
+        organizationId,
+        branchId: patient.branchId
+      }
+    });
     if (appointment.status === AppointmentStatus.COMPLETED) {
-      await consumeTreatmentRecipe(tx, organizationId, patient.branchId, appointment.treatmentType, { appointmentId: appointment.id });
+      await consumeTreatmentRecipe(transaction, organizationId, patient.branchId, appointment.treatmentType, { appointmentId: appointment.id });
     }
     return appointment;
   });

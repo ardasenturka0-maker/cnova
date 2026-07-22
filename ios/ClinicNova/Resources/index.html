@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
     <meta name="theme-color" content="#f8fafc" />
     <meta name="color-scheme" content="light dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self' https:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self' https:" />
     <title>ClinicNova</title>
     <link rel="stylesheet" href="app.css" />
   </head>
@@ -40,20 +40,24 @@
           <span class="brand-mark"><span class="pulse-line">⌁</span></span>
           <span><strong>ClinicNova</strong><small>Dental Growth OS</small></span>
         </div>
+        <div id="authModeTabs" class="auth-mode-tabs" role="tablist" aria-label="Hesap işlemleri">
+          <button id="registerModeButton" class="active" type="button" role="tab" aria-selected="true">Kaydol</button>
+          <button id="loginModeButton" type="button" role="tab" aria-selected="false">Giriş Yap</button>
+        </div>
         <div class="login-copy">
           <span id="loginEyebrow" class="eyebrow">GÜVENLİ KLİNİK ERİŞİMİ</span>
           <h1 id="loginTitle">Kliniğiniz çevrimdışı da çalışır.</h1>
           <p id="loginDescription">Kayıtları önce bu cihazda saklayın; sunucuyu bağladığınızda otomatik eşitleyin.</p>
         </div>
         <form id="loginForm" class="form-stack">
-          <label id="serverUrlField">ClinicNova sunucu adresi<input id="serverUrl" name="serverUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://app.kliniginiz.com" /></label>
+          <label id="serverUrlField">ClinicNova sunucu adresi<input id="serverUrl" name="serverUrl" type="url" inputmode="url" autocomplete="url" maxlength="2048" placeholder="https://app.kliniginiz.com" /></label>
           <div id="localSetupFields" class="form-stack" hidden>
             <label>Klinik adı<input id="localClinicName" autocomplete="organization" maxlength="120" /></label>
             <label>Yönetici adı<input id="localAdminName" autocomplete="name" maxlength="120" /></label>
           </div>
           <div id="demoLoginFields" class="form-stack" hidden>
-            <label>E-posta<input id="loginEmail" type="email" autocomplete="email" /></label>
-            <label>Parola<input id="loginPassword" type="password" autocomplete="current-password" minlength="10" /></label>
+            <label>E-posta<input id="loginEmail" type="email" autocomplete="email" maxlength="240" /></label>
+            <label>Parola<input id="loginPassword" type="password" autocomplete="current-password" minlength="10" maxlength="4096" /></label>
           </div>
           <button class="button button-primary button-large" type="submit"><span id="loginSubmitLabel">Yerel çalışmayı başlat</span> <svg><use href="#i-chevron"/></svg></button>
           <button id="serverLoginButton" class="button button-secondary button-large" type="button" hidden>İnternetli kullanım / sunucuya bağlan</button>

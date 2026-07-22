@@ -13,8 +13,13 @@ test("iOS is a real native local-first client, not the HTML preview", async () =
   ]);
   assert.match(view, /WKWebView/);
   assert.match(view, /ClinicNovaMeshEnvelope/);
-  assert.match(view, /ClinicNovaMeshPersistenceFailure/);
-  assert.match(view, /ClinicNovaStorageFailure/);
+  assert.match(view, /meshConfigure: function[\s\S]*?window\.prompt\("__clinicnova_mesh_configure__"[\s\S]*?if \(result !== "ok"\) return false;[\s\S]*?__clinicNovaIOSConfig = normalized/);
+  assert.match(view, /meshPublish: function[\s\S]*?window\.prompt\("__clinicnova_mesh_publish__"[\s\S]*?if \(result !== "ok"\) return false;[\s\S]*?__clinicNovaIOSEnvelope = normalized/);
+  assert.match(view, /meshDisable: function[\s\S]*?window\.prompt\("__clinicnova_mesh_disable__"[\s\S]*?if \(result !== "ok"\) return false;[\s\S]*?__clinicNovaIOSConfig = ""/);
+  assert.match(view, /guard store\.write\("config", value: value\) else \{[\s\S]*?if previous\.isEmpty \{ mesh\.stop\(\) \} else \{ try\? mesh\.configure\(previous\) \}/);
+  assert.doesNotMatch(view, /"meshConfigure",\s*"meshPublish",\s*"meshDisable"/);
+  assert.match(view, /storageSet: function[\s\S]*?window\.prompt\("__clinicnova_storage_set__"[\s\S]*?if \(result !== "ok"\) return false;[\s\S]*?__clinicNovaIOSRecords\[key\] = value/);
+  assert.match(view, /completionHandler\(writeLocalRecord\(key: key, value: stored\) \? "ok" : nil\)/);
   assert.match(view, /writeLocalRecord\(key: key, value: stored\)/);
   assert.match(view, /meshGetConfig/);
   assert.match(transport, /_clinicnova\._tcp\./);

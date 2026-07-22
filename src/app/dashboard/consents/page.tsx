@@ -17,6 +17,7 @@ import { requireModuleAccess } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
+import { publicErrorMessage } from "@/lib/public-error";
 import { sendMessage } from "@/lib/services/notificationService";
 import { consentSchema } from "@/lib/validations/engagement";
 import { formatDateTime } from "@/lib/utils";
@@ -100,7 +101,7 @@ async function sendConsentAction(id: string) {
       subject: consent.templateName
     });
   } catch (error) {
-    redirect(resultUrl("error", error instanceof Error ? error.message : "Onam bağlantısı gönderilemedi."));
+    redirect(resultUrl("error", publicErrorMessage(error, "Onam bağlantısı gönderilemedi.")));
   }
 
   await Promise.all([

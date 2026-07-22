@@ -53,8 +53,20 @@ export async function verifyPatientSessionToken(token: string): Promise<PatientS
       issuer: authIssuer,
       audience: authAudience
     });
-    if (payload.kind !== "patient") return null;
-    return payload as PatientSession;
+    if (
+      payload.kind !== "patient"
+      || typeof payload.patientId !== "string"
+      || typeof payload.name !== "string"
+      || typeof payload.organizationId !== "string"
+      || typeof payload.branchId !== "string"
+    ) return null;
+    return {
+      kind: "patient",
+      patientId: payload.patientId,
+      name: payload.name,
+      organizationId: payload.organizationId,
+      branchId: payload.branchId
+    };
   } catch {
     return null;
   }
@@ -72,9 +84,21 @@ export async function requirePatientSession() {
   if (!session) {
     redirect("/portal/login");
   }
-  const activePatient = await prisma.patient.count({ where: { id: session.patientId, organizationId: session.organizationId, deletedAt: null } });
-  if (activePatient !== 1) {
+  const activePatient = await prisma.patient.findFirst({
+    where: {
+      id: session.patientId,
+      organizationId: session.organizationId,
+      deletedAt: null,
+      branch: { organizationId: session.organizationId }
+    },
+    select: { firstName: true, lastName: true, branchId: true }
+  });
+  if (!activePatient) {
     redirect("/portal/logout?reason=inactive");
   }
-  return session;
+  return {
+    ...session,
+    name: `${activePatient.firstName} ${activePatient.lastName}`.trim(),
+    branchId: activePatient.branchId
+  } satisfies PatientSession;
 }

@@ -1,5 +1,6 @@
 import { Role } from "@prisma/client";
-import { hashPassword, loginWithPassword } from "@/lib/auth";
+import { loginWithPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
 export async function authenticate(email: string, password: string) {
