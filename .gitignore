@@ -13,6 +13,7 @@ mobile/build
 mobile/.cache
 ios/build
 ios/build-device
+ios/*.xcodeproj/project.xcworkspace/
 desktop/build
 desktop/build-resources
 desktop/app
