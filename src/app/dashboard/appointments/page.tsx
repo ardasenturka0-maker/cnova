@@ -12,12 +12,13 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { requireModuleAccess } from "@/lib/auth";
-import { addClinicDateKey, clinicDateKey, clinicStartOfDay, clinicTimeZone, shiftClinicMonth } from "@/lib/clinic-time";
+import { addClinicDateKey, clinicDateKey, clinicStartOfDay, clinicTimeZone, parseClinicDateKey, shiftClinicMonth } from "@/lib/clinic-time";
 import { intlLocale, statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { prisma } from "@/lib/prisma";
 import { publicErrorMessage } from "@/lib/public-error";
 import { createAppointment, getAppointmentFormOptions, getAppointments } from "@/lib/services/appointmentService";
+import { createCalendarNote, deleteCalendarNote, getCalendarNotes } from "@/lib/services/homeBoardService";
 import { getPortalAppointmentRequests, resolvePortalAppointmentRequest } from "@/lib/services/portalService";
 import { sendMessage } from "@/lib/services/notificationService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
@@ -51,6 +52,54 @@ async function createAppointmentAction(formData: FormData) {
 
   revalidatePath("/dashboard/appointments");
   redirect(resultUrl("success", "Randevu oluşturuldu."));
+}
+
+/** Keeps the selected day (and its month) in the URL after a note action. */
+function dayResultUrl(type: "success" | "error", message: string, dayKey: string) {
+  const params = new URLSearchParams();
+  if (dayKey) {
+    params.set("month", dayKey.slice(0, 7));
+    params.set("day", dayKey);
+  }
+  params.set(type, message);
+  return `/dashboard/appointments?${params.toString()}`;
+}
+
+async function addDayNoteAction(formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("appointments");
+  const dayKey = String(formData.get("dateKey") ?? "");
+  try {
+    await createCalendarNote(
+      session.organizationId,
+      session.branchId,
+      dayKey,
+      String(formData.get("text") ?? ""),
+      String(formData.get("doctor") ?? "") || null,
+      session.role
+    );
+  } catch (error) {
+    redirect(dayResultUrl("error", actionErrorMessage(error, "Hekim çalışma notu kaydedilemedi."), dayKey));
+  }
+
+  revalidatePath("/dashboard/appointments");
+  revalidatePath("/dashboard");
+  redirect(dayResultUrl("success", "Hekim çalışma notu eklendi.", dayKey));
+}
+
+async function deleteDayNoteAction(formData: FormData) {
+  "use server";
+  const session = await requireModuleAccess("appointments");
+  const dayKey = String(formData.get("dateKey") ?? "");
+  try {
+    await deleteCalendarNote(session.organizationId, String(formData.get("noteId") ?? ""));
+  } catch (error) {
+    redirect(dayResultUrl("error", actionErrorMessage(error, "Not kaldırılamadı."), dayKey));
+  }
+
+  revalidatePath("/dashboard/appointments");
+  revalidatePath("/dashboard");
+  redirect(dayResultUrl("success", "Not kaldırıldı.", dayKey));
 }
 
 async function resolveRequestAction(appointmentId: string, decision: "approve" | "reject") {
@@ -106,12 +155,13 @@ async function sendReminderAction(patientId: string, phone: string) {
   redirect(resultUrl("success", "Randevu hatırlatması sağlayıcıya teslim edildi."));
 }
 
-export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string; month?: string }> }) {
+export default async function AppointmentsPage(props: { searchParams: Promise<{ success?: string; error?: string; month?: string; day?: string }> }) {
   const searchParams = await props.searchParams;
   const session = await requireModuleAccess("appointments");
   const locale = await getLocale();
   const todayKey = clinicDateKey(new Date());
-  const requestedMonth = /^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(searchParams.month ?? "") ? searchParams.month! : null;
+  const selectedDayKey = parseClinicDateKey(searchParams.day ?? "") ?? todayKey;
+  const requestedMonth = /^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(searchParams.month ?? "") ? searchParams.month! : selectedDayKey.slice(0, 7);
   const monthMatch = requestedMonth ?? todayKey.slice(0, 7);
   const monthStartKey = `${monthMatch}-01`;
   const monthStart = clinicStartOfDay(monthStartKey);
@@ -123,12 +173,19 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
   });
   const calendarStart = clinicStartOfDay(calendarStartKey);
   const calendarEnd = clinicStartOfDay(addClinicDateKey(calendarStartKey, 42));
-  const [appointments, options, portalRequests, organization] = await Promise.all([
+  const [appointments, options, portalRequests, organization, calendarNotes] = await Promise.all([
     getAppointments(session.organizationId, { from: calendarStart, to: calendarEnd }),
     getAppointmentFormOptions(session.organizationId),
     getPortalAppointmentRequests(session.organizationId),
-    prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } })
+    prisma.organization.findUnique({ where: { id: session.organizationId }, select: { clinicSettings: true } }),
+    getCalendarNotes(session.organizationId, session.branchId)
   ]);
+  const noteDayKeys = new Set(calendarNotes.map((note) => note.dateKey));
+  const selectedDayAppointments = appointments
+    .filter((appointment) => clinicDateKey(appointment.startsAt) === selectedDayKey)
+    .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+  const selectedDayNotes = calendarNotes.filter((note) => note.dateKey === selectedDayKey);
+  const selectedDayLabel = new Intl.DateTimeFormat(intlLocale(locale), { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: clinicTimeZone }).format(clinicStartOfDay(selectedDayKey));
   const settings = organization?.clinicSettings as { chairs?: unknown } | null;
   const configuredChairs = Array.isArray(settings?.chairs) ? settings.chairs.filter((item): item is string => typeof item === "string") : [];
   const previousMonth = shiftClinicMonth(monthStartKey, -1).slice(0, 7);
@@ -269,9 +326,18 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
           const dayAppointments = appointments.filter((appointment) => clinicDateKey(appointment.startsAt) === day.key);
           const inMonth = day.key.startsWith(monthMatch);
           const isToday = day.key === todayKey;
+          const isSelected = day.key === selectedDayKey;
+          const hasNote = noteDayKeys.has(day.key);
           return (
-            <div key={day.key} data-calendar-day className={`min-h-28 border-b border-r p-2 ${inMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
-                <div className={`mb-2 text-xs font-medium ${isToday ? "inline-grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground" : ""}`}>{Number(day.key.slice(-2))}</div>
+            <div key={day.key} data-calendar-day className={`min-h-28 border-b border-r p-2 ${inMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}>
+                <div className="mb-2 flex items-center gap-1.5">
+                  <Link
+                    href={`/dashboard/appointments?month=${monthMatch}&day=${day.key}`}
+                    aria-label={`${Number(day.key.slice(-2))} gününü seç${hasNote ? ", hekim notu var" : ""}`}
+                    className={`text-xs font-medium ${isToday ? "inline-grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground" : "hover:underline"}`}
+                  >{Number(day.key.slice(-2))}</Link>
+                  {hasNote ? <span className="h-1.5 w-1.5 rounded-full bg-accent" title="Hekim çalışma notu var" /> : null}
+                </div>
                 <div className="space-y-1">{dayAppointments.map((appointment) => (
                   <div key={appointment.id} className="rounded-md border bg-background p-2 text-xs">
                     <div className="truncate font-medium">{appointment.patient.firstName} {appointment.patient.lastName}</div>
@@ -286,6 +352,74 @@ export default async function AppointmentsPage(props: { searchParams: Promise<{ 
       </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Gün planı</CardTitle>
+            <p className="text-sm capitalize text-muted-foreground">{selectedDayLabel} · {selectedDayAppointments.length} randevu</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {selectedDayAppointments.map((appointment) => (
+              <div key={appointment.id} className="flex flex-col gap-2 rounded-lg border bg-background p-3 sm:flex-row sm:items-center">
+                <div className="shrink-0 rounded-md bg-primary/10 px-3 py-1.5 text-center">
+                  <p className="font-bold leading-tight text-primary">{new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: clinicTimeZone }).format(appointment.startsAt)}</p>
+                  <p className="text-[11px] text-primary/70">{appointment.durationMinutes} dk</p>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Link href={`/dashboard/patients/${appointment.patientId}`} className="font-medium hover:underline">
+                    {appointment.patient.firstName} {appointment.patient.lastName}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{appointment.treatmentType} · {appointment.doctor.name}{appointment.room ? ` · ${appointment.room}` : ""}</p>
+                </div>
+                <Badge variant="muted" className="self-start sm:self-center">{statusLabel(appointment.status, locale)}</Badge>
+              </div>
+            ))}
+            {selectedDayAppointments.length === 0 ? (
+              <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Bu gün için randevu yok. Takvimden başka bir gün seçebilirsiniz.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Hekim çalışma notları</CardTitle>
+            <p className="text-sm text-muted-foreground">Hekimin o gün çalıştığı saatler, izin ve şube bilgisi — randevu verirken burayı kontrol edin.</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {selectedDayNotes.map((note) => (
+              <div key={note.id} className="flex items-start gap-3 rounded-lg border border-l-4 border-l-accent bg-muted/40 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm leading-relaxed">{note.text}</p>
+                  {note.doctor ? <p className="mt-1 text-xs font-semibold text-muted-foreground">{note.doctor}</p> : null}
+                </div>
+                <form action={deleteDayNoteAction}>
+                  <input type="hidden" name="noteId" value={note.id} />
+                  <input type="hidden" name="dateKey" value={selectedDayKey} />
+                  <Button type="submit" size="sm" variant="ghost" aria-label="Notu kaldır"><X className="h-4 w-4" /></Button>
+                </form>
+              </div>
+            ))}
+            {selectedDayNotes.length === 0 ? (
+              <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">Bu gün için hekim notu yok.</p>
+            ) : null}
+
+            <form action={addDayNoteAction} className="space-y-2 rounded-lg border border-dashed p-3">
+              <input type="hidden" name="dateKey" value={selectedDayKey} />
+              <Textarea name="text" rows={2} maxLength={500} required placeholder="Örn. Dr. Ayşe 09:00-14:00 çalışıyor, sonrasında 1 hafta izinli" aria-label="Hekim çalışma notu" />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Select name="doctor" aria-label="İlgili hekim" className="flex-1">
+                  <option value="">Genel not</option>
+                  {options.doctors.map((doctor) => (
+                    <option key={doctor.id} value={doctor.name}>{doctor.name}</option>
+                  ))}
+                </Select>
+                <Button type="submit" size="sm">Notu kaydet</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>

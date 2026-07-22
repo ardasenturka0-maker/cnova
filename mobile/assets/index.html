@@ -124,8 +124,19 @@
           <div class="calendar-toolbar"><button class="icon-button" data-calendar-step="-1" aria-label="Önceki ay">‹</button><strong id="calendarMonthLabel"></strong><button class="icon-button" data-calendar-step="1" aria-label="Sonraki ay">›</button></div>
           <div class="calendar-weekdays" aria-hidden="true"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div>
           <div id="dateStrip" class="month-calendar"></div>
-          <div class="summary-strip"><span><strong id="appointmentTotal">0</strong> randevu</span><span><i class="status-dot status-planned"></i>Planlı</span><span><i class="status-dot status-arrived"></i>Geldi</span></div>
-          <div id="appointmentList" class="appointment-list"></div>
+          <p id="selectedDayLabel" class="selected-day-label"></p>
+          <div class="day-split">
+            <section class="day-panel">
+              <div class="day-panel-head"><div><span class="eyebrow">RANDEVULAR</span><h3>Gün planı</h3></div><button type="button" class="icon-button day-panel-add" data-action="add-appointment" aria-label="Bu güne randevu oluştur"><svg><use href="#i-plus"/></svg></button></div>
+              <div class="summary-strip"><span><strong id="appointmentTotal">0</strong> randevu</span><span><i class="status-dot status-planned"></i>Planlı</span><span><i class="status-dot status-arrived"></i>Geldi</span></div>
+              <div id="appointmentList" class="appointment-list"></div>
+            </section>
+            <section class="day-panel">
+              <div class="day-panel-head"><div><span class="eyebrow">GÜN NOTLARI</span><h3>Hekim çalışma notları</h3></div><button type="button" class="icon-button day-panel-add" data-action="add-calendar-note" id="dayNoteAddButton" aria-label="Bu güne not ekle"><svg><use href="#i-plus"/></svg></button></div>
+              <p class="day-panel-hint">Hekimin o gün çalıştığı saatler, izin ve şube bilgisi burada görünür.</p>
+              <div id="dayNoteList" class="organizer-note-list" aria-live="polite"></div>
+            </section>
+          </div>
         </section>
 
         <section id="view-treatment-plans" class="view" data-view="treatment-plans">

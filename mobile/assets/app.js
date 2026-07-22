@@ -1315,7 +1315,9 @@
       const iso = calendarDateKey(date);
       const outside = date.getUTCMonth() !== first.getUTCMonth();
       const hasAppointment = state.appointments.some((item) => item.date === iso);
-      return `<button class="date-button ${iso === state.selectedDate ? "active" : ""} ${outside ? "outside" : ""} ${hasAppointment ? "has-appointment" : ""}" data-date="${iso}" aria-label="${new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, day: "numeric", month: "long", year: "numeric" }).format(date)}"><strong>${date.getUTCDate()}</strong></button>`;
+      const noteCount = calendarNotes.filter((item) => item.date === iso).length;
+      const label = new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, day: "numeric", month: "long", year: "numeric" }).format(date);
+      return `<button class="date-button ${iso === state.selectedDate ? "active" : ""} ${outside ? "outside" : ""} ${hasAppointment ? "has-appointment" : ""} ${noteCount ? "has-note" : ""}" data-date="${iso}" aria-label="${label}${noteCount ? `, ${noteCount} hekim notu` : ""}"><strong>${date.getUTCDate()}</strong>${noteCount ? `<i class="note-dot"></i>` : ""}</button>`;
     }).join("");
   }
 
@@ -1350,6 +1352,22 @@
       </button>`;
       return swipeDeleteRecord(content, `data-delete-appointment="${escapeHtml(appointment.id)}"`, `${patient?.name || "Hasta"} randevusunu kaldır`, "entry-row");
     }).join("") : `<div class="empty-state"><strong>Bu gün boş</strong><br/>Yeni bir randevu oluşturarak planlamaya başlayın.</div>`;
+    renderSelectedDayNotes();
+  }
+
+  function renderSelectedDayNotes() {
+    if (!$("#dayNoteList")) return;
+    const selected = calendarDate(state.selectedDate) || calendarDate(todayIso);
+    const label = $("#selectedDayLabel");
+    if (label) label.textContent = new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(selected);
+    const addButton = $("#dayNoteAddButton");
+    if (addButton) addButton.dataset.noteDate = state.selectedDate;
+    const notes = calendarNotes
+      .filter((item) => item.date === state.selectedDate)
+      .sort((left, right) => String(left.createdAt || left.id || "").localeCompare(String(right.createdAt || right.id || "")));
+    $("#dayNoteList").innerHTML = notes.length
+      ? notes.map((note) => `<article class="organizer-note"><span class="organizer-note-copy"><strong>${escapeHtml(note.text)}</strong>${note.doctor ? `<small>${escapeHtml(note.doctor)}</small>` : ""}</span><button type="button" class="todo-remove" data-delete-calendar-note="${escapeHtml(note.id)}" aria-label="Notu kaldır">×</button></article>`).join("")
+      : `<p class="empty-inline">Bu gün için hekim notu yok. + ile çalışma saati, izin veya şube notu ekleyin.</p>`;
   }
 
   function renderFinance() {
@@ -2514,7 +2532,7 @@
       const before = calendarNotes.length;
       calendarNotes = calendarNotes.filter((item) => String(item.id) !== String(target.dataset.deleteCalendarNote));
       if (calendarNotes.length === before) return;
-      saveData(); renderCalendarOrganizer(); showToast("Takvim notu kaldırıldı."); return;
+      saveData(); renderCalendarOrganizer(); renderAppointments(); showToast("Takvim notu kaldırıldı."); return;
     }
     if (target.dataset.treatmentDetail) return openTreatmentDetail(target.dataset.treatmentDetail);
     if (target.dataset.treatmentProgress) return openTreatmentProgress(target.dataset.treatmentProgress);
@@ -3132,7 +3150,7 @@
       state.organizerDate = date;
       const selected = calendarDate(date);
       if (selected) state.organizerMonth = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
-      saveData(); closeModal(); renderCalendarOrganizer(); showToast("Takvim notu eklendi."); return;
+      saveData(); closeModal(); renderCalendarOrganizer(); renderAppointments(); showToast("Takvim notu eklendi."); return;
     }
     if (event.target.id === "balancePaymentForm") {
       event.preventDefault();

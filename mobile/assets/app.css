@@ -171,7 +171,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .organizer-card .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .organizer-card .calendar-toolbar strong { font-size: 13px; }
 .organizer-card .calendar-weekdays span { color: var(--muted); font-size: 8px; font-weight: 800; text-align: center; }
-.month-calendar .date-button.has-note .note-dot { display: block; width: 4px; height: 4px; margin: 2px auto 0; border-radius: 50%; background: var(--accent); }
+.month-calendar .date-button.has-note .note-dot { display: block; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; margin: 0; border-radius: 50%; background: var(--accent); }
+.month-calendar .date-button.has-appointment.has-note .note-dot { transform: translateX(50%); }
 .month-calendar .date-button.active .note-dot { background: white; }
 .month-calendar .date-button.is-today { border-color: color-mix(in srgb, var(--primary) 55%, var(--line)); }
 .organizer-notes { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
@@ -251,9 +252,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .calendar-weekdays, .month-calendar { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 5px; }
 .calendar-weekdays { margin-bottom: 5px; color: var(--muted); text-align: center; font-size: 8px; font-weight: 800; }
 .month-calendar { margin-bottom: 14px; }
-.month-calendar .date-button { min-width: 0; min-height: 39px; padding: 5px 2px; border-radius: 11px; }
+.month-calendar .date-button { position: relative; min-width: 0; min-height: 39px; padding: 5px 2px 10px; border-radius: 11px; }
 .month-calendar .date-button.outside { opacity: .35; }
-.month-calendar .date-button.has-appointment::after { content: ""; width: 4px; height: 4px; margin: 1px auto 0; border-radius: 50%; background: var(--warning); }
+.month-calendar .date-button.has-appointment::after { content: ""; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; margin: 0; border-radius: 50%; background: var(--warning); }
+.month-calendar .date-button.has-appointment.has-note::after { transform: translateX(-150%); }
 .month-calendar .date-button.active::after { background: white; }
 .date-button { min-width: 54px; border: 1px solid var(--line); border-radius: 16px; display: grid; gap: 3px; color: var(--muted); background: var(--surface); padding: 9px 8px; text-align: center; }
 .date-button small { font-size: 8px; font-weight: 750; }
@@ -266,6 +268,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 99px; }
 .status-planned { background: var(--blue); }
 .status-arrived { background: var(--success); }
+.selected-day-label { margin: 2px 1px 12px; color: var(--text); font-size: 12px; font-weight: 800; text-transform: capitalize; }
+.day-split { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 680px) { .day-split { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+.day-panel { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 13px; }
+.day-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.day-panel-head h3 { margin-top: 2px; font-size: 14px; letter-spacing: -.02em; }
+.day-panel-add { width: 32px; height: 32px; border-radius: 10px; color: var(--primary); background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--line)); }
+.day-panel-add svg { width: 15px; height: 15px; }
+.day-panel-hint { margin-bottom: 10px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.day-panel .appointment-list { margin-top: 10px; }
 .appointment-list { display: grid; gap: 10px; margin-top: 14px; }
 .appointment-card { display: grid; grid-template-columns: 52px 1fr; gap: 12px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 14px; }
 .appointment-clock { border-right: 1px solid var(--line); }
