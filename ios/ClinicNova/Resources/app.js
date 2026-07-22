@@ -143,6 +143,16 @@
   let reminderDeliveries = localCollection("clinicnova.reminderDeliveries", []);
   let trashItems = (demoMode || localDataWasMigrated ? safeArray(storage.get("clinicnova.trashItems", [])) : []).filter((item) => !["surveys", "recalls"].includes(item?.kind));
   let dailyTodoCompletions = safeObject(storage.get("clinicnova.dailyTodoCompletions", {}));
+  const defaultManualTodos = [
+    { id: 900000000001, day: todayIso, title: "Sterilizasyon cihazını çalıştır", detail: "Sabah ilk iş otoklavı başlat.", icon: "🧼", done: true, createdAt: `${todayIso}T07:30:00.000Z` },
+    { id: 900000000002, day: todayIso, title: "Laboratuvara ölçü gönder", detail: "Ayşe Yılmaz implant ölçüsü kuryeyle gidecek.", icon: "🦷", done: false, createdAt: `${todayIso}T08:10:00.000Z` }
+  ];
+  const defaultCalendarNotes = [
+    { id: 900000000101, date: todayIso, text: "Dr. Lara Er bugün Nişantaşı Kliniği'nde · 09:00-17:00", doctor: "Dr. Lara Er", createdAt: `${todayIso}T06:00:00.000Z` },
+    { id: 900000000102, date: tomorrowIso, text: "Dr. Emir Aydın Ankara şubesinde · 10:00-15:00", doctor: "Dr. Emir Aydın", createdAt: `${todayIso}T06:05:00.000Z` }
+  ];
+  let manualTodos = localCollection("clinicnova.manualTodos", defaultManualTodos);
+  let calendarNotes = localCollection("clinicnova.calendarNotes", defaultCalendarNotes);
   let legacyOfferId = Date.now();
   stockItems.forEach((item) => {
     item.offers = safeArray(item.offers);
@@ -163,6 +173,8 @@
     transactionFilter: "ALL",
     consentFilter: "ALL",
     appointmentMonth: calendarDate(`${todayIso.slice(0, 7)}-01`),
+    organizerMonth: calendarDate(`${todayIso.slice(0, 7)}-01`),
+    organizerDate: todayIso,
     activeView: "home"
   };
   function refreshClinicClock(now = new Date()) {
@@ -355,7 +367,8 @@
     stockMovementForm: { note: 500 }, stockRecipeForm: { treatmentType: 200 },
     meshJoinForm: { code: 4096 }, doctorForm: { name: 160, email: 240, specialty: 160 },
     chairForm: { name: 80 }, clinicNameForm: { name: 120 }, stockOfferForm: { productUrl: 8192 },
-    connectionForm: { url: 2048 }, reminderSettingsForm: { template: 1000 }, recoveryForm: { code: 64, password: 4096 }
+    connectionForm: { url: 2048 }, reminderSettingsForm: { template: 1000 }, recoveryForm: { code: 64, password: 4096 },
+    manualTodoForm: { title: 200, detail: 200 }, calendarNoteForm: { text: 500, doctor: 160 }
   });
   function applyFormTextLimits(root) {
     for (const form of root.querySelectorAll?.("form[id]") || []) {
@@ -480,7 +493,8 @@
       consentHistory: consentRecords.flatMap((consent) => safeArray(consent.history).map((entry, index) => ({ ...entry, id: entry.id ?? `${consent.id}:${index}:${window.ClinicNovaMeshEngine.digest(entry)}`, consentId: consent.id }))),
       treatments, staffRecords,
       reminderSettings: [{ ...reminderSettings, id: "clinic" }], reminderDeliveries, trashItems,
-      dailyTodoCompletions: Object.entries(dailyTodoCompletions).flatMap(([day, tasks]) => Object.entries(safeObject(tasks)).map(([taskId, completedAt]) => ({ id: `${day}:${taskId}`, day, taskId, completedAt })))
+      dailyTodoCompletions: Object.entries(dailyTodoCompletions).flatMap(([day, tasks]) => Object.entries(safeObject(tasks)).map(([taskId, completedAt]) => ({ id: `${day}:${taskId}`, day, taskId, completedAt }))),
+      manualTodos, calendarNotes
     };
   }
   function applyMeshDocument(document) {
@@ -524,6 +538,8 @@
           if (day && taskId) (dailyTodoCompletions[day] ||= Object.create(null))[taskId] = String(completion.completedAt || "");
         }
       }
+      manualTodos = safeArray(document.manualTodos).filter((item) => item && typeof item === "object" && !Array.isArray(item));
+      calendarNotes = safeArray(document.calendarNotes).filter((item) => item && typeof item === "object" && !Array.isArray(item));
       const clinic = safeArray(document.clinicConfig)[0];
       if (clinic) {
         clinicChairs = safeArray(document.clinicChairs).map((chair) => String(chair.name || "")).filter(Boolean);
@@ -571,7 +587,8 @@
       ["clinicnova.consentRecords", consentRecords], ["clinicnova.treatments", treatments], ["clinicnova.staff", staffRecords],
       ["clinicnova.surveys", surveys], ["clinicnova.surveyResponses", surveyResponses], ["clinicnova.recalls", recalls],
       ["clinicnova.reminderSettings", reminderSettings], ["clinicnova.reminderDeliveries", reminderDeliveries], ["clinicnova.trashItems", trashItems],
-      ["clinicnova.dailyTodoCompletions", dailyTodoCompletions]
+      ["clinicnova.dailyTodoCompletions", dailyTodoCompletions],
+      ["clinicnova.manualTodos", manualTodos], ["clinicnova.calendarNotes", calendarNotes]
     ];
     const saved = writes.map(([key, value]) => storage.set(key, value)).every(Boolean);
     if (!saved) warnPersistenceFailure();
@@ -1180,10 +1197,54 @@
     return tasks.filter((task) => !completed[task.id]);
   }
 
+  const MANUAL_TODO_ICONS = ["📌", "📅", "☎", "₺", "🦷", "💊", "🧾", "🧼", "📦", "🔔", "✅", "⚙️"];
+  function safeManualIcon(value) {
+    return MANUAL_TODO_ICONS.includes(String(value)) ? String(value) : "📌";
+  }
+  function todaysManualTodos() {
+    return manualTodos
+      .filter((item) => item && item.day === todayIso)
+      .sort((left, right) => String(left.createdAt || left.id || "").localeCompare(String(right.createdAt || right.id || "")));
+  }
   function renderDailyTodos() {
     const tasks = buildDailyTodos();
-    $("#dailyTodoSummary").textContent = tasks.length ? `${tasks.length} görev kaldı` : "Bugün tamamlandı";
-    $("#dailyTodoList").innerHTML = tasks.length ? tasks.map((task) => `<article class="todo-card"><span class="todo-icon">${task.icon}</span><span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.detail)}</small></span><button type="button" class="todo-complete" data-complete-todo="${escapeHtml(task.id)}" ${task.go ? `data-todo-go="${escapeHtml(task.go)}"` : ""} ${task.module ? `data-todo-module="${escapeHtml(task.module)}"` : ""} aria-label="${escapeHtml(task.title)}: yapıldı">Yapıldı</button></article>`).join("") : `<div class="todo-complete-state"><span>✓</span><strong>Bugünün klinik kontrolleri tamamlandı.</strong></div>`;
+    const manual = todaysManualTodos();
+    const openManual = manual.filter((item) => !item.done).length;
+    const remaining = tasks.length + openManual;
+    $("#dailyTodoSummary").textContent = remaining ? `${remaining} görev kaldı` : "Bugün tamamlandı";
+    const manualHtml = manual.map((todo) => `<article class="todo-card manual ${todo.done ? "done" : ""}">
+      <span class="todo-icon">${escapeHtml(safeManualIcon(todo.icon))}</span>
+      <span><strong>${escapeHtml(todo.title)}</strong><small>${escapeHtml(todo.detail ? todo.detail : "Elle eklenen görev")}</small></span>
+      <div class="todo-manual-actions">
+        <button type="button" class="todo-complete ${todo.done ? "checked" : ""}" data-toggle-manual-todo="${escapeHtml(todo.id)}" aria-pressed="${todo.done ? "true" : "false"}" aria-label="${escapeHtml(todo.title)}: ${todo.done ? "yapılmadı olarak işaretle" : "yapıldı olarak işaretle"}">${todo.done ? "✓ Yapıldı" : "Yapıldı"}</button>
+        <button type="button" class="todo-remove" data-delete-manual-todo="${escapeHtml(todo.id)}" aria-label="${escapeHtml(todo.title)} maddesini kaldır">×</button>
+      </div>
+    </article>`).join("");
+    const autoHtml = tasks.map((task) => `<article class="todo-card"><span class="todo-icon">${task.icon}</span><span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.detail)}</small></span><button type="button" class="todo-complete" data-complete-todo="${escapeHtml(task.id)}" ${task.go ? `data-todo-go="${escapeHtml(task.go)}"` : ""} ${task.module ? `data-todo-module="${escapeHtml(task.module)}"` : ""} aria-label="${escapeHtml(task.title)}: yapıldı">Yapıldı</button></article>`).join("");
+    $("#dailyTodoList").innerHTML = (manualHtml + autoHtml) || `<div class="todo-complete-state"><span>✓</span><strong>Bugünün klinik kontrolleri tamamlandı.</strong><small>Sağ üstteki + ile kendi maddeni ekleyebilirsin.</small></div>`;
+  }
+
+  function renderCalendarOrganizer() {
+    if (!$("#organizerCalendar")) return;
+    const month = state.organizerMonth || calendarDate(`${todayIso.slice(0, 7)}-01`);
+    const first = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1, 12));
+    const mondayOffset = (first.getUTCDay() + 6) % 7;
+    const gridStart = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate() - mondayOffset, 12));
+    const dates = Array.from({ length: 42 }, (_, index) => new Date(Date.UTC(gridStart.getUTCFullYear(), gridStart.getUTCMonth(), gridStart.getUTCDate() + index, 12)));
+    $("#organizerMonthLabel").textContent = new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, month: "long", year: "numeric" }).format(first);
+    $("#organizerCalendar").innerHTML = dates.map((date) => {
+      const iso = calendarDateKey(date);
+      const outside = date.getUTCMonth() !== first.getUTCMonth();
+      const noteCount = calendarNotes.filter((item) => item.date === iso).length;
+      return `<button type="button" class="date-button ${iso === state.organizerDate ? "active" : ""} ${outside ? "outside" : ""} ${noteCount ? "has-note" : ""} ${iso === todayIso ? "is-today" : ""}" data-organizer-date="${iso}" aria-label="${new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, day: "numeric", month: "long", year: "numeric" }).format(date)}${noteCount ? `, ${noteCount} not` : ""}"><strong>${date.getUTCDate()}</strong>${noteCount ? `<i class="note-dot"></i>` : ""}</button>`;
+    }).join("");
+    const selected = calendarDate(state.organizerDate) || calendarDate(todayIso);
+    const dayNotes = calendarNotes
+      .filter((item) => item.date === state.organizerDate)
+      .sort((left, right) => String(left.createdAt || left.id || "").localeCompare(String(right.createdAt || right.id || "")));
+    $("#organizerSelectedLabel").textContent = new Intl.DateTimeFormat("tr-TR", { timeZone: CLINIC_TIME_ZONE, weekday: "long", day: "numeric", month: "long" }).format(selected);
+    $("#organizerNoteCount").textContent = dayNotes.length ? `${dayNotes.length} not` : "Not yok";
+    $("#organizerNoteList").innerHTML = dayNotes.length ? dayNotes.map((note) => `<article class="organizer-note"><span class="organizer-note-copy"><strong>${escapeHtml(note.text)}</strong>${note.doctor ? `<small>${escapeHtml(note.doctor)}</small>` : ""}</span><button type="button" class="todo-remove" data-delete-calendar-note="${escapeHtml(note.id)}" aria-label="Notu kaldır">×</button></article>`).join("") : `<p class="empty-inline">Bu güne henüz not eklenmedi. Sağ üstteki + ile ekleyin.</p>`;
   }
 
   function renderDashboard() {
@@ -1199,9 +1260,8 @@
     const metrics = [
       { id: "appointments", label: "Bugünkü randevu", value: todayAppointments.length, detail: `${todayAppointments.filter((item) => item.status === "ARRIVED").length} geldi · ${todayAppointments.filter((item) => item.status === "PLANNED").length} planlı`, icon: "i-calendar" },
       { id: "revenue", label: "Aylık tahsilat", value: currency(revenue), detail: `${paidThisMonth.length} ödenmiş işlem`, icon: "i-wallet", positive: true, bars: true },
-      { id: "patients", label: "Aktif hasta", value: state.patients.filter((item) => item.tag !== "PASSIVE").length, detail: `${state.patients.filter((item) => item.tag === "NEW").length} yeni kayıt`, icon: "i-users" },
       { id: "payments", label: "Bekleyen ödeme", value: currency(visiblePending.reduce((sum, item) => sum + outstandingAmount(item), 0)), detail: `${visiblePending.length} ödeme planı`, icon: "i-chart" }
-    ].filter((metric) => !["Aylık tahsilat", "Bekleyen ödeme"].includes(metric.label) || allowed("finance")).filter((metric) => metric.label !== "Aktif hasta" || allowed("patients")).filter((metric) => metric.label !== "Bugünkü randevu" || allowed("appointments"));
+    ].filter((metric) => !["Aylık tahsilat", "Bekleyen ödeme"].includes(metric.label) || allowed("finance")).filter((metric) => metric.label !== "Bugünkü randevu" || allowed("appointments"));
     $("#metricGrid").innerHTML = metrics.map((metric) => `
       <button type="button" class="metric-card" data-dashboard-summary="${metric.id}" aria-label="${escapeHtml(metric.label)} özetini göster">
         <div class="metric-top"><span>${escapeHtml(metric.label)}</span><span class="metric-icon"><svg><use href="#${metric.icon}"/></svg></span></div>
@@ -1210,6 +1270,7 @@
         ${metric.bars ? `<span class="mini-bars">${[25,48,35,62,56,78,92].map((height) => `<i style="height:${height}%"></i>`).join("")}</span>` : ""}
       </button>`).join("");
     renderDailyTodos();
+    renderCalendarOrganizer();
     $("#todayAppointments").innerHTML = todayAppointments.length ? todayAppointments.slice(0, 4).map((appointment) => {
       const patient = patientById(appointment.patientId);
       return `<button class="timeline-item" data-appointment="${escapeHtml(appointment.id)}" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;text-align:left;color:inherit">
@@ -1715,6 +1776,19 @@
 
   function openRenameClinic() {
     openModal("KLİNİK AYARLARI", "Klinik adını değiştir", `<form id="clinicNameForm" class="modal-grid"><label class="field">Klinik adı<input name="name" value="${escapeHtml(previewMode ? previewClinicName : localAccount()?.clinicName || "ClinicNova")}" required maxlength="120" /></label><div class="modal-actions"><button type="button" class="button button-secondary" data-action="clinic-management">Vazgeç</button><button type="submit" class="button button-primary">Adı güncelle</button></div></form>`);
+  }
+
+  function openAddManualTodo() {
+    const iconOptions = MANUAL_TODO_ICONS.map((icon, index) => `<label class="icon-choice"><input type="radio" name="icon" value="${escapeHtml(icon)}" ${index === 0 ? "checked" : ""} /><span>${escapeHtml(icon)}</span></label>`).join("");
+    openModal("GÜNLÜK KONTROL", "Yapılacak ekle", `<form id="manualTodoForm" class="modal-grid"><label class="field">Yapılacak madde<input name="title" required maxlength="200" placeholder="Örn. Kompresörü kontrol et" autocomplete="off" /></label><label class="field">Detay (opsiyonel)<input name="detail" maxlength="200" placeholder="Kısa açıklama" autocomplete="off" /></label><div class="field"><span class="field-label">İkon</span><div class="icon-picker">${iconOptions}</div></div><p class="modal-note">Madde bugünün yapılacaklar listesine otomatik görevler gibi ikonuyla eklenir. “Yapıldı” dediğinde silinmez; tik ile tamamlandı görünür. Tüm klinik cihazlarıyla eşitlenir.</p><div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Ekle</button></div></form>`);
+    setTimeout(() => $("#manualTodoForm [name='title']")?.focus(), 60);
+  }
+
+  function openAddCalendarNote(prefillDate) {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(prefillDate || "")) ? prefillDate : (state.organizerDate || todayIso);
+    const doctorOptions = [`<option value="">Genel not</option>`, ...clinicDoctors.map((doctor) => `<option value="${escapeHtml(doctor.name)}">${escapeHtml(doctor.name)}</option>`)].join("");
+    openModal("AJANDA", "Güne not ekle", `<form id="calendarNoteForm" class="modal-grid"><label class="field">Tarih<input name="date" type="date" value="${escapeHtml(date)}" required /></label><label class="field">İlgili hekim (opsiyonel)<select name="doctor">${doctorOptions}</select></label><label class="field">Not<textarea name="text" rows="3" required maxlength="500" placeholder="Örn. Dr. Lara Er bugün İzmir şubesinde 10:00-16:00 arası çalışıyor"></textarea></label><p class="modal-note">Not seçilen güne kaydedilir ve tüm klinik cihazlarında ajanda takviminde görünür.</p><div class="modal-actions"><button type="button" class="button button-secondary" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Notu kaydet</button></div></form>`);
+    setTimeout(() => $("#calendarNoteForm [name='text']")?.focus(), 60);
   }
 
   function openStockDetail(id) {
@@ -2412,6 +2486,36 @@
       for (const day of Object.keys(dailyTodoCompletions)) if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < cutoff) delete dailyTodoCompletions[day];
       saveData(); renderDailyTodos(); showToast("Görev bugün için tamamlandı."); return;
     }
+    if (target.dataset.toggleManualTodo) {
+      const todo = manualTodos.find((item) => String(item.id) === String(target.dataset.toggleManualTodo));
+      if (!todo) return;
+      todo.done = !todo.done; todo.updatedAt = new Date().toISOString();
+      saveData(); renderDailyTodos(); return;
+    }
+    if (target.dataset.deleteManualTodo) {
+      const before = manualTodos.length;
+      manualTodos = manualTodos.filter((item) => String(item.id) !== String(target.dataset.deleteManualTodo));
+      if (manualTodos.length === before) return;
+      saveData(); renderDailyTodos(); showToast("Yapılacak maddesi kaldırıldı."); return;
+    }
+    if (target.dataset.organizerStep) {
+      const step = Number(target.dataset.organizerStep);
+      const base = state.organizerMonth || calendarDate(`${todayIso.slice(0, 7)}-01`);
+      state.organizerMonth = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + step, 1, 12));
+      renderCalendarOrganizer(); return;
+    }
+    if (target.dataset.organizerDate) {
+      state.organizerDate = target.dataset.organizerDate;
+      const selected = calendarDate(state.organizerDate);
+      if (selected) state.organizerMonth = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
+      renderCalendarOrganizer(); return;
+    }
+    if (target.dataset.deleteCalendarNote) {
+      const before = calendarNotes.length;
+      calendarNotes = calendarNotes.filter((item) => String(item.id) !== String(target.dataset.deleteCalendarNote));
+      if (calendarNotes.length === before) return;
+      saveData(); renderCalendarOrganizer(); showToast("Takvim notu kaldırıldı."); return;
+    }
     if (target.dataset.treatmentDetail) return openTreatmentDetail(target.dataset.treatmentDetail);
     if (target.dataset.treatmentProgress) return openTreatmentProgress(target.dataset.treatmentProgress);
     if (target.dataset.finishTreatment) {
@@ -2766,6 +2870,8 @@
       saveData(); renderAll(); closeModal(); showToast("Demo verileri sıfırlandı."); return;
     }
     const action = target.dataset.action;
+    if (action === "add-manual-todo") { closeModal(); return openAddManualTodo(); }
+    if (action === "add-calendar-note") { closeModal(); return openAddCalendarNote(target.dataset.noteDate); }
     if (action === "add-patient") { closeModal(); return openAddPatient(); }
     if (action === "add-appointment") { closeModal(); return openAddAppointment(target.dataset.patientPrefill); }
     if (action === "add-payment") { closeModal(); return openAddPayment(target.dataset.patientPrefill); }
@@ -3001,6 +3107,32 @@
       const record = { id: nextLocalId(), patientId: patient?.id || null, patient: patientName, channel: String(form.get("channel") || "Klinik içi not"), status: String(form.get("status") || "Yerel taslak"), message: String(form.get("message") || "").trim(), date: "Şimdi" };
       if (record.patient.length < 2 || record.message.length < 3) return showToast("Kişi ve iletişim notunu kontrol edin.");
       communicationLog.unshift(record); queueCreate("COMMUNICATION", record.id, communicationPayload(record)); saveData(); openModule("İletişim"); showToast("İletişim kaydı eklendi."); return;
+    }
+    if (event.target.id === "manualTodoForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const title = String(form.get("title") || "").trim();
+      const detail = String(form.get("detail") || "").trim();
+      const icon = safeManualIcon(form.get("icon"));
+      if (title.length < 2) return showToast("Yapılacak madde en az 2 karakter olmalıdır.");
+      const cutoff = addCalendarDays(todayIso, -45);
+      manualTodos = manualTodos.filter((item) => !/^\d{4}-\d{2}-\d{2}$/.test(String(item.day)) || item.day >= cutoff);
+      manualTodos.push({ id: nextLocalId(), day: todayIso, title, detail, icon, done: false, createdAt: new Date().toISOString() });
+      saveData(); closeModal(); renderDailyTodos(); showToast("Yapılacak listeye eklendi."); return;
+    }
+    if (event.target.id === "calendarNoteForm") {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const date = String(form.get("date") || "");
+      const text = String(form.get("text") || "").trim();
+      const doctor = String(form.get("doctor") || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !calendarDate(date)) return showToast("Geçerli bir tarih seçin.");
+      if (text.length < 2) return showToast("Not en az 2 karakter olmalıdır.");
+      calendarNotes.push({ id: nextLocalId(), date, text, doctor, createdAt: new Date().toISOString() });
+      state.organizerDate = date;
+      const selected = calendarDate(date);
+      if (selected) state.organizerMonth = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1, 12));
+      saveData(); closeModal(); renderCalendarOrganizer(); showToast("Takvim notu eklendi."); return;
     }
     if (event.target.id === "balancePaymentForm") {
       event.preventDefault();

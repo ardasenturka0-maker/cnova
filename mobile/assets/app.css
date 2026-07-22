@@ -147,7 +147,41 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .todo-card small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .todo-complete { min-height: 38px; border: 1px solid color-mix(in srgb, var(--success) 30%, var(--line)); border-radius: 11px; color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--surface)); padding: 7px 9px; font-size: 9px; font-weight: 850; cursor: pointer; }
 .todo-complete-state { display: flex; align-items: center; gap: 10px; border: 1px dashed color-mix(in srgb, var(--success) 45%, var(--line)); border-radius: 16px; color: var(--success); background: color-mix(in srgb, var(--success) 6%, var(--surface)); padding: 14px; font-size: 10px; }
+.todo-complete-state { flex-wrap: wrap; }
 .todo-complete-state span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 10px; color: white; background: var(--success); font-size: 15px; }
+.todo-complete-state small { flex-basis: 100%; margin-top: 4px; color: var(--muted); font-size: 8px; }
+.todo-heading-actions { display: flex; align-items: center; gap: 8px; }
+.todo-add-button, .organizer-add-button { width: 34px; height: 34px; border-radius: 11px; color: var(--primary); background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--line)); }
+.todo-add-button svg, .organizer-add-button svg { width: 16px; height: 16px; }
+.todo-card.manual { grid-template-columns: auto minmax(0, 1fr) auto; }
+.todo-card.manual.done { background: color-mix(in srgb, var(--success) 6%, var(--surface)); border-color: color-mix(in srgb, var(--success) 30%, var(--line)); }
+.todo-card.manual.done > span strong { text-decoration: line-through; color: var(--muted); }
+.todo-card.manual.done .todo-icon { color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--surface)); }
+.todo-manual-actions { display: flex; align-items: center; gap: 6px; }
+.todo-complete.checked { border-color: var(--success); color: white; background: var(--success); }
+.todo-remove { width: 30px; min-height: 30px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.todo-remove:active { color: var(--danger); border-color: var(--danger); }
+.field-label { display: block; color: var(--muted); font-size: 9px; font-weight: 800; margin-bottom: 6px; }
+.icon-picker { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+.icon-choice { position: relative; display: grid; place-items: center; }
+.icon-choice input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.icon-choice span { display: grid; place-items: center; width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); font-size: 18px; }
+.icon-choice input:checked + span { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent); }
+.organizer-card { border: 1px solid var(--line); border-radius: 19px; background: var(--surface); padding: 14px; }
+.organizer-card .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.organizer-card .calendar-toolbar strong { font-size: 13px; }
+.organizer-card .calendar-weekdays span { color: var(--muted); font-size: 8px; font-weight: 800; text-align: center; }
+.month-calendar .date-button.has-note .note-dot { display: block; width: 4px; height: 4px; margin: 2px auto 0; border-radius: 50%; background: var(--accent); }
+.month-calendar .date-button.active .note-dot { background: white; }
+.month-calendar .date-button.is-today { border-color: color-mix(in srgb, var(--primary) 55%, var(--line)); }
+.organizer-notes { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.organizer-notes-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.organizer-notes-head strong { font-size: 12px; text-transform: capitalize; }
+.organizer-notes-head span { font-size: 8px; font-weight: 800; }
+.organizer-note-list { display: grid; gap: 8px; }
+.organizer-note { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--surface-2); padding: 10px 11px; }
+.organizer-note-copy strong { display: block; font-size: 11px; line-height: 1.45; }
+.organizer-note-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; font-weight: 800; }
 .text-button { min-height: 44px; border: 0; color: var(--primary); background: none; padding: 8px 0; font-size: 11px; font-weight: 800; }
 .timeline-card { border: 1px solid var(--line); border-radius: 19px; background: var(--surface); padding: 4px 14px; }
 .timeline-item { display: grid; grid-template-columns: 50px 1px 1fr auto; gap: 10px; align-items: center; min-height: 72px; border-bottom: 1px solid var(--line); }

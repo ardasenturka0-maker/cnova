@@ -92,10 +92,17 @@
             <svg><use href="#i-chevron"/></svg>
           </button>
           <div id="metricGrid" class="metric-grid"></div>
-          <div class="section-heading todo-heading"><div><span class="eyebrow">GÜNLÜK KONTROL</span><h2>Bugünün yapılacakları</h2></div><span id="dailyTodoSummary" class="todo-summary"></span></div>
-          <div id="dailyTodoList" class="todo-list" aria-live="polite"></div>
+          <div class="section-heading organizer-heading"><div><span class="eyebrow">AJANDA</span><h2>Klinik takvimi</h2></div><button type="button" class="icon-button organizer-add-button" data-action="add-calendar-note" aria-label="Güne not ekle"><svg><use href="#i-plus"/></svg></button></div>
+          <div class="organizer-card">
+            <div class="calendar-toolbar"><button class="icon-button" type="button" data-organizer-step="-1" aria-label="Önceki ay">‹</button><strong id="organizerMonthLabel"></strong><button class="icon-button" type="button" data-organizer-step="1" aria-label="Sonraki ay">›</button></div>
+            <div class="calendar-weekdays" aria-hidden="true"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div>
+            <div id="organizerCalendar" class="month-calendar"></div>
+            <div class="organizer-notes"><div class="organizer-notes-head"><strong id="organizerSelectedLabel"></strong><span id="organizerNoteCount" class="muted"></span></div><div id="organizerNoteList" class="organizer-note-list" aria-live="polite"></div></div>
+          </div>
           <div class="section-heading"><div><span class="eyebrow">BUGÜN</span><h2>Randevu akışı</h2></div><button class="text-button" data-go="appointments">Tümünü gör</button></div>
           <div id="todayAppointments" class="timeline-card"></div>
+          <div class="section-heading todo-heading"><div><span class="eyebrow">GÜNLÜK KONTROL</span><h2>Bugünün yapılacakları</h2></div><div class="todo-heading-actions"><span id="dailyTodoSummary" class="todo-summary"></span><button type="button" class="icon-button todo-add-button" data-action="add-manual-todo" aria-label="Yapılacak ekle"><svg><use href="#i-plus"/></svg></button></div></div>
+          <div id="dailyTodoList" class="todo-list" aria-live="polite"></div>
           <div class="section-heading"><div><span class="eyebrow">HIZLI İŞLEMLER</span><h2>Ne yapmak istersiniz?</h2></div></div>
           <div class="quick-grid">
             <button data-action="add-patient"><span class="quick-icon teal"><svg><use href="#i-users"/></svg></span><span>Hasta ekle</span></button>

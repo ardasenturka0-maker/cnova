@@ -1,19 +1,29 @@
 import { ArrowUpRight, CalendarPlus, CircleDollarSign, Clock, CreditCard, Sparkles, Stethoscope, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { DailyClinicTodo } from "@/components/dashboard/daily-clinic-todo";
+import { CalendarOrganizer } from "@/components/dashboard/calendar-organizer";
+import { ClinicTodoBoard } from "@/components/dashboard/clinic-todo-board";
 import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
 import { DashboardKpiSummaries, type DashboardKpiSummary } from "@/components/dashboard/dashboard-kpi-summaries";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireSession } from "@/lib/auth";
-import { clinicTimeZone } from "@/lib/clinic-time";
+import { clinicDateKey, clinicTimeZone } from "@/lib/clinic-time";
 import { intlLocale, statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { canAccess, type ModuleKey } from "@/lib/rbac";
 import { getAiAssistantSuggestion } from "@/lib/services/aiAssistantService";
 import { completeDailyClinicTask, getDailyClinicTasks } from "@/lib/services/dailyTaskService";
+import {
+  createCalendarNote,
+  createManualTodo,
+  deleteCalendarNote,
+  deleteManualTodo,
+  getCalendarNotes,
+  getManualTodos,
+  setManualTodoStatus
+} from "@/lib/services/homeBoardService";
 import { getDashboardMetrics } from "@/lib/services/reportService";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -30,6 +40,41 @@ async function completeDailyTaskAction(taskId: string) {
   "use server";
   const session = await requireSession();
   await completeDailyClinicTask(session.organizationId, taskId, session.branchId, session.role);
+  revalidatePath("/dashboard");
+}
+
+async function addManualTodoAction(title: string, icon: string, detail: string) {
+  "use server";
+  const session = await requireSession();
+  await createManualTodo(session.organizationId, session.branchId, title, session.role, icon, detail);
+  revalidatePath("/dashboard");
+}
+
+async function toggleManualTodoAction(taskId: string, done: boolean) {
+  "use server";
+  const session = await requireSession();
+  await setManualTodoStatus(session.organizationId, taskId, done);
+  revalidatePath("/dashboard");
+}
+
+async function deleteManualTodoAction(taskId: string) {
+  "use server";
+  const session = await requireSession();
+  await deleteManualTodo(session.organizationId, taskId);
+  revalidatePath("/dashboard");
+}
+
+async function addCalendarNoteAction(dateKey: string, text: string, doctor: string) {
+  "use server";
+  const session = await requireSession();
+  await createCalendarNote(session.organizationId, session.branchId, dateKey, text, doctor || null, session.role);
+  revalidatePath("/dashboard");
+}
+
+async function deleteCalendarNoteAction(id: string) {
+  "use server";
+  const session = await requireSession();
+  await deleteCalendarNote(session.organizationId, id);
   revalidatePath("/dashboard");
 }
 
@@ -51,11 +96,15 @@ export default async function DashboardPage() {
         : canViewStocks
           ? "stock"
           : "patient";
-  const [metrics, assistant, dailyTasks] = await Promise.all([
+  const [metrics, assistant, dailyTasks, manualTodos, calendarNotes] = await Promise.all([
     getDashboardMetrics(session.organizationId, { branchId: session.branchId, role: session.role }),
     getAiAssistantSuggestion({ topic: assistantTopic }),
-    getDailyClinicTasks(session.organizationId, session.branchId, session.role)
+    getDailyClinicTasks(session.organizationId, session.branchId, session.role),
+    getManualTodos(session.organizationId, session.branchId),
+    getCalendarNotes(session.organizationId, session.branchId)
   ]);
+  const todayKey = clinicDateKey(new Date());
+  const organizerDoctors = metrics.doctorPerformance.map((doctor) => doctor.name).filter(Boolean);
 
   const timeFormatter = new Intl.DateTimeFormat(intlLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: clinicTimeZone });
 
@@ -67,7 +116,6 @@ export default async function DashboardPage() {
   ] satisfies Array<{ label: string; href: string; icon: typeof UserPlus; permission: ModuleKey }>).filter((action) => canAccess(session.role, action.permission));
   const appointmentBreakdown = metrics.todayAppointmentBreakdown;
   const methodBreakdown = metrics.monthlyRevenueByMethod;
-  const patientBreakdown = metrics.activePatientBreakdown;
   const nextAppointment = metrics.todayAppointments.find((appointment) => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(appointment.status));
   const kpiCards: DashboardKpiSummary[] = ([
     {
@@ -128,25 +176,6 @@ export default async function DashboardPage() {
       note: metrics.overduePaymentCount ? `${metrics.overduePaymentCount} kayıt bugün öncelikli işlem bekliyor.` : "Vadesi geçmiş tahsilat görünmüyor.",
       href: "/dashboard/payments",
       hrefLabel: "Bekleyen ödemeleri aç"
-    },
-    {
-      permission: "patients",
-      id: "patients",
-      title: "Aktif hasta",
-      value: String(metrics.activePatientCount),
-      detail: `${metrics.newPatientCount} bu ay yeni · özeti aç`,
-      icon: "patients",
-      tone: "accent",
-      summaryTitle: "Aktif hasta dağılımı",
-      rows: [
-        { label: "Aktif", value: String(patientBreakdown.ACTIVE ?? 0) },
-        { label: "VIP", value: String(patientBreakdown.VIP ?? 0) },
-        { label: "Riskli", value: String(patientBreakdown.RISKY ?? 0) },
-        { label: "Bu ay yeni kayıt", value: String(metrics.newPatientCount) }
-      ],
-      note: "Aktif toplamına Aktif, VIP ve Riskli etiketli hastalar dahildir.",
-      href: "/dashboard/patients",
-      hrefLabel: "Hastaları aç"
     }
   ] satisfies Array<DashboardKpiSummary & { permission: ModuleKey }>)
     .filter((card) => canAccess(session.role, card.permission))
@@ -194,46 +223,22 @@ export default async function DashboardPage() {
 
       {kpiCards.length ? <DashboardKpiSummaries cards={kpiCards} /> : null}
 
-      {canViewAppointments ? <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Clock className="h-5 w-5 text-accent" />
-            Bugünkü randevular
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {metrics.todayAppointments.map((appointment) => {
-            const startsAt = new Date(appointment.startsAt);
-            const endsAt = new Date(startsAt.getTime() + appointment.durationMinutes * 60_000);
-            return (
-              <div key={appointment.id} className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center">
-                <div className="flex shrink-0 items-center gap-3 sm:w-56">
-                  <div className="rounded-md bg-primary/10 px-3 py-2 text-center">
-                    <p className="text-lg font-bold leading-tight text-primary">{timeFormatter.format(startsAt)}</p>
-                    <p className="text-xs font-medium text-primary/70">→ {timeFormatter.format(endsAt)}</p>
-                  </div>
-                  <Badge variant="muted" className="whitespace-nowrap">{appointment.durationMinutes} dk</Badge>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <Link href={`/dashboard/patients/${appointment.patientId}`} className="text-base font-semibold hover:underline">
-                    {appointment.patient.firstName} {appointment.patient.lastName}
-                  </Link>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {appointment.treatmentType} · {appointment.doctor.name}
-                    {appointment.room ? ` · ${appointment.room}` : ""}
-                  </p>
-                </div>
-                <Badge variant={statusTones[appointment.status] ?? "muted"} className="self-start sm:self-center">
-                  {statusLabel(appointment.status, locale)}
-                </Badge>
-              </div>
-            );
-          })}
-          {metrics.todayAppointments.length === 0 ? (
-            <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Bugün randevu görünmüyor.</p>
-          ) : null}
-        </CardContent>
-      </Card> : null}
+      <CalendarOrganizer
+        notes={calendarNotes}
+        doctors={organizerDoctors}
+        todayKey={todayKey}
+        addAction={addCalendarNoteAction}
+        deleteAction={deleteCalendarNoteAction}
+      />
+
+      <ClinicTodoBoard
+        tasks={dailyTasks}
+        manualTodos={manualTodos}
+        completeAction={completeDailyTaskAction}
+        addManualAction={addManualTodoAction}
+        toggleManualAction={toggleManualTodoAction}
+        deleteManualAction={deleteManualTodoAction}
+      />
 
       <DashboardCharts
         revenue={metrics.revenueByMonth}
@@ -244,7 +249,46 @@ export default async function DashboardPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <DailyClinicTodo tasks={dailyTasks} completeAction={completeDailyTaskAction} />
+        {canViewAppointments ? <Card className="xl:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <Clock className="h-5 w-5 text-accent" />
+              Bugünkü randevular
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {metrics.todayAppointments.map((appointment) => {
+              const startsAt = new Date(appointment.startsAt);
+              const endsAt = new Date(startsAt.getTime() + appointment.durationMinutes * 60_000);
+              return (
+                <div key={appointment.id} className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center">
+                  <div className="flex shrink-0 items-center gap-3 sm:w-56">
+                    <div className="rounded-md bg-primary/10 px-3 py-2 text-center">
+                      <p className="text-lg font-bold leading-tight text-primary">{timeFormatter.format(startsAt)}</p>
+                      <p className="text-xs font-medium text-primary/70">→ {timeFormatter.format(endsAt)}</p>
+                    </div>
+                    <Badge variant="muted" className="whitespace-nowrap">{appointment.durationMinutes} dk</Badge>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Link href={`/dashboard/patients/${appointment.patientId}`} className="text-base font-semibold hover:underline">
+                      {appointment.patient.firstName} {appointment.patient.lastName}
+                    </Link>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      {appointment.treatmentType} · {appointment.doctor.name}
+                      {appointment.room ? ` · ${appointment.room}` : ""}
+                    </p>
+                  </div>
+                  <Badge variant={statusTones[appointment.status] ?? "muted"} className="self-start sm:self-center">
+                    {statusLabel(appointment.status, locale)}
+                  </Badge>
+                </div>
+              );
+            })}
+            {metrics.todayAppointments.length === 0 ? (
+              <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Bugün randevu görünmüyor.</p>
+            ) : null}
+          </CardContent>
+        </Card> : null}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

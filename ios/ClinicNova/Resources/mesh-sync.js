@@ -14,7 +14,8 @@
     "patients", "appointments", "transactions", "transactionPayments", "treatmentHistory", "patientMedia",
     "treatmentPlans", "stockItems", "stockMovements", "stockOffers", "stockRecipes", "clinicDoctors",
     "clinicConfig", "clinicChairs", "communicationLog", "consentRecords", "consentHistory", "treatments",
-    "staffRecords", "surveys", "surveyResponses", "recalls", "reminderSettings", "reminderDeliveries", "trashItems"
+    "staffRecords", "surveys", "surveyResponses", "recalls", "reminderSettings", "reminderDeliveries", "trashItems",
+    "manualTodos", "calendarNotes"
   ]);
 
   function utf8Length(value) {
