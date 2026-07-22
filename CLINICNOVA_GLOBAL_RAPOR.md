@@ -3,7 +3,7 @@
 Tarih: 2026-07-09  
 Kapsam: ClinicNova MVP, Mikrodent, DoktorTakvimi/DocPlanner, global dental PMS ve dental AI rakipleri.
 
-> **Arşiv ve kapsam uyarısı (ClinicNova 1.15.6):** Bu belge, 1.6 dönemi için hazırlanmış tarihsel bir strateji/rakip analizi olup mevcut ürün kapsamını tanımlamaz. Sağlık turizmi yüzeyleri 1.15.6 ürününden kaldırılmıştır; aşağıdaki sağlık turizmi modülü ve yol haritası anlatımları aktif özellik veya teslimat taahhüdü değildir. `src/lib/mock-prisma.ts` içindeki turizm demo verileri ile ilişkili eski şema tipleri yalnızca legacy kalıntıdır ve güvenli biçimde kaldırılmaları veri/şema migration'ı gerektirir.
+> **Arşiv ve kapsam uyarısı (ClinicNova 1.15.7):** Bu belge, 1.6 dönemi için hazırlanmış tarihsel bir strateji/rakip analizi olup mevcut ürün kapsamını tanımlamaz. Sağlık turizmi yüzeyleri 1.15.6 ürününden kaldırılmıştır; aşağıdaki sağlık turizmi modülü ve yol haritası anlatımları aktif özellik veya teslimat taahhüdü değildir. `src/lib/mock-prisma.ts` içindeki turizm demo verileri ile ilişkili eski şema tipleri yalnızca legacy kalıntıdır ve güvenli biçimde kaldırılmaları veri/şema migration'ı gerektirir.
 
 ## 1. Kisa Sonuc
 

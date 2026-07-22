@@ -21,6 +21,8 @@ export const treatmentSchema = treatmentBaseSchema.refine((value) => value.downP
   path: ["downPayment"]
 });
 
+export type TreatmentInput = z.infer<typeof treatmentSchema>;
+
 export const treatmentPlanSchema = treatmentBaseSchema.extend({
   estimatedFee: z.coerce.number({ invalid_type_error: "Tahmini ücret sayısal olmalı." }).min(0, "Tahmini ücret negatif olamaz.").max(100_000_000)
 }).omit({ fee: true }).refine((value) => value.downPayment <= value.estimatedFee, {

@@ -1,9 +1,23 @@
 import { expect, test } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 const mobileUrl = pathToFileURL(path.resolve("mobile/assets/index.html")).href;
 const iphoneDemoUrl = pathToFileURL(path.resolve("releases/ClinicNova-iPhone-Demo.html")).href;
+
+async function swipeLeft(page: Page, row: Locator) {
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  const box = await row.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  const startX = box.x + Math.max(24, box.width - 28);
+  const y = box.y + box.height / 2;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(startX - 120, y, { steps: 8 });
+  await page.mouse.up();
+}
 
 test("single-file iPhone demo opens without network or extra files", async ({ page }) => {
   const requests: string[] = [];
@@ -14,7 +28,7 @@ test("single-file iPhone demo opens without network or extra files", async ({ pa
   await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
   await expect(page.locator("#loginScreen")).toBeHidden();
   await page.locator(".bottom-nav").getByRole("button", { name: "Stok", exact: true }).click();
-  await expect(page.getByText("Anestezi kartuşu", { exact: true })).toBeVisible();
+  await expect(page.locator("#stockList").getByText("Anestezi kartuşu", { exact: true })).toBeVisible();
   expect(requests).toEqual([]);
 });
 
@@ -26,6 +40,76 @@ test("iPhone file preview never exposes the login gate when scripts are blocked"
   await expect(page.locator("#appShell")).toBeVisible();
   await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
   await context.close();
+});
+
+test("native dashboard summaries, daily tasks and installment schedule are interactive", async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.addInitScript(() => {
+    (window as typeof window & { CLINICNOVA_MOBILE_CONFIG?: { mode: string; serverUrl: string } }).CLINICNOVA_MOBILE_CONFIG = { mode: "demo", serverUrl: "" };
+  });
+  await page.goto(mobileUrl);
+  await page.getByRole("button", { name: "Demo girişi" }).click();
+  await expect(page.getByRole("heading", { name: /Günaydın/ })).toBeVisible();
+
+  const summaries = [
+    ["Bugünkü randevu özetini göster", "Randevu akışı"],
+    ["Aylık tahsilat özetini göster", "Tahsilat özeti"],
+    ["Aktif hasta özetini göster", "Aktif hastalar"],
+    ["Bekleyen ödeme özetini göster", "Tahsilat özeti"]
+  ] as const;
+  for (const [buttonName, title] of summaries) {
+    await page.getByRole("button", { name: buttonName, exact: true }).click();
+    await expect(page.locator("#modalTitle")).toHaveText(title);
+    await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  }
+
+  const paymentTodo = page.locator("#dailyTodoList").getByRole("button", { name: /bekleyen ödeme.*yapıldı/i });
+  await expect(paymentTodo).toHaveCount(1);
+  const completedPaymentTaskId = await paymentTodo.getAttribute("data-complete-todo");
+  expect(completedPaymentTaskId).toMatch(/^payments:/);
+  await paymentTodo.click();
+  await expect(page.locator(`#dailyTodoList [data-complete-todo="${completedPaymentTaskId}"]`)).toHaveCount(0);
+  await expect(page.locator("#toast")).toContainText("Görev bugün için tamamlandı");
+
+  await page.getByRole("button", { name: "Ödeme al", exact: true }).click();
+  await page.getByLabel("İşlem 1").fill("Yeni günlük bakiye");
+  await page.getByLabel("Bedeli").first().fill("1000");
+  await page.getByLabel("İşlem 2").fill("");
+  await page.getByLabel("Bedeli").nth(1).fill("0");
+  await page.getByLabel("Şimdi alınan", { exact: true }).fill("100");
+  await page.getByLabel("Kalan bakiye kaç taksit?").selectOption("3");
+  await page.getByRole("button", { name: "Ödemeyi kaydet" }).click();
+  await page.getByRole("button", { name: "Ana Sayfa", exact: true }).click();
+  const refreshedPaymentTodo = page.locator("#dailyTodoList").getByRole("button", { name: /bekleyen ödeme.*yapıldı/i });
+  await expect(refreshedPaymentTodo).toHaveCount(1);
+  await expect(refreshedPaymentTodo).not.toHaveAttribute("data-complete-todo", completedPaymentTaskId || "");
+
+  await page.getByRole("button", { name: "Bekleyen ödeme özetini göster", exact: true }).click();
+  await page.locator("#modalBody [data-finance-transaction]").first().click();
+  await expect(page.getByText("Taksit çizelgesi", { exact: true })).toBeVisible();
+  const legacySchedule = await page.locator("#modalBody .installment-row").evaluateAll((rows) => rows.map((row) => ({
+    amountCents: Number(row.getAttribute("data-installment-amount-cents")),
+    state: row.getAttribute("data-installment-state")
+  })));
+  expect(legacySchedule).toEqual([
+    { amountCents: 1_850_000, state: "Ödendi" },
+    { amountCents: 783_333, state: "Bekliyor" },
+    { amountCents: 783_333, state: "Bekliyor" },
+    { amountCents: 783_334, state: "Bekliyor" }
+  ]);
+  expect(legacySchedule.filter((row) => row.state !== "Ödendi").reduce((sum, row) => sum + row.amountCents, 0)).toBe(2_350_000);
+  await expect(page.locator("#modalBody")).toContainText("₺7.833,34");
+  await expect(page.locator(".swipe-delete-trigger:visible")).toHaveCount(0);
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.getByRole("button", { name: /^Güvenlik ve veri/ }).click();
+  const clearLocalData = page.locator("#modalBody .swipe-delete").filter({ hasText: "Yerel verileri temizle" });
+  await expect(clearLocalData).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yerel verileri temizle", exact: true })).toHaveCount(0);
+  page.once("dialog", (dialog) => dialog.accept());
+  await swipeLeft(page, clearLocalData);
+  await expect(page.locator("#toast")).toContainText("Yerel kayıtlar temizlendi");
 });
 
 test("a failed mobile update keeps one local record instead of adding its server twin", async ({ page }) => {
@@ -66,6 +150,56 @@ test("a failed mobile update keeps one local record instead of adding its server
     return JSON.parse(values.get("clinicnova.syncQueue") || "[]");
   });
   expect(queueAfterMalformedResponse).toHaveLength(1);
+});
+
+test("server trash permission gates stock controls and manager snapshots populate trash", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as typeof window & { CLINICNOVA_MOBILE_CONFIG?: { mode: string; serverUrl: string } }).CLINICNOVA_MOBILE_CONFIG = { mode: "demo", serverUrl: "" };
+  });
+  await page.goto(mobileUrl);
+  await page.getByRole("button", { name: "Demo girişi" }).click();
+
+  const applySnapshot = (trash: boolean, deletedStockItems: unknown[] = []) => page.evaluate(({ trash, deletedStockItems }) => {
+    (window as typeof window & { ClinicNovaSyncResult: (status: number, body: string) => void }).ClinicNovaSyncResult(200, JSON.stringify({
+      results: [], synced: 0, failed: 0,
+      snapshot: {
+        permissions: { stocks: true, trash, finance: false, appointments: false, consents: false, treatments: false }, patients: [], appointments: [],
+        transactions: [{ id: 601, serverId: "restricted-payment", patientId: null, name: "Yetkisiz bakiye", detail: "Gizli", amount: 999, remainingAmount: 999, installmentCount: 1, paidInstallments: 0, type: "income", status: "PENDING", date: "Bugün" }],
+        treatmentPlans: [], stockRecipes: [], doctors: [], treatments: [], staff: [], consents: [], communication: [],
+        stockItems: [{ id: 501, serverId: "server-active-stock", name: "Aktif sunucu stoğu", category: "Sarf", amount: 8, minimum: 2, unit: "adet", offers: [] }],
+        deletedStockItems,
+        surveys: [{ id: 1, title: "Görünmemeli" }], recalls: [{ id: 2, reason: "Görünmemeli" }]
+      }
+    }));
+  }, { trash, deletedStockItems });
+
+  await applySnapshot(false);
+  await expect(page.locator("#dailyTodoList")).not.toContainText("bekleyen ödeme");
+  await expect(page.getByRole("button", { name: "Bekleyen ödeme özetini göster", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Stok", exact: true }).click();
+  await expect(page.locator("#stockList").getByText("Aktif sunucu stoğu", { exact: true })).toBeVisible();
+  await expect(page.locator("#stockList .swipe-delete")).toHaveCount(0);
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /^Çöp Kutusu/ })).toHaveCount(0);
+
+  await applySnapshot(true, [{
+    id: 991, serverId: "server-deleted-stock", name: "Sunucudan silinen maske", category: "Sarf", amount: 3, minimum: 5, unit: "kutu", supplier: "Depo", purchasePrice: 125,
+    deletedAt: "2026-07-22T08:00:00.000Z", purgeAt: "2026-08-21T08:00:00.000Z"
+  }]);
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /^Çöp Kutusu/ })).toBeVisible();
+  await page.locator("#moduleGrid").getByRole("button", { name: /^Çöp Kutusu/ }).click();
+  const serverTrash = page.locator(".trash-record").filter({ hasText: "Sunucudan silinen maske" });
+  await expect(serverTrash).toContainText("Stok ürünü");
+  await serverTrash.getByRole("button", { name: "Geri yükle" }).click();
+  await expect(page.locator("#modalBody")).not.toContainText("Sunucudan silinen maske");
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.getByRole("button", { name: "Stok", exact: true }).click();
+  await expect(page.locator("#stockList").getByText("Sunucudan silinen maske", { exact: true })).toBeVisible();
+  const removedModuleState = await page.evaluate(() => ({
+    surveys: JSON.parse(localStorage.getItem("clinicnova.surveys") || "[]"),
+    recalls: JSON.parse(localStorage.getItem("clinicnova.recalls") || "[]")
+  }));
+  expect(removedModuleState).toEqual({ surveys: [], recalls: [] });
 });
 
 test("a clinic can create an encrypted serverless device mesh", async ({ page }) => {
@@ -152,24 +286,25 @@ test("offline storage failures warn staff instead of silently claiming durabilit
   });
   await page.goto(mobileUrl);
   await page.getByRole("button", { name: "Demo girişi" }).click();
-  await page.getByRole("button", { name: "Diğer", exact: true }).click();
-  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
-  await page.getByRole("button", { name: "Takip ekle" }).click();
-  await page.locator('#recallForm input[name="reason"]').fill("Depolama kontrolü");
-  await page.getByRole("button", { name: "Takibi kaydet" }).click();
+  await page.getByRole("button", { name: "Hastalar", exact: true }).click();
+  await page.getByRole("button", { name: "Hasta ekle" }).click();
+  await page.locator('#patientForm input[name="name"]').fill("Depolama kontrolü");
+  await page.locator('#patientForm input[name="phone"]').fill("+90 555 100 00 01");
+  await page.getByRole("button", { name: "Hastayı kaydet" }).click();
   await expect(page.locator("#toast")).toContainText("Cihaz depolamasına yazılamadı");
-  await page.getByRole("button", { name: "Takip ekle" }).click();
-  await page.locator('#recallForm input[name="reason"]').fill("İkinci depolama kontrolü");
-  await page.getByRole("button", { name: "Takibi kaydet" }).click();
+  await page.getByRole("button", { name: "Hasta ekle" }).click();
+  await page.locator('#patientForm input[name="name"]').fill("İkinci depolama kontrolü");
+  await page.locator('#patientForm input[name="phone"]').fill("+90 555 100 00 02");
+  await page.getByRole("button", { name: "Hastayı kaydet" }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.locator(".offline-record").filter({ hasText: "Depolama kontrolü" }).last().getByRole("button", { name: "Sil" }).click();
-  await expect(page.locator(".offline-record").filter({ hasText: "İkinci depolama kontrolü" })).toBeVisible();
+  await swipeLeft(page, page.locator("#patientList .swipe-delete").filter({ has: page.getByText("Depolama kontrolü", { exact: true }) }).first());
+  await expect(page.locator("#patientList").getByText("İkinci depolama kontrolü", { exact: true })).toBeVisible();
 });
 
 test("production account creation stops when secure storage rejects the write", async ({ page }) => {
   await page.addInitScript(() => {
     Object.assign(window, {
-      CLINICNOVA_MOBILE_CONFIG: { mode: "production", platform: "ios", platformLabel: "iOS", appVersion: "1.15.6", serverUrl: "" },
+      CLINICNOVA_MOBILE_CONFIG: { mode: "production", platform: "ios", platformLabel: "iOS", appVersion: "1.15.7", serverUrl: "" },
       ClinicNovaNative: { storageGet: () => null, storageSet: () => false }
     });
   });
@@ -217,9 +352,9 @@ test("manual reminders survive rescheduling, refresh patient details, and disabl
   expect(deliveries.filter((item: { status: string }) => item.status === "READY")).toHaveLength(1);
   expect(deliveries.find((item: { status: string }) => item.status === "READY")).toMatchObject({ patient: "Güncel Hasta", phone: "0532 555 44 33" });
 
-  await page.getByRole("button", { name: "Diğer", exact: true }).click();
-  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
+  await page.locator("#notificationButton").click();
   await expect(page.getByRole("link", { name: "WhatsApp'ta aç" })).toHaveAttribute("href", /https:\/\/wa\.me\/905325554433/);
+  await page.getByRole("button", { name: /Randevu hatırlatma ayarları/ }).click();
 
   await page.locator('#reminderSettingsForm input[name="weekEnabled"]').uncheck();
   await page.locator('#reminderSettingsForm input[name="dayEnabled"]').uncheck();
@@ -284,7 +419,7 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: "Tedavi kaydını ekle" }).click();
   await expect(page.getByText("Acil muayene", { exact: true })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Acil muayene kaydını sil" }).click();
+  await swipeLeft(page, page.locator("#modalBody .swipe-delete").filter({ hasText: "Acil muayene" }).first());
   await expect(page.getByText("Acil muayene", { exact: true })).toHaveCount(0);
   await page.locator('input[data-media-kind="Before"]').setInputFiles({
     name: "before.png",
@@ -293,7 +428,7 @@ test("bundled Android interface works offline", async ({ page }) => {
   });
   await expect(page.getByText(/Before · Şimdi/)).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Before fotoğrafını sil" }).click();
+  await swipeLeft(page, page.locator("#modalBody .swipe-delete").filter({ hasText: /Before · Şimdi/ }).first());
   await expect(page.getByText(/Before · Şimdi/)).toHaveCount(0);
   await page.getByRole("button", { name: "Yeni randevu oluştur" }).click();
   await expect(page.getByRole("combobox", { name: "Hasta", exact: true }).locator("option:checked")).toHaveText("Tuna Akın");
@@ -301,7 +436,7 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: "Randevuyu kaydet" }).click();
   await expect(page.locator("#appointmentList").getByText("Tuna Akın", { exact: true })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Tuna Akın randevusunu sil" }).click();
+  await swipeLeft(page, page.locator("#appointmentList .swipe-delete").filter({ hasText: "Tuna Akın" }).first());
   await expect(page.locator("#appointmentList").getByText("Tuna Akın", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Ana Sayfa", exact: true }).click();
@@ -311,37 +446,26 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByLabel("Bedeli").first().fill("30000");
   await page.getByLabel("İşlem 2").fill("Kemik grefti");
   await page.getByLabel("Bedeli").nth(1).fill("5000");
-  await page.getByLabel("Şimdi alınan").fill("1250");
-  await page.getByLabel("Bu tahsilat peşinattır").check();
+  await page.getByLabel("Şimdi alınan", { exact: true }).fill("1250");
+  await page.getByLabel("Şimdi alınan tutar peşinattır").check();
   await page.getByRole("button", { name: "Ödemeyi kaydet" }).click();
   await expect(page.getByRole("heading", { name: "Tahsilat merkezi" })).toBeVisible();
   await expect(page.locator("#transactionList").getByText("Tuna Akın", { exact: true })).toBeVisible();
   await expect(page.locator("#transactionList")).toContainText("İmplant");
   await expect(page.locator("#transactionList")).toContainText("Kemik grefti");
-  await expect(page.locator("#transactionList")).toContainText("Kalan");
+  await expect(page.locator("#transactionList")).toContainText("kaldı");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Tuna Akın finans kaydını sil" }).click();
+  await swipeLeft(page, page.locator("#transactionList .swipe-delete").filter({ hasText: "Tuna Akın" }).first());
   await expect(page.locator("#transactionList").getByText("Tuna Akın", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Hastalar", exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Tuna Akın hastasını sil" }).click();
+  await swipeLeft(page, page.locator("#patientList .swipe-delete").filter({ hasText: "Tuna Akın" }).first());
   await expect(page.locator("#patientList").getByText("Tuna Akın", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
   await expect(page.locator("#moduleGrid").getByRole("button", { name: /Sağlık turizmi/ })).toHaveCount(0);
-  await page.locator("#moduleGrid").getByRole("button", { name: /İletişim/ }).click();
-  await page.getByRole("button", { name: "İletişim kaydı ekle" }).click();
-  await page.locator('#communicationForm input[name="patient"]').fill("Tuna Akın");
-  await page.locator('#communicationForm select[name="channel"]').selectOption({ label: "Telefon" });
-  await page.locator('#communicationForm select[name="status"]').selectOption({ label: "Arandı" });
-  await page.locator('#communicationForm textarea[name="message"]').fill("Kontrol randevusu için arandı.");
-  await page.getByRole("button", { name: "Kaydı ekle" }).click();
-  await expect(page.getByText("Kontrol randevusu için arandı.", { exact: true })).toBeVisible();
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Tuna Akın iletişim kaydını sil" }).click();
-  await expect(page.getByText("Kontrol randevusu için arandı.", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /İletişim|Anketler|Recall/ })).toHaveCount(0);
 
   await page.locator(".bottom-nav").getByRole("button", { name: "Tedaviler", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tedavi planları" })).toBeVisible();
@@ -361,7 +485,8 @@ test("bundled Android interface works offline", async ({ page }) => {
   await newPlan.click();
   await expect(page.getByText("11-21", { exact: true })).toBeVisible();
   await expect(page.locator("#modalBody")).toContainText("Dijital ölçü sonrası renk provası yapılacak.");
-  await expect(page.locator("#modalBody")).toContainText("4 taksit");
+  await expect(page.locator("#modalBody")).toContainText("Taksit planı");
+  await expect(page.locator("#modalBody")).toContainText("₺5.000,00");
   await expect(page.locator("#modalBody")).toContainText("Her ayın 15'inde");
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.locator("#treatmentPlanList").getByRole("button", { name: /Ayşe Yılmaz/ }).filter({ hasText: "İmplant" }).click();
@@ -421,21 +546,27 @@ test("bundled Android interface works offline", async ({ page }) => {
   await page.getByRole("button", { name: "Sonraki ay" }).click();
   await expect(page.locator("#calendarMonthLabel")).not.toBeEmpty();
 
+  await page.locator(".bottom-nav").getByRole("button", { name: "Stok", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await swipeLeft(page, page.locator("#stockList .swipe-delete").filter({ hasText: "Maske" }).first());
+  await expect(page.locator("#stockList").getByText("Maske", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.getByRole("button", { name: /^Çöp Kutusu/ }).click();
+  const trashedStock = page.locator(".trash-record").filter({ hasText: "Maske" });
+  await expect(trashedStock).toContainText("Stok ürünü");
+  await trashedStock.getByRole("button", { name: "Geri yükle" }).click();
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator(".bottom-nav").getByRole("button", { name: "Stok", exact: true }).click();
+  await expect(page.locator("#stockList").getByText("Maske", { exact: true })).toBeVisible();
+  await expect(page.locator("#stockRecipeList")).toContainText("Kontrol");
+
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
   await expect(page.getByRole("button", { name: "Diğer", exact: true })).toHaveAttribute("aria-current", "page");
-  const moduleCases: Array<[string, string, string | null]> = [
-    ["İletişim", "Demo taslak", "Zeynep Çelik iletişim kaydını sil"],
-    ["Raporlar", "Net akış", null]
-  ];
-  for (const [module, expected, deleteName] of moduleCases) {
+  const moduleCases: Array<[string, string]> = [["Raporlar", "Net akış"]];
+  for (const [module, expected] of moduleCases) {
     await page.getByRole("button", { name: new RegExp(`^${module}`) }).click();
     await expect(page.getByRole("heading", { name: module })).toBeVisible();
     await expect(page.locator("#modalBody").getByText(expected, { exact: true }).first()).toBeVisible();
-    if (deleteName) {
-      page.once("dialog", (dialog) => dialog.accept());
-      await page.getByRole("button", { name: deleteName }).click();
-      await expect(page.locator("#modalBody").getByText(expected, { exact: true })).toHaveCount(0);
-    }
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: new RegExp(`^${module}`) })).toBeFocused();
   }
@@ -498,7 +629,7 @@ test("production Android starts with an empty persistent local workspace", async
   await page.locator('#expenseForm input[name="amount"]').fill("900");
   await page.getByRole("button", { name: "Gideri kaydet" }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Geri Yüklenen Gider finans kaydını sil" }).click();
+  await swipeLeft(page, page.locator("#transactionList .swipe-delete").filter({ hasText: "Geri Yüklenen Gider" }).first());
   await page.getByRole("button", { name: "Diğer", exact: true }).click();
   await page.getByRole("button", { name: /^Çöp Kutusu/ }).click();
   await page.locator(".trash-record").filter({ hasText: "Geri Yüklenen Gider" }).getByRole("button", { name: "Geri yükle", exact: true }).click();
@@ -588,7 +719,7 @@ test("production Android can be reviewed without a password and keeps sample dat
   await expect(page.locator("#consentList").getByText("İnceleme Hastası", { exact: true })).toBeVisible();
   await page.locator(".bottom-nav").getByRole("button", { name: "Hastalar", exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "İnceleme Hastası hastasını sil" }).click();
+  await swipeLeft(page, page.locator("#patientList .swipe-delete").filter({ hasText: "İnceleme Hastası" }).first());
   await page.locator(".bottom-nav").getByRole("button", { name: "Onam", exact: true }).click();
   await expect(page.locator("#consentList").getByText("İnceleme Hastası", { exact: true })).toHaveCount(0);
   await page.locator(".bottom-nav").getByRole("button", { name: "Diğer", exact: true }).click();
@@ -663,7 +794,7 @@ test("local Android records queue once and acknowledge server synchronization", 
   await expect.poll(() => page.evaluate(() => (window as typeof window & { capturedProductUrl?: string }).capturedProductUrl)).toBe("https://shop.example/anestezi-kartusu");
 });
 
-test("Android exposes the new parity modules and their offline CRUD forms", async ({ page }) => {
+test("Android exposes treatment progress, reminders, and the reduced module set", async ({ page }) => {
   test.setTimeout(45_000);
   await page.addInitScript(() => {
     (window as typeof window & { CLINICNOVA_MOBILE_CONFIG?: { mode: string; serverUrl: string } }).CLINICNOVA_MOBILE_CONFIG = { mode: "demo", serverUrl: "" };
@@ -682,7 +813,28 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await page.locator("#treatmentForm").getByRole("button", { name: "Kaydet" }).click();
   await expect(page.locator("#modalBody")).toContainText("Parite dolgusu");
   await expect(page.locator(".treatment-photo-pair img")).toHaveCount(2);
+  await page.locator("#modalBody .offline-record").filter({ hasText: "Parite dolgusu" }).click();
+  await page.getByRole("button", { name: "İlerleme ekle" }).click();
+  await page.locator('#treatmentProgressForm select[name="progress"]').selectOption("50");
+  await page.locator('#treatmentProgressForm textarea[name="note"]').fill("İlk seans tamamlandı; kapanış kontrolü planlandı.");
+  await page.getByRole("button", { name: "İlerlemeyi kaydet" }).click();
+  await expect(page.locator("#modalBody")).toContainText("İlk seans tamamlandı");
+  await expect(page.locator("#modalBody")).toContainText("%50");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Tedaviyi bitir" }).click();
+  await expect(page.locator("#modalBody")).toContainText("hasta profiline ve kişi raporuna otomatik eklendi");
 
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator(".bottom-nav").getByRole("button", { name: "Hastalar", exact: true }).click();
+  await page.locator("#patientList button.patient-card").filter({ hasText: "Ayşe Yılmaz" }).click();
+  await expect(page.locator("#modalBody").getByText("Parite dolgusu", { exact: true })).toBeVisible();
+  await expect(page.locator("#modalBody")).toContainText("İlk seans tamamlandı; kapanış kontrolü planlandı.");
+  await page.getByRole("button", { name: "Kapat", exact: true }).click();
+  await page.locator(".bottom-nav").getByRole("button", { name: "Diğer", exact: true }).click();
+  await page.locator("#moduleGrid").getByRole("button", { name: /^Raporlar/ }).click();
+  await page.locator("#modalBody [data-patient-report]").filter({ hasText: "Ayşe Yılmaz" }).click();
+  await expect(page.locator("#modalTitle")).toHaveText("Ayşe Yılmaz");
+  await expect(page.locator("#modalBody").getByText("Parite dolgusu", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
   await page.locator("#moduleGrid").getByRole("button", { name: /Personel/ }).click();
   await page.getByRole("button", { name: "Personel ekle" }).click();
@@ -692,7 +844,7 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await expect(page.getByText("Mobil Asistan", { exact: true })).toBeVisible();
   const mobileStaff = page.locator(".offline-record").filter({ hasText: "Mobil Asistan" });
   page.once("dialog", (dialog) => dialog.accept());
-  await mobileStaff.getByRole("button", { name: "Mobil Asistan personelini çıkar" }).click();
+  await swipeLeft(page, page.locator("#modalBody .swipe-delete").filter({ hasText: "Mobil Asistan" }).first());
   await expect(mobileStaff).toContainText("Pasif");
   await expect(mobileStaff.getByRole("button", { name: "Mobil Asistan personelini yeniden aktifleştir" })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
@@ -700,18 +852,9 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await expect(mobileStaff).toContainText("Aktif");
 
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
-  await page.locator("#moduleGrid").getByRole("button", { name: /Anketler/ }).click();
-  await page.getByRole("button", { name: "Anket oluştur" }).click();
-  await page.locator('#surveyForm input[name="title"]').fill("Mobil memnuniyet");
-  await page.getByRole("button", { name: "Anketi kaydet" }).click();
-  await expect(page.getByText("Mobil memnuniyet", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "Kapat", exact: true }).click();
-  await page.locator("#moduleGrid").getByRole("button", { name: /Recall/ }).click();
-  await page.getByRole("button", { name: "Takip ekle" }).click();
-  await page.locator('#recallForm input[name="reason"]').fill("Altı aylık kontrol");
-  await page.getByRole("button", { name: "Takibi kaydet" }).click();
-  await expect(page.locator("#modalBody")).toContainText("Altı aylık kontrol");
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /Anketler|Recall|İletişim/ })).toHaveCount(0);
+  await page.locator("#notificationButton").click();
+  await page.getByRole("button", { name: /Randevu hatırlatma ayarları/ }).click();
   await page.locator('#reminderSettingsForm input[name="enabled"]').check();
   await page.locator("#reminderSettingsForm").getByRole("button", { name: "Hatırlatma ayarlarını kaydet" }).click();
   await page.evaluate(() => (window as typeof window & { ClinicNovaProcessReminders: () => Promise<void> }).ClinicNovaProcessReminders());
@@ -726,5 +869,5 @@ test("Android exposes the new parity modules and their offline CRUD forms", asyn
   await expect(page.locator("#modalTitle")).toContainText("Bugün sizden beklenenler");
 
   await page.getByRole("button", { name: "Kapat", exact: true }).click();
-  await expect(page.locator("#moduleGrid").getByRole("button", { name: /Tam web paneli/ })).toBeVisible();
+  await expect(page.locator("#moduleGrid").getByRole("button", { name: /Tam web paneli/ })).toHaveCount(0);
 });

@@ -1,4 +1,4 @@
-# ClinicNova 1.15.6
+# ClinicNova 1.15.7
 
 ClinicNova; diş klinikleri için çok kiracılı hasta, randevu, tedavi, finans, iletişim ve stok yönetimi platformudur. Next.js 15, TypeScript, Prisma ve PostgreSQL üzerinde çalışır; web, Android, iOS, Windows ve macOS istemcileri aynı klinik verisini kullanır.
 
@@ -61,6 +61,7 @@ npm run start:production
 - Windows/macOS kılavuzu: [`desktop/README.md`](desktop/README.md)
 - Klinik kurulum kontrol listesi: [`docs/CLINIC-INSTALL.md`](docs/CLINIC-INSTALL.md)
 - 1.15.6 platform denetim raporu: [`docs/PLATFORM-AUDIT-1.15.6.md`](docs/PLATFORM-AUDIT-1.15.6.md)
+- 1.15.7 değişiklik özeti: [`docs/CHANGELOG-1.15.7.md`](docs/CHANGELOG-1.15.7.md)
 - Tek sunuculuk kurulum otomasyonu: [`ops/deploy/README.md`](ops/deploy/README.md)
 
 ## Android

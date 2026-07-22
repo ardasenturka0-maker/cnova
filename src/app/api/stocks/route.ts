@@ -12,7 +12,7 @@ export async function GET() {
   const session = await getCurrentSession();
   if (!session) return NextResponse.json({ error: "Yetkisiz." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   if (!canAccess(session.role, "stocks")) return NextResponse.json({ error: "Yetkiniz yok." }, { status: 403 });
-  const stocks = await getStocks(session.organizationId);
+  const stocks = await getStocks(session.organizationId, session.branchId);
   return NextResponse.json({ stocks }, { headers: { "Cache-Control": "private, no-store" } });
 }
 

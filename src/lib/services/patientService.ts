@@ -96,17 +96,17 @@ export async function deletePatient(organizationId: string, id: string, userId: 
   const now = new Date();
   const purgeAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const result = await prisma.patient.updateMany({
-    where: { id, organizationId, deletedAt: null },
+    where: { id, organizationId, ...(branchId ? { branchId } : {}), deletedAt: null },
     data: { deletedAt: now, purgeAt, deletedById: userId, restoredAt: null, restoredById: null }
   });
   if (result.count > 0) await writeAuditLog({ userId, action: "SOFT_DELETE_PATIENT", module: "patients", entityId: id, metadata: { purgeAt: purgeAt.toISOString() }, organizationId, branchId });
   return result;
 }
 
-export async function getDeletedPatients(organizationId: string) {
+export async function getDeletedPatients(organizationId: string, branchId?: string | null) {
   const now = new Date();
   return prisma.patient.findMany({
-    where: { organizationId, deletedAt: { not: null }, purgeAt: { gt: now } },
+    where: { organizationId, ...(branchId ? { branchId } : {}), deletedAt: { not: null }, purgeAt: { gt: now } },
     include: { branch: { select: { name: true } } },
     orderBy: { deletedAt: "desc" },
     take: 200
@@ -116,7 +116,7 @@ export async function getDeletedPatients(organizationId: string) {
 export async function restorePatient(organizationId: string, id: string, userId: string, branchId?: string | null) {
   const now = new Date();
   const result = await prisma.patient.updateMany({
-    where: { id, organizationId, deletedAt: { not: null }, purgeAt: { gt: now } },
+    where: { id, organizationId, ...(branchId ? { branchId } : {}), deletedAt: { not: null }, purgeAt: { gt: now } },
     data: { deletedAt: null, purgeAt: null, restoredAt: now, restoredById: userId }
   });
   if (result.count > 0) await writeAuditLog({ userId, action: "RESTORE_PATIENT", module: "patients", entityId: id, organizationId, branchId });

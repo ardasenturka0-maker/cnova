@@ -22,6 +22,6 @@ npm run android:verify
 
 Sunucu adresi verilmezse üretim APK'sı doğrudan yerel çalışma seçeneği sunar; adres daha sonra ayarlardan bağlanabilir. Demo paketi yalnızca test/gösterim için `MOBILE_MODE=demo npm run android:build` ile ayrı üretilir.
 
-Çıktı: `releases/ClinicNova-1.15.6.apk`
+Çıktı: `releases/ClinicNova-1.15.7.apk`
 
 İlk üretim açılışında klinik/yönetici bilgileriyle çevrimdışı hesap oluşturulur. Parola yerine PBKDF2-SHA-256 özeti tutulur, kurtarma kodu yalnız bir kez gösterilir ve uygulama yeniden açıldığında yerel giriş istenir. İnternetli kullanım için yerel girişten sonra HTTPS ClinicNova sunucusu bağlanır.

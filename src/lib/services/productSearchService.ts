@@ -92,8 +92,11 @@ export async function inspectProductPage(productUrl: string) {
   return { ...offer, productUrl: normalizedUrl };
 }
 
-export async function refreshProductOffers(organizationId: string, itemId: string, productUrl: string) {
-  const item = await prisma.stockItem.findFirst({ where: { id: itemId, organizationId }, select: { id: true, name: true, branchId: true } });
+export async function refreshProductOffers(organizationId: string, itemId: string, productUrl: string, branchId?: string | null) {
+  const item = await prisma.stockItem.findFirst({
+    where: { id: itemId, organizationId, ...(branchId ? { branchId } : {}), deletedAt: null },
+    select: { id: true, name: true, branchId: true }
+  });
   if (!item) throw new Error("Stok kalemi bulunamadı.");
   const offer = await inspectProductPage(productUrl);
   const checkedAt = new Date();

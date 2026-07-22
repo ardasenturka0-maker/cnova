@@ -74,6 +74,32 @@ test("demo can open without a live database", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Geciken tahsilatlar" })).toBeVisible();
 });
 
+test("dashboard summaries, daily tasks and installment preview are interactive", async ({ page }) => {
+  await page.goto("/demo-open");
+
+  const summaries = page.locator('section[aria-label="Klinik özetleri"]');
+  const appointmentsSummary = summaries.getByRole("button", { name: /Bugünkü randevular/ });
+  await appointmentsSummary.click();
+  await expect(appointmentsSummary).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { name: "Bugünkü randevu akışı" })).toBeVisible();
+
+  const todoCard = page.getByRole("heading", { name: /Bugünün klinik yapılacakları/ }).locator("xpath=ancestor::div[contains(@class, 'xl:col-span-2')]");
+  const openTasksBefore = await todoCard.getByRole("button", { name: "Yapıldı" }).count();
+  expect(openTasksBefore).toBeGreaterThan(0);
+  await todoCard.getByRole("button", { name: "Yapıldı" }).first().click();
+  await expect(todoCard.getByRole("button", { name: "Yapıldı" })).toHaveCount(openTasksBefore - 1);
+
+  await page.goto("/dashboard/treatments");
+  const treatmentForm = page.locator('form:has(button:has-text("Tedavi Kaydet"))');
+  await treatmentForm.getByLabel("Tedavi ücreti").fill("12000");
+  await treatmentForm.getByLabel("Alınan peşinat").fill("3000");
+  await treatmentForm.getByLabel("Kalan tutarın taksiti").selectOption("3");
+  await expect(treatmentForm.getByText("Taksit takvimi", { exact: true })).toBeVisible();
+  await expect(treatmentForm.getByText("1. taksit", { exact: false })).toBeVisible();
+  await expect(treatmentForm.getByText("3. taksit", { exact: false })).toBeVisible();
+  await expect(treatmentForm.getByText(/3\s*×\s*₺3\.000,00/)).toBeVisible();
+});
+
 test("sales workflows expose full calendar, treatment details, stock purchasing and deposits", async ({ page }) => {
   await page.goto("/demo-open");
   await page.goto("/dashboard/treatment-plans");
@@ -147,8 +173,7 @@ test("completed treatments consume their material recipe and reversal returns st
 
   await page.goto("/dashboard/treatments");
   const treatmentRow = page.getByRole("row").filter({ hasText: treatmentName });
-  await treatmentRow.getByLabel(`${treatmentName} durumu`).selectOption("STARTED");
-  await treatmentRow.getByRole("button", { name: "Kaydet" }).click();
+  await treatmentRow.getByRole("button", { name: "Tedaviyi yeniden aç" }).click();
   await page.goto("/dashboard/stocks");
   await expect(stockRow()).toContainText("5 adet");
 });

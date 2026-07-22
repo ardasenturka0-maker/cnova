@@ -11,6 +11,10 @@ export async function purgeExpiredTrash(now = new Date()) {
     where: { deletedAt: { not: null }, purgeAt: { lte: now } },
     select: { id: true, organizationId: true, branchId: true, files: { select: { storageKey: true } } }
   });
+  const expiredStockItems = await prisma.stockItem.findMany({
+    where: { deletedAt: { not: null }, purgeAt: { lte: now } },
+    select: { id: true, name: true, organizationId: true, branchId: true }
+  });
 
   for (const file of expiredFiles) {
     await deleteStoredPatientFile(file.storageKey);
@@ -22,6 +26,32 @@ export async function purgeExpiredTrash(now = new Date()) {
     await writeAuditLog({ action: "PURGE_PATIENT", module: "patients", entityId: patient.id, organizationId: patient.organizationId, branchId: patient.branchId });
     await prisma.patient.delete({ where: { id: patient.id } });
   }
+  let purgedStockItems = 0;
+  for (const item of expiredStockItems) {
+    const purged = await prisma.$transaction(async (tx) => {
+      const current = await tx.stockItem.findFirst({
+        where: { id: item.id, deletedAt: { not: null }, purgeAt: { lte: now } },
+        select: { id: true, name: true, organizationId: true, branchId: true }
+      });
+      if (!current) return false;
+      await tx.auditLog.create({
+        data: {
+          action: "PURGE_STOCK_ITEM",
+          module: "stocks",
+          entityId: current.id,
+          metadata: { name: current.name },
+          organizationId: current.organizationId,
+          branchId: current.branchId
+        }
+      });
+      const deleted = await tx.stockItem.deleteMany({
+        where: { id: current.id, deletedAt: { not: null }, purgeAt: { lte: now } }
+      });
+      if (deleted.count !== 1) throw new Error("Süresi dolan stok kaydı aynı anda değiştirildi.");
+      return true;
+    });
+    if (purged) purgedStockItems += 1;
+  }
 
-  return { purgedPatients: expiredPatients.length, purgedFiles: expiredFiles.length };
+  return { purgedPatients: expiredPatients.length, purgedFiles: expiredFiles.length, purgedStockItems };
 }

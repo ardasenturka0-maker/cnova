@@ -7,6 +7,7 @@ type RevenuePoint = { month: string; gelir: number };
 type DensityPoint = { gun: string; randevu: number };
 type DistributionPoint = { name: string; value: number };
 type DoctorPoint = { name: string; appointments: number; revenue: number };
+type DashboardChartVisibility = { revenue: boolean; density: boolean; distribution: boolean; doctors: boolean };
 
 const colors = ["#0f9f8f", "#f97316", "#64748b", "#eab308", "#2563eb", "#dc2626", "#14b8a6", "#a855f7"];
 
@@ -14,16 +15,19 @@ export function DashboardCharts({
   revenue,
   density,
   distribution,
-  doctors
+  doctors,
+  visible = { revenue: true, density: true, distribution: true, doctors: true }
 }: {
   revenue: RevenuePoint[];
   density: DensityPoint[];
   distribution: DistributionPoint[];
   doctors: DoctorPoint[];
+  visible?: DashboardChartVisibility;
 }) {
+  if (!Object.values(visible).some(Boolean)) return null;
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card>
+      {visible.revenue ? <Card>
         <CardHeader>
           <CardTitle>Aylık gelir</CardTitle>
         </CardHeader>
@@ -38,8 +42,8 @@ export function DashboardCharts({
             </LineChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
-      <Card>
+      </Card> : null}
+      {visible.density ? <Card>
         <CardHeader>
           <CardTitle>Randevu yoğunluğu</CardTitle>
         </CardHeader>
@@ -54,8 +58,8 @@ export function DashboardCharts({
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
-      <Card>
+      </Card> : null}
+      {visible.distribution ? <Card>
         <CardHeader>
           <CardTitle>Tedavi dağılımı</CardTitle>
         </CardHeader>
@@ -71,8 +75,8 @@ export function DashboardCharts({
             </PieChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
-      <Card>
+      </Card> : null}
+      {visible.doctors ? <Card>
         <CardHeader>
           <CardTitle>Doktor performansı</CardTitle>
         </CardHeader>
@@ -87,7 +91,7 @@ export function DashboardCharts({
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
+      </Card> : null}
     </div>
   );
 }

@@ -150,7 +150,7 @@ test("Android authenticates in its own cookie jar and removes native bridges fro
     readFile("mobile/src/app/clinicnova/mobile/MainActivity.java", "utf8")
   ]);
   assert.match(mobile, /ClinicNovaNative\?\.connect/);
-  assert.match(mobile, /ClinicNovaNative\?\.openPortal/);
+  assert.doesNotMatch(mobile, /ClinicNovaNative\?\.openPortal/);
   assert.match(android, /validatedServerUrl/);
   assert.match(android, /trustedOrigin\.equals\(originOf\(uri\)\)/);
   assert.match(android, /removeJavascriptInterface\("ClinicNovaNative"\)/);

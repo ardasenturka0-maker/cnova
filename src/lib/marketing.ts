@@ -1,4 +1,4 @@
-import { BarChart3, BellRing, Boxes, Building2, CalendarDays, ClipboardCheck, CreditCard, DatabaseZap, FileText, HeartPulse, MessageSquare, Repeat, ShieldCheck, Sparkles, Stethoscope, Users } from "lucide-react";
+import { BarChart3, BellRing, Boxes, Building2, CalendarDays, ClipboardCheck, CreditCard, DatabaseZap, FileText, MessageSquare, Repeat, ShieldCheck, Sparkles, Stethoscope, Users } from "lucide-react";
 
 export const features = [
   { title: "Randevu Yönetimi", description: "Günlük, haftalık ve liste görünümleriyle çakışma kontrollü planlama.", icon: CalendarDays },
@@ -8,7 +8,6 @@ export const features = [
   { title: "Stok Yönetimi", description: "Minimum stok uyarıları, hareket geçmişi ve tedarikçi takibi.", icon: Boxes },
   { title: "Personel ve Hekim", description: "Çalışma saatleri, hakediş, performans ve rol bazlı erişim.", icon: Building2 },
   { title: "Dijital Onam", description: "Şablon, imza gönderimi, kayıt ve zaman damgası için izlenebilir onam akışı.", icon: ClipboardCheck },
-  { title: "Memnuniyet Anketleri", description: "1-5 puanlama, yorum ve düşük skorlar için takip listesi.", icon: HeartPulse },
   { title: "WhatsApp / SMS / E-posta", description: "Sağlayıcıdan bağımsız mesajlaşma katmanı ve iletişim geçmişi.", icon: MessageSquare },
   { title: "Çoklu Şube", description: "Organization, branch ve tenant filtreli veri mimarisi.", icon: DatabaseZap },
   { title: "Raporlama", description: "Gelir, doluluk, doktor performansı ve şube karşılaştırması.", icon: BarChart3 },
@@ -74,6 +73,6 @@ export const faqs = [
 export const highlightCards = [
   { label: "Günlük akış", value: "Tek ekranda öncelikler", icon: Sparkles },
   { label: "Güvenlik", value: "Rol bazlı erişim", icon: ShieldCheck },
-  { label: "Uyarılar", value: "Stok, ödeme, recall", icon: BellRing },
+  { label: "Uyarılar", value: "Stok, ödeme, günlük görev", icon: BellRing },
   { label: "Raporlama", value: "CSV + yönetim özeti", icon: FileText }
 ];

@@ -1,24 +1,26 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Boxes, ExternalLink, PackagePlus, ShoppingCart, Trash2, Workflow } from "lucide-react";
+import Link from "next/link";
 import { ModuleHeader } from "@/components/dashboard/module-header";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { requireModuleAccess } from "@/lib/auth";
+import { canManageTrash, requireModuleAccess } from "@/lib/auth";
 import { statusLabel } from "@/lib/i18n";
 import { getLocale } from "@/lib/i18n-server";
 import { takeRateLimit } from "@/lib/rate-limit";
 import { publicErrorMessage } from "@/lib/public-error";
-import { createStockItem, createStockMovement, createStockRecipe, deleteStockRecipe, getStockRecipes, getStocks } from "@/lib/services/stockService";
+import { createStockItem, createStockMovement, createStockRecipe, deleteStockRecipe, getStockRecipes, getStocks, softDeleteStockItem } from "@/lib/services/stockService";
 import { getWritableBranchId } from "@/lib/services/tenantService";
 import { refreshProductOffers } from "@/lib/services/productSearchService";
 import { stockItemSchema, stockMovementSchema, stockRecipeSchema } from "@/lib/validations/stock";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 function resultUrl(type: "success" | "error", message: string) {
   return `/dashboard/stocks?${type}=${encodeURIComponent(message)}`;
@@ -55,7 +57,7 @@ async function refreshOffersAction(formData: FormData) {
   try {
     const rateLimit = takeRateLimit({ key: `web-product-page:${session.userId}`, limit: 20, windowMs: 60 * 60 * 1000 });
     if (!rateLimit.allowed) throw new Error("Saatlik fiyat okuma sınırına ulaşıldı.");
-    const result = await refreshProductOffers(session.organizationId, String(formData.get("itemId") || ""), String(formData.get("productUrl") || ""));
+    const result = await refreshProductOffers(session.organizationId, String(formData.get("itemId") || ""), String(formData.get("productUrl") || ""), session.branchId);
     seller = result.seller;
   }
   catch (error) { redirect(resultUrl("error", errorMessage(error))); }
@@ -76,21 +78,36 @@ async function createRecipeAction(formData: FormData) {
 async function deleteRecipeAction(recipeId: string) {
   "use server";
   const session = await requireModuleAccess("stocks");
-  try { await deleteStockRecipe(session.organizationId, recipeId); }
+  try { await deleteStockRecipe(session.organizationId, recipeId, session.branchId); }
   catch (error) { redirect(resultUrl("error", errorMessage(error))); }
   revalidatePath("/dashboard/stocks");
   redirect(resultUrl("success", "Malzeme reçetesi kaldırıldı."));
+}
+
+async function deleteStockItemAction(itemId: string) {
+  "use server";
+  const session = await requireModuleAccess("stocks");
+  if (!canManageTrash(session.role)) redirect("/dashboard?error=forbidden");
+  try { await softDeleteStockItem(session.organizationId, itemId, session.userId, session.branchId); }
+  catch (error) { redirect(resultUrl("error", errorMessage(error))); }
+  revalidatePath("/dashboard/stocks");
+  revalidatePath("/dashboard/patients/trash");
+  redirect(resultUrl("success", "Stok kalemi çöp kutusuna taşındı; 30 gün içinde geri yüklenebilir."));
 }
 
 export default async function StocksPage({ searchParams }: { searchParams: Promise<{ success?: string; error?: string }> }) {
   const query = await searchParams;
   const session = await requireModuleAccess("stocks");
   const locale = await getLocale();
-  const [stocks, recipes] = await Promise.all([getStocks(session.organizationId), getStockRecipes(session.organizationId)]);
+  const [stocks, recipes] = await Promise.all([
+    getStocks(session.organizationId, session.branchId),
+    getStockRecipes(session.organizationId, session.branchId)
+  ]);
 
   return (
     <div className="space-y-6">
       <ModuleHeader icon={Boxes} title="Stok Modülü" description="Minimum stok uyarıları, tedavi reçeteleri, otomatik sarf, tedarikçi ve hareket geçmişi." />
+      {canManageTrash(session.role) ? <Link href="/dashboard/patients/trash" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}><Trash2 className="h-4 w-4" />Çöp kutusunu aç</Link> : null}
       {query.success ? <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700">{query.success}</div> : null}
       {query.error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{query.error}</div> : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -174,7 +191,7 @@ export default async function StocksPage({ searchParams }: { searchParams: Promi
       <Card>
         <CardContent className="p-0">
           <Table>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead>Kategori</TableHead><TableHead>Miktar</TableHead><TableHead>Minimum</TableHead><TableHead>Tedarikçi</TableHead><TableHead>Alış</TableHead><TableHead>Son hareket</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead>Kategori</TableHead><TableHead>Miktar</TableHead><TableHead>Minimum</TableHead><TableHead>Tedarikçi</TableHead><TableHead>Alış</TableHead><TableHead>Son hareket</TableHead>{canManageTrash(session.role) ? <TableHead className="w-14" /> : null}</TableRow></TableHeader>
             <TableBody>
               {stocks.map((item) => (
                 <TableRow key={item.id}>
@@ -185,6 +202,7 @@ export default async function StocksPage({ searchParams }: { searchParams: Promi
                   <TableCell>{item.supplier ?? "-"}</TableCell>
                   <TableCell>{formatCurrency(item.purchasePrice, locale)}</TableCell>
                   <TableCell>{item.movements[0] ? `${statusLabel(item.movements[0].type, locale)} · ${formatDate(item.movements[0].movedAt, locale)}` : "-"}</TableCell>
+                  {canManageTrash(session.role) ? <TableCell className="text-right"><form action={deleteStockItemAction.bind(null, item.id)}><ConfirmSubmitButton type="submit" size="icon" variant="ghost" confirmation={`${item.name} çöp kutusuna taşınsın mı?`} aria-label={`${item.name} stok kalemini sil`}><Trash2 className="h-4 w-4 text-destructive" /></ConfirmSubmitButton></form></TableCell> : null}
                 </TableRow>
               ))}
             </TableBody>

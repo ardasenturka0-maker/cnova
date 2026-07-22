@@ -16,6 +16,16 @@ export function formatCurrency(value: number | string | { toString: () => string
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+export function formatCurrencyPrecise(value: number | string | { toString: () => string }, locale: Locale = "tr") {
+  const amount = typeof value === "number" ? value : Number(value.toString());
+  return new Intl.NumberFormat(intlLocale(locale), {
+    style: "currency",
+    currency: "TRY",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
 export function formatDate(date: Date | string, locale: Locale = "tr") {
   const parsedDate = new Date(date);
   if (Number.isNaN(parsedDate.getTime())) {

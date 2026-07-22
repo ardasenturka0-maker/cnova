@@ -111,7 +111,7 @@ test("stock exits use a conditional decrement instead of a read-modify-write upd
     type: StockMovementType.OUT,
     quantity: 3
   });
-  assert.deepEqual(updateWhere, { id: "item-1", organizationId: "org-1", branchId: "branch-1", currentQuantity: { gte: 3 } });
+  assert.deepEqual(updateWhere, { id: "item-1", organizationId: "org-1", deletedAt: null, branchId: "branch-1", currentQuantity: { gte: 3 } });
   assert.deepEqual(updateData, { currentQuantity: { decrement: 3 } });
 });
 
@@ -167,7 +167,8 @@ test("mobile date-only clinical values use the Istanbul parser instead of host t
   assert.match(mobileSync, /birthDate: payload\.birthDate \? parseClinicDateTime\(`/);
   assert.match(mobileSync, /plannedAt: parseClinicDateTime\(`/);
   assert.match(mobileSync, /performedAt: parseClinicDateTime\(`/);
-  assert.match(mobileSync, /dueDate: parseClinicDateTime\(`/);
+  assert.match(mobileSync, /dueDate: payload\.dueDate \? parseClinicDateTime\(`/);
+  assert.doesNotMatch(mobileSync, /operation\.entityType === "RECALL"/);
   assert.doesNotMatch(mobileSync, /new Date\(`\$\{payload\.(?:birthDate|date|dueDate)\}T12:00:00`\)/);
 });
 

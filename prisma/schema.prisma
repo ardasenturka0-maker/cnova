@@ -632,11 +632,18 @@ model StockItem {
   movements       StockMovement[]
   offers          StockOffer[]
   recipes         StockRecipe[]
+  deletedAt       DateTime?
+  purgeAt         DateTime?
+  deletedById     String?
+  restoredAt      DateTime?
+  restoredById    String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
   @@index([organizationId])
   @@index([branchId])
+  @@index([organizationId, deletedAt])
+  @@index([purgeAt])
 }
 
 model StockRecipe {
@@ -1343,6 +1350,7 @@ model Task {
   assignedToUserId String?
   relatedLeadId    String?
   relatedPatientId String?
+  sourceKey        String?
   title            String
   description      String?
   priority         TaskPriority @default(MEDIUM)
@@ -1351,6 +1359,7 @@ model Task {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
+  @@unique([organizationId, sourceKey])
   @@index([organizationId])
   @@index([assignedToUserId])
   @@index([relatedLeadId])

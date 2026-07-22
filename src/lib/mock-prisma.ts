@@ -905,8 +905,10 @@ function matchesValue(itemValue: any, condition: any): boolean {
     const needle = String(condition.contains ?? "").toLowerCase();
     if (!haystack.includes(needle)) return false;
   }
+  if ("startsWith" in condition && !String(itemValue ?? "").startsWith(String(condition.startsWith ?? ""))) return false;
+  if ("endsWith" in condition && !String(itemValue ?? "").endsWith(String(condition.endsWith ?? ""))) return false;
 
-  const operators = ["equals", "in", "notIn", "not", "lte", "lt", "gte", "gt", "contains", "mode"];
+  const operators = ["equals", "in", "notIn", "not", "lte", "lt", "gte", "gt", "contains", "startsWith", "endsWith", "mode"];
   if (Object.keys(condition).some((key) => !operators.includes(key))) {
     if (itemValue === null || itemValue === undefined) return false;
     return matchesWhere(itemValue, condition);
@@ -923,6 +925,10 @@ function matchesWhere(item: any, where: any): boolean {
 
   return Object.entries(where).every(([key, condition]) => {
     if (["OR", "AND", "NOT"].includes(key)) return true;
+    if (!(key in item) && condition && typeof condition === "object" && !Array.isArray(condition)) {
+      const compound = condition as Record<string, unknown>;
+      if (Object.keys(compound).length && Object.keys(compound).every((field) => field in item)) return matchesWhere(item, compound);
+    }
     return matchesValue(item[key], condition);
   });
 }
@@ -957,6 +963,11 @@ function model(data: any[], rich = (item: any) => item) {
     async findUnique(args?: any) {
       return data.filter((item) => matchesWhere(rich(item), args?.where)).map(rich)[0] ?? null;
     },
+    async findUniqueOrThrow(args?: any) {
+      const item = data.filter((entry) => matchesWhere(rich(entry), args?.where)).map(rich)[0];
+      if (!item) throw new Error("Kayıt bulunamadı.");
+      return item;
+    },
     async count(args?: any) {
       return data.filter((item) => matchesWhere(rich(item), args?.where)).length;
     },
@@ -973,7 +984,7 @@ function model(data: any[], rich = (item: any) => item) {
       return { count: items.length };
     },
     async update(args?: any) {
-      const item = data.find((entry) => matchesWhere(entry, args?.where));
+      const item = data.find((entry) => matchesWhere(rich(entry), args?.where));
       if (item) Object.assign(item, args?.data, { updatedAt: new Date() });
       return rich(item ?? data[0]);
     },
@@ -981,7 +992,7 @@ function model(data: any[], rich = (item: any) => item) {
       let count = 0;
       const updatedAt = new Date();
       data.forEach((item) => {
-        if (matchesWhere(item, args?.where)) {
+        if (matchesWhere(rich(item), args?.where)) {
           Object.assign(item, args?.data, { updatedAt });
           count += 1;
         }
@@ -989,7 +1000,7 @@ function model(data: any[], rich = (item: any) => item) {
       return { count };
     },
     async upsert(args?: any) {
-      const existing = data.find((entry) => matchesWhere(entry, args?.where));
+      const existing = data.find((entry) => matchesWhere(rich(entry), args?.where));
       if (existing) {
         Object.assign(existing, args?.update, { updatedAt: new Date() });
         return rich(existing);
@@ -1002,7 +1013,7 @@ function model(data: any[], rich = (item: any) => item) {
     async deleteMany(args?: any) {
       let count = 0;
       for (let index = data.length - 1; index >= 0; index -= 1) {
-        if (matchesWhere(data[index], args?.where)) {
+        if (matchesWhere(rich(data[index]), args?.where)) {
           data.splice(index, 1);
           count += 1;
         }

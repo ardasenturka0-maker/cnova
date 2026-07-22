@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { AppointmentStatus, CommunicationChannel, CommunicationDirection, CommunicationStatus, ConsentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, RecallStatus, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
+import { AppointmentStatus, CommunicationChannel, CommunicationDirection, CommunicationStatus, ConsentStatus, PaymentMethod, PaymentStatus, PaymentType, Prisma, Role, StockMovementType, TreatmentStatus } from "@prisma/client";
 import { z } from "zod";
 import type { AuthSession } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
@@ -11,7 +11,7 @@ import { getWritableBranchId } from "@/lib/services/tenantService";
 import { assertAppointmentAvailability, isActiveSchedulingStatus, withSerializableTransaction } from "@/lib/services/appointmentAvailability";
 import { canAccess } from "@/lib/rbac";
 import { consumeTreatmentRecipe, normalizeTreatmentKey, releaseTreatmentRecipe } from "@/lib/services/treatmentStockService";
-import { applyStockQuantityChange } from "@/lib/services/stockService";
+import { applyStockQuantityChange, stockTrashPurgeAt } from "@/lib/services/stockService";
 import { publicErrorMessage } from "@/lib/public-error";
 import type { MobileSyncBatch, MobileSyncOperation } from "@/lib/validations/mobile-sync";
 import { secureHttpsUrlSchema } from "@/lib/validations/common";
@@ -111,11 +111,6 @@ const consentPayload = z.object({
   content: z.string().trim().min(3).max(20_000), status: z.enum(["DRAFT", "SENT", "SIGNED", "CANCELLED"])
 });
 
-const surveyPayload = z.object({ title: z.string().trim().min(2).max(200), description: z.string().trim().max(2000).optional(), active: z.boolean().default(true) });
-const surveyResponsePayload = z.object({
-  surveyId: localId, patientId: localId,
-  score: z.coerce.number().int().min(1).max(5), comment: z.string().trim().max(2000).optional()
-});
 const communicationPayload = z.object({
   patientId: localId.optional(), channel: z.enum(["WHATSAPP", "SMS", "EMAIL", "PHONE", "IN_APP"]),
   direction: z.enum(["INBOUND", "OUTBOUND"]).default("OUTBOUND"), subject: z.string().trim().max(300).optional(),
@@ -123,11 +118,11 @@ const communicationPayload = z.object({
   message: z.string().trim().min(1).max(10_000),
   status: z.enum(["QUEUED", "SENT", "DELIVERED", "FAILED"]).default("QUEUED")
 });
-const recallPayload = z.object({
-  patientId: localId, reason: z.string().trim().min(2).max(500),
-  dueDate: z.string().refine((value) => Boolean(parseClinicDateKey(value))), status: z.enum(["OPEN", "CONTACTED", "SCHEDULED", "CLOSED"]), notes: z.string().trim().max(2000).optional()
-});
 type SyncResult = { operationId: string; status: "synced" | "failed"; serverEntityId?: string; error?: string };
+
+function canManageTrash(role: Role) {
+  return role === Role.CLINIC_OWNER || role === Role.MANAGER;
+}
 
 function payloadHash(operation: MobileSyncOperation) {
   return createHash("sha256").update(JSON.stringify({ entityType: operation.entityType, action: operation.action, clientId: operation.clientId, payload: operation.payload })).digest("hex");
@@ -157,6 +152,10 @@ async function mappedEntityId(tx: Prisma.TransactionClient, organizationId: stri
 
 async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession, branchId: string, deviceId: string, operation: MobileSyncOperation) {
   const organizationId = session.organizationId;
+  if (["SURVEY", "SURVEY_RESPONSE", "RECALL"].includes(operation.entityType)) {
+    throw new Error("Bu mobil modül kaldırıldı.");
+  }
+  if (operation.entityType === "LEAD") throw new Error("Sağlık turizmi modülü kaldırıldı.");
   if (operation.entityType === "CLINIC_CONFIG") {
     if (operation.action === "DELETE") throw new Error("Klinik ayarları silinemez.");
     const payload = clinicConfigPayload.parse(operation.payload);
@@ -391,30 +390,6 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     return (await tx.consent.create({ data })).id;
   }
 
-  if (operation.entityType === "SURVEY") {
-    const existingId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY", operation.clientId);
-    if (operation.action === "DELETE") { if (existingId) await tx.survey.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
-    const payload = surveyPayload.parse(operation.payload);
-    const data = { title: payload.title, description: payload.description || null, active: payload.active, organizationId, branchId };
-    if (existingId && (await tx.survey.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
-    return (await tx.survey.create({ data })).id;
-  }
-
-  if (operation.entityType === "SURVEY_RESPONSE") {
-    const existingId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY_RESPONSE", operation.clientId);
-    if (operation.action === "DELETE") { if (existingId) await tx.surveyResponse.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
-    const payload = surveyResponsePayload.parse(operation.payload);
-    const surveyId = await mappedEntityId(tx, organizationId, deviceId, "SURVEY", payload.surveyId);
-    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
-    if (!surveyId || !patientId) throw new Error("Önce bağlı anket ve hasta eşitlenmelidir.");
-    if (!await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { id: true } })) throw new Error("Hasta bu şubede bulunamadı.");
-    const survey = await tx.survey.findFirst({ where: { id: surveyId, organizationId, branchId }, select: { branchId: true } });
-    if (!survey) throw new Error("Anket bulunamadı.");
-    const data = { surveyId, patientId, score: payload.score, comment: payload.comment || null, submittedAt: new Date(), organizationId, branchId: survey.branchId };
-    if (existingId && (await tx.surveyResponse.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
-    return (await tx.surveyResponse.create({ data })).id;
-  }
-
   if (operation.entityType === "COMMUNICATION") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "COMMUNICATION", operation.clientId);
     if (operation.action === "DELETE") { if (existingId) await tx.communicationLog.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
@@ -428,30 +403,74 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     return (await tx.communicationLog.create({ data })).id;
   }
 
-  if (operation.entityType === "RECALL") {
-    const existingId = await mappedEntityId(tx, organizationId, deviceId, "RECALL", operation.clientId);
-    if (operation.action === "DELETE") { if (existingId) await tx.recall.deleteMany({ where: { id: existingId, organizationId, branchId } }); return existingId; }
-    const payload = recallPayload.parse(operation.payload);
-    const patientId = await mappedEntityId(tx, organizationId, deviceId, "PATIENT", payload.patientId);
-    if (!patientId) throw new Error("Önce bağlı hasta eşitlenmelidir.");
-    const patient = await tx.patient.findFirst({ where: { id: patientId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
-    if (!patient) throw new Error("Hasta bulunamadı.");
-    const data = { patientId, reason: payload.reason, dueDate: parseClinicDateTime(`${payload.dueDate}T12:00`)!, status: payload.status as RecallStatus,
-      notes: payload.notes || null, organizationId, branchId: patient.branchId };
-    if (existingId && (await tx.recall.updateMany({ where: { id: existingId, organizationId, branchId }, data })).count) return existingId;
-    return (await tx.recall.create({ data })).id;
-  }
-
   if (operation.entityType === "STOCK_ITEM") {
     const existingId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", operation.clientId);
     if (operation.action === "DELETE") {
-      if (existingId) await tx.stockItem.deleteMany({ where: { id: existingId, organizationId, branchId } });
+      if (!canManageTrash(session.role)) throw new Error("Stok çöp kutusunu yönetme yetkiniz yok.");
+      if (existingId) {
+        const item = await tx.stockItem.findFirst({
+          where: { id: existingId, organizationId, branchId },
+          select: { id: true, name: true, deletedAt: true }
+        });
+        if (!item) throw new Error("Stok ürünü bu şubede bulunamadı.");
+        if (!item.deletedAt) {
+          const now = new Date();
+          const purgeAt = stockTrashPurgeAt(now);
+          const deleted = await tx.stockItem.updateMany({
+            where: { id: item.id, organizationId, branchId, deletedAt: null },
+            data: { deletedAt: now, purgeAt, deletedById: session.userId, restoredAt: null, restoredById: null }
+          });
+          if (deleted.count !== 1) throw new Error("Stok ürünü aynı anda değiştirildi. Lütfen yeniden deneyin.");
+          await tx.auditLog.create({
+            data: {
+              userId: session.userId,
+              action: "SOFT_DELETE_STOCK_ITEM",
+              module: "stocks",
+              entityId: item.id,
+              metadata: { name: item.name, purgeAt: purgeAt.toISOString(), deviceId, operationId: operation.operationId },
+              organizationId,
+              branchId
+            }
+          });
+        }
+      }
       return existingId;
     }
     const payload = stockItemPayload.parse(operation.payload);
     if (existingId) {
-      const updated = await tx.stockItem.updateMany({ where: { id: existingId, organizationId, branchId }, data: { name: payload.name, category: payload.category, minimumQuantity: payload.minimumQuantity, unit: payload.unit, supplier: payload.supplier || null, purchasePrice: payload.purchasePrice } });
-      if (updated.count) return existingId;
+      const existing = await tx.stockItem.findFirst({
+        where: { id: existingId, organizationId, branchId },
+        select: { id: true, name: true, deletedAt: true, purgeAt: true }
+      });
+      if (existing) {
+        const now = new Date();
+        const restore = Boolean(existing.deletedAt && existing.purgeAt && existing.purgeAt > now && operation.action === "CREATE");
+        if (restore && !canManageTrash(session.role)) throw new Error("Stok çöp kutusunu yönetme yetkiniz yok.");
+        if (existing.deletedAt && !restore) throw new Error("Stok ürünü çöp kutusunda. Önce geri yükleyin.");
+        const updated = await tx.stockItem.updateMany({
+          where: { id: existing.id, organizationId, branchId, ...(restore ? { deletedAt: { not: null }, purgeAt: { gt: now } } : { deletedAt: null }) },
+          data: {
+            name: payload.name, category: payload.category, minimumQuantity: payload.minimumQuantity, unit: payload.unit,
+            supplier: payload.supplier || null, purchasePrice: payload.purchasePrice,
+            ...(restore ? { deletedAt: null, purgeAt: null, restoredAt: now, restoredById: session.userId } : {})
+          }
+        });
+        if (updated.count !== 1) throw new Error("Stok ürünü aynı anda değiştirildi. Lütfen yeniden deneyin.");
+        if (restore) {
+          await tx.auditLog.create({
+            data: {
+              userId: session.userId,
+              action: "RESTORE_STOCK_ITEM",
+              module: "stocks",
+              entityId: existing.id,
+              metadata: { name: payload.name || existing.name, deviceId, operationId: operation.operationId },
+              organizationId,
+              branchId
+            }
+          });
+        }
+        return existingId;
+      }
     }
     const item = await tx.stockItem.create({ data: { name: payload.name, category: payload.category, currentQuantity: payload.currentQuantity, minimumQuantity: payload.minimumQuantity, unit: payload.unit, supplier: payload.supplier || null, purchasePrice: payload.purchasePrice, organizationId, branchId } });
     if (payload.currentQuantity > 0) await tx.stockMovement.create({ data: { itemId: item.id, type: StockMovementType.IN, quantity: payload.currentQuantity, note: "Android açılış stoku", organizationId, branchId } });
@@ -481,7 +500,7 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     const payload = stockOfferPayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
-    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId }, select: { branchId: true } });
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
     if (!item) throw new Error("Stok ürünü bulunamadı.");
     await tx.stockOffer.deleteMany({ where: { itemId, organizationId, productUrl: payload.productUrl } });
     const offer = await tx.stockOffer.create({ data: { itemId, seller: payload.seller, unitPrice: payload.unitPrice, shippingPrice: payload.shippingPrice, productUrl: payload.productUrl, inStock: payload.inStock, checkedAt: new Date(), organizationId, branchId: item.branchId } });
@@ -497,7 +516,7 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     const payload = stockRecipePayload.parse(operation.payload);
     const itemId = await mappedEntityId(tx, organizationId, deviceId, "STOCK_ITEM", payload.itemId);
     if (!itemId) throw new Error("Önce bağlı stok ürünü eşitlenmelidir.");
-    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId }, select: { branchId: true } });
+    const item = await tx.stockItem.findFirst({ where: { id: itemId, organizationId, branchId, deletedAt: null }, select: { branchId: true } });
     if (!item) throw new Error("Stok ürünü bulunamadı.");
     const data = { treatmentKey: normalizeTreatmentKey(payload.treatmentType), treatmentType: payload.treatmentType, itemId, quantity: payload.quantity, organizationId, branchId: item.branchId };
     if (existingId) {
@@ -508,6 +527,7 @@ async function applyOperation(tx: Prisma.TransactionClient, session: AuthSession
     return recipe.id;
   }
 
+  if (operation.entityType !== "PAYMENT") throw new Error("Desteklenmeyen mobil kayıt türü.");
   const existingId = await mappedEntityId(tx, organizationId, deviceId, "PAYMENT", operation.clientId);
   if (operation.action === "DELETE") {
     if (existingId) await tx.payment.updateMany({ where: { id: existingId, organizationId, branchId }, data: { status: PaymentStatus.CANCELLED } });
@@ -591,14 +611,15 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
   const organizationId = session.organizationId;
   const branch = session.branchId ? { branchId: session.branchId } : {};
   const includePatients = canAccess(session.role, "patients");
-  const [patients, appointments, payments, plans, stocks, recipes, doctors, organization, treatments, staff, consents, surveys, surveyResponses, communication, recalls] = await Promise.all([
+  const now = new Date();
+  const [patients, appointments, payments, plans, stocks, deletedStocks, recipes, doctors, organization, treatments, staff, consents, communication] = await Promise.all([
     includePatients ? prisma.patient.findMany({
       where: { organizationId, deletedAt: null, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       select: { id: true, firstName: true, lastName: true, phone: true, email: true, tag: true, notes: true, nationalId: true, birthDate: true, gender: true, address: true, allergies: true, chronicDiseases: true, medications: true, updatedAt: true }
     }) : [],
     canAccess(session.role, "appointments") ? prisma.appointment.findMany({
       where: { organizationId, ...branch, patient: { deletedAt: null } }, orderBy: { updatedAt: "desc" }, take: 2000,
-      include: { patient: { select: { id: true } }, doctor: { select: { name: true } }, stockMovements: { select: { itemId: true, type: true, quantity: true } } }
+      include: { patient: { select: { id: true } }, doctor: { select: { name: true } }, stockMovements: { where: { item: { deletedAt: null } }, select: { itemId: true, type: true, quantity: true } } }
     }) : [],
     canAccess(session.role, "finance") ? prisma.payment.findMany({
       where: { organizationId, ...branch, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }, orderBy: { updatedAt: "desc" }, take: 2000,
@@ -609,19 +630,22 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       include: { patient: { select: { id: true, firstName: true, lastName: true } }, doctor: { select: { name: true } }, branch: { select: { name: true } } }
     }) : [],
     canAccess(session.role, "stocks") ? prisma.stockItem.findMany({
-      where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
+      where: { organizationId, deletedAt: null, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000,
       include: { offers: { orderBy: { checkedAt: "desc" }, take: 10 } }
     }) : [],
-    canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "stocks") && canManageTrash(session.role) ? prisma.stockItem.findMany({
+      where: { organizationId, deletedAt: { not: null }, purgeAt: { gt: now }, ...branch },
+      orderBy: [{ deletedAt: "desc" }, { id: "desc" }],
+      take: 2000,
+      include: { branch: { select: { name: true } } }
+    }) : [],
+    canAccess(session.role, "stocks") ? prisma.stockRecipe.findMany({ where: { organizationId, ...branch, item: { deletedAt: null } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
     canAccess(session.role, "staff") ? prisma.user.findMany({ where: { organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true, ...(session.branchId ? { OR: [{ branchId: session.branchId }, { branchId: null }] } : {}) }, orderBy: { name: "asc" } }) : [],
     prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, clinicSettings: true } }),
-    canAccess(session.role, "treatments") ? prisma.treatment.findMany({ where: { organizationId, ...branch, patient: { deletedAt: null } }, include: { patient: { select: { id: true, firstName: true, lastName: true } }, doctor: { select: { name: true } }, branch: { select: { name: true } }, stockMovements: { select: { itemId: true, type: true, quantity: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
+    canAccess(session.role, "treatments") ? prisma.treatment.findMany({ where: { organizationId, ...branch, patient: { deletedAt: null } }, include: { patient: { select: { id: true, firstName: true, lastName: true } }, doctor: { select: { name: true } }, branch: { select: { name: true } }, stockMovements: { where: { item: { deletedAt: null } }, select: { itemId: true, type: true, quantity: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
     canAccess(session.role, "staff") ? prisma.staff.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
     canAccess(session.role, "consents") ? prisma.consent.findMany({ where: { organizationId, ...branch, patient: { deletedAt: null } }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
-    canAccess(session.role, "surveys") ? prisma.survey.findMany({ where: { organizationId, ...branch }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
-    canAccess(session.role, "surveys") ? prisma.surveyResponse.findMany({ where: { organizationId, ...branch, patient: { deletedAt: null } }, include: { patient: { select: { id: true, firstName: true, lastName: true } }, survey: { select: { id: true, title: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
-    canAccess(session.role, "communication") ? prisma.communicationLog.findMany({ where: { organizationId, ...branch, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : [],
-    canAccess(session.role, "recalls") ? prisma.recall.findMany({ where: { organizationId, ...branch, patient: { deletedAt: null } }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : []
+    canAccess(session.role, "communication") ? prisma.communicationLog.findMany({ where: { organizationId, ...branch, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }, include: { patient: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { updatedAt: "desc" }, take: 2000 }) : []
   ]);
   const snapshotMappings = [
     ...patients.map((item) => ["PATIENT", item.id]),
@@ -629,16 +653,14 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
     ...payments.map((item) => ["PAYMENT", item.id]),
     ...plans.map((item) => ["TREATMENT_PLAN", item.id]),
     ...stocks.map((item) => ["STOCK_ITEM", item.id]),
+    ...deletedStocks.map((item) => ["STOCK_ITEM", item.id]),
     ...stocks.flatMap((item) => item.offers.map((offer) => ["STOCK_OFFER", offer.id])),
     ...recipes.map((item) => ["STOCK_RECIPE", item.id]),
     ...doctors.map((item) => ["DOCTOR", item.id]),
     ...treatments.map((item) => ["TREATMENT", item.id]),
     ...staff.map((item) => ["STAFF", item.id]),
     ...consents.map((item) => ["CONSENT", item.id]),
-    ...surveys.map((item) => ["SURVEY", item.id]),
-    ...surveyResponses.map((item) => ["SURVEY_RESPONSE", item.id]),
-    ...communication.map((item) => ["COMMUNICATION", item.id]),
-    ...recalls.map((item) => ["RECALL", item.id])
+    ...communication.map((item) => ["COMMUNICATION", item.id])
   ].map(([entityType, serverEntityId]) => {
     const operationId = `snapshot:${entityType}:${serverEntityId}`;
     return {
@@ -651,7 +673,10 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
 
   return {
     generatedAt: new Date().toISOString(),
-    permissions: Object.fromEntries((["patients", "appointments", "finance", "treatments", "stocks", "staff", "consents", "surveys", "communication", "recalls", "reports", "settings"] as const).map((module) => [module, canAccess(session.role, module)])),
+    permissions: {
+      ...Object.fromEntries((["patients", "appointments", "finance", "treatments", "stocks", "staff", "consents", "communication", "reports", "settings"] as const).map((module) => [module, canAccess(session.role, module)])),
+      trash: canManageTrash(session.role)
+    },
     patients: patients.map((patient, index) => ({
       id: localSnapshotId("PATIENT", patient.id), serverId: patient.id, name: `${patient.firstName} ${patient.lastName}`.trim(), phone: patient.phone,
       email: patient.email ?? "", tag: patient.tag, lastVisit: "Sunucuyla eşitlendi", treatment: "", note: patient.notes ?? "", color: index % 5,
@@ -690,6 +715,12 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       minimum: item.minimumQuantity, unit: item.unit, supplier: item.supplier ?? "", purchasePrice: Number(item.purchasePrice), movements: [],
       offers: item.offers.map((offer) => ({ id: localSnapshotId("STOCK_OFFER", offer.id), serverId: offer.id, seller: offer.seller, unitPrice: Number(offer.unitPrice), shippingPrice: Number(offer.shippingPrice), productUrl: offer.productUrl, inStock: offer.inStock, checkedAt: offer.checkedAt.toISOString(), source: "server" }))
     })),
+    deletedStockItems: deletedStocks.map((item) => ({
+      id: localSnapshotId("STOCK_ITEM", item.id), serverId: item.id, name: item.name, category: item.category,
+      amount: item.currentQuantity, minimum: item.minimumQuantity, unit: item.unit, supplier: item.supplier ?? "",
+      purchasePrice: Number(item.purchasePrice), branch: item.branch.name,
+      deletedAt: item.deletedAt?.toISOString() ?? "", purgeAt: item.purgeAt?.toISOString() ?? ""
+    })),
     stockRecipes: recipes.map((recipe) => ({
       id: localSnapshotId("STOCK_RECIPE", recipe.id), serverId: recipe.id, treatmentType: recipe.treatmentType,
       itemId: localSnapshotId("STOCK_ITEM", recipe.itemId), quantity: recipe.quantity
@@ -705,10 +736,7 @@ export async function getMobileSnapshot(session: AuthSession, deviceId: string) 
       }, {})).filter((usage) => usage.quantity > 0) })),
     staff: staff.map((item) => ({ id: localSnapshotId("STAFF", item.id), serverId: item.id, fullName: item.fullName, roleLabel: item.roleLabel, phone: item.phone ?? "", email: item.email ?? "", workingHours: item.workingHours ?? "", compensation: item.compensation ?? "", active: item.active })),
     consents: consents.map((item) => ({ id: localSnapshotId("CONSENT", item.id), serverId: item.id, patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), templateName: item.templateName, content: item.content, status: item.status, date: item.timestamp.toISOString(), signedAt: item.signedAt?.toISOString() ?? "" })),
-    surveys: surveys.map((item) => ({ id: localSnapshotId("SURVEY", item.id), serverId: item.id, title: item.title, description: item.description ?? "", active: item.active })),
-    surveyResponses: surveyResponses.map((item) => ({ id: localSnapshotId("SURVEY_RESPONSE", item.id), serverId: item.id, surveyId: localSnapshotId("SURVEY", item.surveyId), patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), survey: item.survey.title, score: item.score, comment: item.comment ?? "", date: item.submittedAt?.toISOString() ?? item.createdAt.toISOString() })),
     communication: communication.map((item) => ({ id: localSnapshotId("COMMUNICATION", item.id), serverId: item.id, patientId: item.patientId ? localSnapshotId("PATIENT", item.patientId) : null, patient: item.patient ? `${item.patient.firstName} ${item.patient.lastName}`.trim() : item.contactName ?? "Genel", channel: item.channel, direction: item.direction, subject: item.subject ?? "", source: item.source ?? "", contactValue: item.contactValue ?? "", message: item.message, status: item.status, date: item.createdAt.toISOString() })),
-    recalls: recalls.map((item) => ({ id: localSnapshotId("RECALL", item.id), serverId: item.id, patientId: localSnapshotId("PATIENT", item.patientId), patient: `${item.patient.firstName} ${item.patient.lastName}`.trim(), reason: item.reason, dueDate: istanbulParts(item.dueDate).date, status: item.status, notes: item.notes ?? "" })),
     clinicConfig: { clinicName: organization?.name ?? "ClinicNova", chairs: Array.isArray((organization?.clinicSettings as { chairs?: unknown[] } | null)?.chairs) ? (organization?.clinicSettings as { chairs: unknown[] }).chairs.filter((item): item is string => typeof item === "string") : [] }
   };
 }

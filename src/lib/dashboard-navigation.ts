@@ -1,14 +1,11 @@
 import {
   BarChart3,
-  BellRing,
   Boxes,
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
   CreditCard,
-  HeartPulse,
   LayoutDashboard,
-  MessageSquare,
   Settings,
   Stethoscope,
   Users,
@@ -37,9 +34,6 @@ export const dashboardNavigation: DashboardNavigationItem[] = [
   { href: "/dashboard/stocks", key: "stocks", permission: "stocks", icon: Boxes },
   { href: "/dashboard/staff", key: "staff", permission: "staff", icon: UserRoundCog },
   { href: "/dashboard/consents", key: "consents", permission: "consents", icon: ClipboardCheck },
-  { href: "/dashboard/surveys", key: "surveys", permission: "surveys", icon: HeartPulse },
-  { href: "/dashboard/communication", key: "communication", permission: "communication", icon: MessageSquare },
-  { href: "/dashboard/recalls", key: "recalls", permission: "recalls", icon: BellRing },
   { href: "/dashboard/reports", key: "reports", permission: "reports", icon: BarChart3 },
   { href: "/dashboard/settings", key: "settings", permission: "settings", icon: Settings }
 ];

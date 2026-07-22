@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { getCurrentSession } from "@/lib/auth";
+import { canManageTrash, getCurrentSession } from "@/lib/auth";
 import { canAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/services/auditLogService";
 import { getMobileSnapshot, syncMobileOperations } from "@/lib/services/mobileSyncService";
@@ -31,8 +31,21 @@ export async function POST(request: Request) {
       if (entityType === "RECALL") return "recalls";
       return "settings";
     };
-    const allowed = batch.operations.filter((item) => item.entityType !== "LEAD" && canAccess(session.role, moduleForEntity(item.entityType)));
-    const denied = batch.operations.filter((item) => item.entityType === "LEAD" || !canAccess(session.role, moduleForEntity(item.entityType))).map((item) => ({ operationId: item.operationId, status: "failed" as const, error: item.entityType === "LEAD" ? "Sağlık turizmi modülü kaldırıldı." : "Bu modülü eşitleme yetkiniz yok." }));
+    const permissionError = (item: (typeof batch.operations)[number]) => {
+      if (item.entityType === "LEAD") return "Sağlık turizmi modülü kaldırıldı.";
+      if (["SURVEY", "SURVEY_RESPONSE"].includes(item.entityType)) return "Anketler modülü kaldırıldı.";
+      if (item.entityType === "RECALL") return "Recall modülü kaldırıldı.";
+      if (!canAccess(session.role, moduleForEntity(item.entityType))) return "Bu modülü eşitleme yetkiniz yok.";
+      if (item.entityType === "STOCK_ITEM" && item.action === "DELETE" && !canManageTrash(session.role)) {
+        return "Stok çöp kutusunu yönetme yetkiniz yok.";
+      }
+      return null;
+    };
+    const authorized = batch.operations.map((item) => ({ item, error: permissionError(item) }));
+    const allowed = authorized.filter(({ error }) => !error).map(({ item }) => item);
+    const denied = authorized.flatMap(({ item, error }) => error
+      ? [{ operationId: item.operationId, status: "failed" as const, error }]
+      : []);
     const results = [...await syncMobileOperations(session, { ...batch, operations: allowed }), ...denied];
     const synced = results.filter((item) => item.status === "synced").length;
     const snapshot = await getMobileSnapshot(session, batch.deviceId);

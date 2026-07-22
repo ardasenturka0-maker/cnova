@@ -11,6 +11,7 @@ playwright-report
 test-results
 mobile/build
 mobile/.cache
+ios/build
 ios/build-device
 desktop/build
 desktop/build-resources

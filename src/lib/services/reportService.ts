@@ -1,28 +1,38 @@
-import { AppointmentStatus, CommunicationChannel, CommunicationStatus, PatientTag, PaymentStatus, PaymentType, RecallStatus, Role } from "@prisma/client";
+import { AppointmentStatus, CommunicationChannel, CommunicationStatus, PatientTag, PaymentStatus, PaymentType, RecallStatus, Role, TreatmentStatus } from "@prisma/client";
 import { addClinicDateKey, clinicDateKey, clinicDayRange, clinicStartOfDay, clinicTimeZone, shiftClinicMonth } from "@/lib/clinic-time";
 import { prisma } from "@/lib/prisma";
+import { canAccess, type ModuleKey } from "@/lib/rbac";
 import { toNumber } from "@/lib/utils";
 
 function monthKey(date: Date) {
   return new Intl.DateTimeFormat("tr-TR", { month: "short", timeZone: clinicTimeZone }).format(date);
 }
 
-export async function getDashboardMetrics(organizationId: string) {
+type DashboardMetricsOptions = {
+  branchId?: string | null;
+  role?: Role;
+};
+
+export async function getDashboardMetrics(organizationId: string, options: DashboardMetricsOptions = {}) {
   const now = new Date();
   const todayKey = clinicDateKey(now);
   const { from: todayStart, to: tomorrowStart } = clinicDayRange(todayKey);
   const weekEnd = clinicStartOfDay(addClinicDateKey(todayKey, 7));
   const currentMonthKey = `${todayKey.slice(0, 7)}-01`;
   const monthStart = clinicStartOfDay(currentMonthKey);
+  const nextMonthStart = clinicStartOfDay(shiftClinicMonth(currentMonthKey, 1));
   const sixMonthsAgo = clinicStartOfDay(shiftClinicMonth(currentMonthKey, -5));
+  const branchScope = options.branchId ? { branchId: options.branchId } : {};
+  const allowed = (module: ModuleKey) => !options.role || canAccess(options.role, module);
 
   const [
     todayAppointments,
     weeklyAppointments,
     monthlyPayments,
     pendingPayments,
+    pendingPaymentCount,
     overduePaymentCount,
-    activePatientCount,
+    activePatients,
     newPatientCount,
     lowStocks,
     missedCalls,
@@ -31,72 +41,94 @@ export async function getDashboardMetrics(organizationId: string) {
     revenuePayments,
     chartAppointments,
     treatments,
-    doctors
+    doctors,
+    inProgressTreatmentCount
   ] = await Promise.all([
     prisma.appointment.findMany({
-      where: { organizationId, startsAt: { gte: todayStart, lt: tomorrowStart }, patient: { deletedAt: null } },
+      where: { organizationId, ...branchScope, startsAt: { gte: todayStart, lt: tomorrowStart }, patient: { deletedAt: null } },
       include: { patient: true, doctor: { select: { name: true } } },
       orderBy: { startsAt: "asc" }
     }),
     prisma.appointment.count({
-      where: { organizationId, startsAt: { gte: todayStart, lt: weekEnd }, patient: { deletedAt: null } }
+      where: { organizationId, ...branchScope, startsAt: { gte: todayStart, lt: weekEnd }, patient: { deletedAt: null } }
     }),
     prisma.payment.findMany({
-      where: { organizationId, type: PaymentType.INCOME, status: PaymentStatus.PAID, paidAt: { gte: monthStart }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }
+      where: { organizationId, ...branchScope, type: PaymentType.INCOME, status: PaymentStatus.PAID, paidAt: { gte: monthStart, lt: nextMonthStart }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }
     }),
     prisma.payment.aggregate({
-      where: { organizationId, type: PaymentType.INCOME, status: PaymentStatus.PENDING, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
+      where: { organizationId, ...branchScope, type: PaymentType.INCOME, status: PaymentStatus.PENDING, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
       _sum: { amount: true }
     }),
     prisma.payment.count({
-      where: { organizationId, type: PaymentType.INCOME, status: PaymentStatus.PENDING, dueDate: { lt: todayStart }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }
+      where: { organizationId, ...branchScope, type: PaymentType.INCOME, status: PaymentStatus.PENDING, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }
     }),
-    prisma.patient.count({ where: { organizationId, deletedAt: null, tag: { in: [PatientTag.ACTIVE, PatientTag.VIP, PatientTag.RISKY] } } }),
-    prisma.patient.count({ where: { organizationId, deletedAt: null, createdAt: { gte: monthStart } } }),
+    prisma.payment.count({
+      where: { organizationId, ...branchScope, type: PaymentType.INCOME, status: PaymentStatus.PENDING, dueDate: { lt: todayStart }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] }
+    }),
+    prisma.patient.findMany({
+      where: { organizationId, ...branchScope, deletedAt: null, tag: { in: [PatientTag.ACTIVE, PatientTag.VIP, PatientTag.RISKY] } },
+      select: { tag: true }
+    }),
+    prisma.patient.count({ where: { organizationId, ...branchScope, deletedAt: null, createdAt: { gte: monthStart, lt: nextMonthStart } } }),
     prisma.stockItem.findMany({
-      where: { organizationId },
+      where: { organizationId, ...branchScope, deletedAt: null },
       include: { branch: { select: { name: true } } },
       orderBy: { currentQuantity: "asc" },
       take: 8
     }),
     prisma.communicationLog.findMany({
-      where: { organizationId, channel: CommunicationChannel.PHONE, status: CommunicationStatus.FAILED, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
+      where: { organizationId, ...branchScope, channel: CommunicationChannel.PHONE, status: CommunicationStatus.FAILED, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
       include: { patient: true },
       orderBy: { createdAt: "desc" },
       take: 6
     }),
     prisma.surveyResponse.aggregate({
-      where: { organizationId, patient: { deletedAt: null } },
+      where: { organizationId, ...branchScope, patient: { deletedAt: null } },
       _avg: { score: true }
     }),
     prisma.recall.findMany({
-      where: { organizationId, status: { in: [RecallStatus.OPEN, RecallStatus.CONTACTED] }, patient: { deletedAt: null } },
+      where: { organizationId, ...branchScope, status: { in: [RecallStatus.OPEN, RecallStatus.CONTACTED] }, patient: { deletedAt: null } },
       include: { patient: true },
       orderBy: { dueDate: "asc" },
       take: 8
     }),
     prisma.payment.findMany({
-      where: { organizationId, type: PaymentType.INCOME, status: PaymentStatus.PAID, paidAt: { gte: sixMonthsAgo }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
+      where: { organizationId, ...branchScope, type: PaymentType.INCOME, status: PaymentStatus.PAID, paidAt: { gte: sixMonthsAgo, lt: nextMonthStart }, OR: [{ patientId: null }, { patient: { deletedAt: null } }] },
       orderBy: { paidAt: "asc" }
     }),
     prisma.appointment.findMany({
-      where: { organizationId, startsAt: { gte: todayStart, lt: weekEnd }, patient: { deletedAt: null } },
+      where: { organizationId, ...branchScope, startsAt: { gte: todayStart, lt: weekEnd }, patient: { deletedAt: null } },
       orderBy: { startsAt: "asc" }
     }),
-    prisma.treatment.findMany({ where: { organizationId, patient: { deletedAt: null } }, include: { doctor: { select: { id: true, name: true } } } }),
+    prisma.treatment.findMany({ where: { organizationId, ...branchScope, patient: { deletedAt: null } }, include: { doctor: { select: { id: true, name: true } } } }),
     prisma.user.findMany({
-      where: { organizationId, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true },
+      where: { organizationId, ...branchScope, role: { in: [Role.DOCTOR, Role.CLINIC_OWNER] }, active: true },
       include: { _count: { select: {
-        doctorAppointments: { where: { patient: { deletedAt: null } } },
-        doctorTreatments: { where: { patient: { deletedAt: null } } }
+        doctorAppointments: { where: { ...branchScope, patient: { deletedAt: null } } },
+        doctorTreatments: { where: { ...branchScope, patient: { deletedAt: null } } }
       } } },
       orderBy: { name: "asc" }
+    }),
+    prisma.treatment.count({
+      where: { organizationId, ...branchScope, status: TreatmentStatus.STARTED, patient: { deletedAt: null } }
     })
   ]);
 
   const monthlyRevenue = monthlyPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0);
   const pendingAmount = toNumber(pendingPayments._sum.amount);
   const visibleLowStocks = lowStocks.filter((item) => item.currentQuantity <= item.minimumQuantity);
+  const activePatientBreakdown = activePatients.reduce<Record<string, number>>((counts, patient) => {
+    counts[patient.tag] = (counts[patient.tag] ?? 0) + 1;
+    return counts;
+  }, {});
+  const monthlyRevenueByMethod = monthlyPayments.reduce<Record<string, number>>((totals, payment) => {
+    totals[payment.method] = (totals[payment.method] ?? 0) + toNumber(payment.amount);
+    return totals;
+  }, {});
+  const todayAppointmentBreakdown = todayAppointments.reduce<Record<string, number>>((counts, appointment) => {
+    counts[appointment.status] = (counts[appointment.status] ?? 0) + 1;
+    return counts;
+  }, {});
 
   const revenueByMonth = Array.from({ length: 6 }).map((_, index) => {
     const targetMonthKey = shiftClinicMonth(currentMonthKey, -(5 - index));
@@ -139,12 +171,12 @@ export async function getDashboardMetrics(organizationId: string) {
   }));
 
   const smartAlerts = [
-    ...visibleLowStocks.slice(0, 3).map((item) => ({
+    ...(allowed("stocks") ? visibleLowStocks.slice(0, 3).map((item) => ({
       title: "Stok azaldi",
       description: `${item.name} ${item.currentQuantity} ${item.unit} seviyesinde.`,
       severity: "high" as const
-    })),
-    ...(pendingAmount > 0
+    })) : []),
+    ...(allowed("finance") && pendingAmount > 0
       ? [
           {
             title: "Bekleyen tahsilat",
@@ -153,7 +185,7 @@ export async function getDashboardMetrics(organizationId: string) {
           }
         ]
       : []),
-    ...(satisfaction._avg.score && satisfaction._avg.score < 4
+    ...(allowed("surveys") && satisfaction._avg.score && satisfaction._avg.score < 4
       ? [
           {
             title: "Memnuniyet skoru dustu",
@@ -165,21 +197,27 @@ export async function getDashboardMetrics(organizationId: string) {
   ];
 
   return {
-    todayAppointments,
-    weeklyAppointments,
-    monthlyRevenue,
-    pendingAmount,
-    overduePaymentCount,
-    activePatientCount,
-    newPatientCount,
-    lowStocks: visibleLowStocks,
-    missedCalls,
-    satisfactionScore: satisfaction._avg.score ?? 0,
-    recalls,
-    revenueByMonth,
-    appointmentDensity,
-    treatmentDistribution,
-    doctorPerformance,
+    todayAppointments: allowed("appointments") ? todayAppointments : [],
+    weeklyAppointments: allowed("appointments") ? weeklyAppointments : 0,
+    monthlyRevenue: allowed("finance") ? monthlyRevenue : 0,
+    pendingAmount: allowed("finance") ? pendingAmount : 0,
+    pendingPaymentCount: allowed("finance") ? pendingPaymentCount : 0,
+    overduePaymentCount: allowed("finance") ? overduePaymentCount : 0,
+    activePatientCount: allowed("patients") ? activePatients.length : 0,
+    activePatientBreakdown: allowed("patients") ? activePatientBreakdown : {},
+    newPatientCount: allowed("patients") ? newPatientCount : 0,
+    monthlyPaymentCount: allowed("finance") ? monthlyPayments.length : 0,
+    monthlyRevenueByMethod: allowed("finance") ? monthlyRevenueByMethod : {},
+    todayAppointmentBreakdown: allowed("appointments") ? todayAppointmentBreakdown : {},
+    inProgressTreatmentCount: allowed("treatments") ? inProgressTreatmentCount : 0,
+    lowStocks: allowed("stocks") ? visibleLowStocks : [],
+    missedCalls: allowed("communication") ? missedCalls : [],
+    satisfactionScore: allowed("surveys") ? satisfaction._avg.score ?? 0 : 0,
+    recalls: allowed("recalls") ? recalls : [],
+    revenueByMonth: allowed("finance") ? revenueByMonth : [],
+    appointmentDensity: allowed("appointments") ? appointmentDensity : [],
+    treatmentDistribution: allowed("treatments") ? treatmentDistribution : [],
+    doctorPerformance: allowed("reports") ? doctorPerformance : [],
     smartAlerts
   };
 }
@@ -191,7 +229,7 @@ export async function getReports(organizationId: string) {
     prisma.payment.findMany({ where: { organizationId }, include: { branch: true } }),
     prisma.appointment.findMany({ where: { organizationId }, include: { branch: true } }),
     prisma.treatment.findMany({ where: { organizationId }, include: { doctor: true } }),
-    prisma.stockItem.findMany({ where: { organizationId }, include: { branch: true } }),
+    prisma.stockItem.findMany({ where: { organizationId, deletedAt: null }, include: { branch: true } }),
     prisma.surveyResponse.findMany({ where: { organizationId } }),
     prisma.branch.findMany({ where: { organizationId } })
   ]);
